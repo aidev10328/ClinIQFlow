@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Signing out...</title>
+  <style>
+    body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .container { text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <p>Clearing session...</p>
+    <p id="status"></p>
+  </div>
+  <script>
+    const status = document.getElementById('status');
+
+    // Clear all localStorage
+    try {
+      localStorage.clear();
+      status.innerHTML += 'localStorage cleared<br>';
+    } catch (e) {
+      status.innerHTML += 'localStorage error: ' + e.message + '<br>';
+    }
+
+    // Clear all sessionStorage
+    try {
+      sessionStorage.clear();
+      status.innerHTML += 'sessionStorage cleared<br>';
+    } catch (e) {
+      status.innerHTML += 'sessionStorage error: ' + e.message + '<br>';
+    }
+
+    // Clear all cookies
+    try {
+      document.cookie.split(';').forEach(function(c) {
+        document.cookie = c.replace(/^ +/, '').replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
+      });
+      status.innerHTML += 'Cookies cleared<br>';
+    } catch (e) {
+      status.innerHTML += 'Cookies error: ' + e.message + '<br>';
+    }
+
+    // Clear IndexedDB (Supabase stores auth here too)
+    try {
+      indexedDB.databases().then(dbs => {
+        dbs.forEach(db => {
+          indexedDB.deleteDatabase(db.name);
+          status.innerHTML += 'Deleted IndexedDB: ' + db.name + '<br>';
+        });
+      }).catch(() => {});
+    } catch (e) {}
+
+    status.innerHTML += '<br>Redirecting to login...';
+
+    // Redirect after a short delay
+    setTimeout(function() {
+      window.location.href = '/login';
+    }, 1500);
+  </script>
+</body>
+</html>

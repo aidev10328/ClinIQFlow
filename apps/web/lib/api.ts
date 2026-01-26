@@ -1,0 +1,117 @@
+'use client';
+
+import { getSupabaseClient } from './supabase';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+
+/**
+ * Handle special API response codes that require redirects
+ */
+async function handleSpecialResponses(res: Response): Promise<void> {
+  // Only check for 403 and 409 responses
+  if (res.status !== 403 && res.status !== 409) {
+    return;
+  }
+
+  // Clone response to read body without consuming it
+  const clonedRes = res.clone();
+
+  try {
+    const data = await clonedRes.json();
+
+    // Handle AGREEMENT_REQUIRED - redirect to legal accept page
+    if (data.code === 'AGREEMENT_REQUIRED' && typeof window !== 'undefined') {
+      console.log('[apiFetch] Agreement required, redirecting to /legal/accept');
+      // Use replace to avoid adding to history
+      window.location.replace('/legal/accept');
+      // Throw to prevent further processing
+      throw new Error('Redirecting to legal accept page');
+    }
+
+    // Handle HOSPITAL_CONTEXT_REQUIRED - redirect to hospital selector
+    if (data.code === 'HOSPITAL_CONTEXT_REQUIRED' && typeof window !== 'undefined') {
+      console.log('[apiFetch] Hospital context required, redirecting to /select-hospital');
+      const currentPath = window.location.pathname;
+      window.location.replace(`/select-hospital?redirect=${encodeURIComponent(currentPath)}`);
+      throw new Error('Redirecting to hospital selector');
+    }
+  } catch (e: any) {
+    // If it's our redirect error, re-throw
+    if (e.message.includes('Redirecting')) {
+      throw e;
+    }
+    // Otherwise ignore JSON parse errors
+  }
+}
+
+export async function apiFetch(path: string, opts: RequestInit = {}) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(opts.headers as Record<string, string> || {}),
+  };
+
+  // Add Supabase access token if available
+  try {
+    const supabase = getSupabaseClient();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      console.error('[apiFetch] Session error:', sessionError.message);
+    }
+
+    if (session?.access_token) {
+      console.log('[apiFetch] Adding auth token for:', session.user?.email);
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    } else {
+      console.warn('[apiFetch] No session/token available for path:', path);
+    }
+
+    // Add hospital ID header if set
+    if (typeof window !== 'undefined') {
+      const hospitalId = localStorage.getItem('clinqflow_hospital_id');
+      if (hospitalId) {
+        headers['x-hospital-id'] = hospitalId;
+      }
+
+      // Add impersonation header if impersonating
+      const impersonationData = sessionStorage.getItem('clinqflow_impersonation');
+      if (impersonationData) {
+        try {
+          const { impersonatedUser } = JSON.parse(impersonationData);
+          if (impersonatedUser?.id) {
+            headers['x-impersonate-user-id'] = impersonatedUser.id;
+            console.log('[apiFetch] Impersonating user:', impersonatedUser.email);
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+    }
+  } catch (e: any) {
+    console.error('[apiFetch] Error getting session:', e.message);
+  }
+
+  // Add timeout to prevent hanging
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...opts,
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    // Handle special response codes (AGREEMENT_REQUIRED, HOSPITAL_CONTEXT_REQUIRED)
+    await handleSpecialResponses(res);
+
+    return res;
+  } catch (e: any) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      throw new Error('Request timeout');
+    }
+    throw e;
+  }
+}

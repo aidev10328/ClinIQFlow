@@ -1,0 +1,16 @@
+{
+  "name": "Next.js + NestJS TypeScript",
+  "version": "1.0.0",
+  "description": "Full-stack TypeScript template with Next.js frontend, NestJS API, PostgreSQL, and JWT authentication",
+  "tokens": {
+    "ClinQflow": "{{appName}}",
+    "clinqflow": "{{appSlug}}",
+    "Multi-tenant clinic scheduling + patient intake + AI-assisted ops workflow.": "{{description}}"
+  },
+  "defaults": {
+    "appName": "My App",
+    "appSlug": "my-app",
+    "description": "A full-stack application built with Next.js and NestJS"
+  },
+  "conditions": []
+}
