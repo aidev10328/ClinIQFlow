@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { HospitalGuard } from '../../components/hospital/HospitalGuard';
 import { HospitalSidebar } from '../../components/hospital/HospitalSidebar';
 import { useAuth } from '../../components/AuthProvider';
+import { ChatWidget } from '../../components/ChatWidget';
 import { formatTimeInTimezone, formatDateInTimezone, getTimezoneLabel } from '../../lib/timezone';
 
 function getRoleDisplayName(role?: string): string {
@@ -194,6 +195,7 @@ export default function HospitalLayout({
           </HospitalGuard>
         </div>
       </main>
+      <ChatWidget />
     </div>
   );
 }
