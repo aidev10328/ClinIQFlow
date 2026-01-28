@@ -123,20 +123,20 @@ export default function AdminLayout({
   }, []);
 
   return (
-    <AdminGuard>
-      <div className="admin-layout">
-        <AdminSidebar />
-        <main className="admin-content">
-          <AdminHeader onViewAsUser={() => setShowViewAsUserModal(true)} />
-          <div className="admin-page">
+    <div className="admin-layout">
+      <AdminSidebar />
+      <main className="admin-content">
+        <AdminHeader onViewAsUser={() => setShowViewAsUserModal(true)} />
+        <div className="admin-page">
+          <AdminGuard>
             {children}
-          </div>
-        </main>
-      </div>
+          </AdminGuard>
+        </div>
+      </main>
       <ViewAsUserModal
         isOpen={showViewAsUserModal}
         onClose={() => setShowViewAsUserModal(false)}
       />
-    </AdminGuard>
+    </div>
   );
 }

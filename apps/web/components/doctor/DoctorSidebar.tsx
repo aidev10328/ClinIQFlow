@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useAuth } from '../AuthProvider';
+import { useOptimisticPathname } from '../../lib/hooks/useOptimisticPathname';
+import { usePrefetchRoute } from '../../lib/hooks/usePrefetchRoute';
 import { formatTimeInTimezone, formatDateInTimezone, getTimezoneLabel, getCurrencySymbol } from '../../lib/timezone';
 
 interface NavItem {
@@ -61,7 +62,8 @@ const navItems: NavItem[] = [
 ];
 
 export function DoctorSidebar() {
-  const pathname = usePathname();
+  const { pathname, handleNavClick } = useOptimisticPathname();
+  const prefetchRoute = usePrefetchRoute();
   const { currentHospital } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -114,7 +116,8 @@ export function DoctorSidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
+                onMouseEnter={() => prefetchRoute(item.href)}
+                onClick={() => { handleNavClick(item.href); setMobileOpen(false); }}
                 className={`admin-nav-item ${isActive ? 'active' : ''}`}
               >
                 {item.icon}

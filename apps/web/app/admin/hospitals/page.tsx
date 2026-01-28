@@ -189,12 +189,7 @@ export default function AdminHospitalsPage() {
   };
 
   if (loading) {
-    return (
-      <div>
-        <PageHeader title="Hospitals" subtitle="Manage hospitals and their managers" />
-        <LoadingState type="list" rows={5} />
-      </div>
-    );
+    return null;
   }
 
   return (

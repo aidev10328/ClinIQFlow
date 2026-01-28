@@ -18,14 +18,19 @@ export class SupabaseService {
   private readonly supabaseJwtSecret: string;
   private readonly supabaseServiceRoleKey: string;
 
+  private readonly jwtSecret: string;
+  readonly isSupabaseConfigured: boolean;
+
   constructor(private configService: ConfigService) {
     this.supabaseUrl = this.configService.get<string>('SUPABASE_URL') || '';
     this.supabaseAnonKey = this.configService.get<string>('SUPABASE_ANON_KEY') || '';
     this.supabaseJwtSecret = this.configService.get<string>('SUPABASE_JWT_SECRET') || '';
     this.supabaseServiceRoleKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY') || '';
+    this.jwtSecret = this.configService.get<string>('JWT_SECRET') || 'changeme';
+    this.isSupabaseConfigured = !!(this.supabaseUrl && this.supabaseAnonKey);
 
-    if (!this.supabaseUrl || !this.supabaseAnonKey) {
-      this.logger.warn('Supabase URL or Anon Key not configured');
+    if (!this.isSupabaseConfigured) {
+      this.logger.warn('Supabase not configured - using API JWT auth fallback');
     }
   }
 
@@ -85,42 +90,49 @@ export class SupabaseService {
 
       this.logger.debug(`Token algorithm: ${header?.alg}, issuer: ${payload.iss}`);
 
-      // For ES256 tokens (Supabase user tokens), we verify by checking:
-      // 1. The issuer matches our Supabase URL
-      // 2. The token hasn't expired
-      // 3. It has a valid sub (user ID)
-
+      // Check if this is a Supabase token (has matching issuer)
       const expectedIssuer = `${this.supabaseUrl}/auth/v1`;
+      const isSupabaseToken = this.isSupabaseConfigured && payload.iss === expectedIssuer;
 
-      if (payload.iss !== expectedIssuer) {
-        this.logger.debug(`Invalid issuer: ${payload.iss}, expected: ${expectedIssuer}`);
-        return null;
-      }
-
-      // Check expiration
-      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-        this.logger.debug('Token expired');
-        return null;
-      }
-
-      // For HS256 tokens (older format or anon keys), try to verify with secret
-      if (header?.alg === 'HS256' && this.supabaseJwtSecret) {
-        try {
-          jwt.verify(token, this.supabaseJwtSecret, { algorithms: ['HS256'] });
-        } catch (e) {
-          this.logger.debug(`HS256 verification failed: ${e.message}`);
+      if (isSupabaseToken) {
+        // Supabase token validation
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+          this.logger.debug('Token expired');
           return null;
         }
+
+        if (header?.alg === 'HS256' && this.supabaseJwtSecret) {
+          try {
+            jwt.verify(token, this.supabaseJwtSecret, { algorithms: ['HS256'] });
+          } catch (e) {
+            this.logger.debug(`HS256 verification failed: ${e.message}`);
+            return null;
+          }
+        }
+
+        this.logger.debug(`Supabase token accepted for user: ${payload.sub}, email: ${payload.email}`);
+        return {
+          id: payload.sub || '',
+          email: payload.email || '',
+          role: payload.role,
+          aud: payload.aud as string,
+        };
       }
 
-      this.logger.debug(`Token accepted for user: ${payload.sub}, email: ${payload.email}`);
-
-      return {
-        id: payload.sub || '',
-        email: payload.email || '',
-        role: payload.role,
-        aud: payload.aud as string,
-      };
+      // Fallback: try verifying as an API-issued JWT (signed with JWT_SECRET)
+      try {
+        const verified = jwt.verify(token, this.jwtSecret, { algorithms: ['HS256'] }) as jwt.JwtPayload;
+        this.logger.debug(`API JWT accepted for user: ${verified.sub}, email: ${verified.email}`);
+        return {
+          id: verified.sub || '',
+          email: verified.email || '',
+          role: verified.role,
+          aud: verified.aud as string,
+        };
+      } catch (e) {
+        this.logger.debug(`API JWT verification failed: ${e.message}`);
+        return null;
+      }
     } catch (error) {
       this.logger.debug(`Token verification failed: ${error.message}`);
       return null;
@@ -133,6 +145,11 @@ export class SupabaseService {
    */
   async getUserProfile(accessToken: string, userId?: string) {
     this.logger.log(`Fetching user profile for userId: ${userId || 'unknown'}`);
+
+    if (!this.isSupabaseConfigured) {
+      this.logger.debug('Supabase not configured, skipping profile lookup');
+      return null;
+    }
 
     // Try admin client first (bypasses RLS)
     const adminClient = this.getAdminClient();

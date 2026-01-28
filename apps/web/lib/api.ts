@@ -1,8 +1,37 @@
 'use client';
 
-import { getSupabaseClient } from './supabase';
+import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+
+// ── GET response cache ──────────────────────────────────────────────
+// Caches successful GET responses for 2 min so page revisits are instant.
+const CACHE_TTL = 2 * 60 * 1000;
+const responseCache = new Map<string, { body: string; status: number; ts: number }>();
+
+function getCached(key: string): Response | null {
+  const entry = responseCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) {
+    responseCache.delete(key);
+    return null;
+  }
+  return new Response(entry.body, {
+    status: entry.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** Invalidate cache entries whose path starts with the given prefix. */
+export function invalidateApiCache(pathPrefix?: string) {
+  if (!pathPrefix) {
+    responseCache.clear();
+    return;
+  }
+  for (const key of responseCache.keys()) {
+    if (key.startsWith(pathPrefix)) responseCache.delete(key);
+  }
+}
 
 /**
  * Handle special API response codes that require redirects
@@ -45,25 +74,39 @@ async function handleSpecialResponses(res: Response): Promise<void> {
 }
 
 export async function apiFetch(path: string, opts: RequestInit = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const isGet = method === 'GET';
+
+  // Return cached response for GET requests
+  if (isGet) {
+    const cached = getCached(path);
+    if (cached) return cached;
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(opts.headers as Record<string, string> || {}),
   };
 
-  // Add Supabase access token if available
+  // Add access token if available (Supabase or API token)
   try {
-    const supabase = getSupabaseClient();
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    let token: string | undefined;
 
-    if (sessionError) {
-      console.error('[apiFetch] Session error:', sessionError.message);
+    const supabase = getSupabaseClient();
+    if (isSupabaseConfigured && supabase) {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        console.error('[apiFetch] Session error:', sessionError.message);
+      }
+      token = session?.access_token;
+    } else if (typeof window !== 'undefined') {
+      token = localStorage.getItem('clinqflow_api_token') || undefined;
     }
 
-    if (session?.access_token) {
-      console.log('[apiFetch] Adding auth token for:', session.user?.email);
-      headers['Authorization'] = `Bearer ${session.access_token}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     } else {
-      console.warn('[apiFetch] No session/token available for path:', path);
+      console.warn('[apiFetch] No token available for path:', path);
     }
 
     // Add hospital ID header if set
@@ -105,6 +148,21 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
 
     // Handle special response codes (AGREEMENT_REQUIRED, HOSPITAL_CONTEXT_REQUIRED)
     await handleSpecialResponses(res);
+
+    // Cache successful GET responses
+    if (isGet && res.ok) {
+      const cloned = res.clone();
+      cloned.text().then((body) => {
+        responseCache.set(path, { body, status: res.status, ts: Date.now() });
+      });
+    }
+
+    // Mutations invalidate related cache entries
+    if (!isGet) {
+      // Extract the resource prefix (e.g., /v1/patients from /v1/patients/123)
+      const segments = path.split('/').slice(0, 3);
+      invalidateApiCache(segments.join('/'));
+    }
 
     return res;
   } catch (e: any) {

@@ -336,8 +336,7 @@ export class UserEntitlementsDto {
     code: ProductCode;
     name: string;
     hasAccess: boolean;
-    licenseId: string | null;
-    expiresAt: string | null;
+    hasLicense: boolean;
   }[];
 }
 

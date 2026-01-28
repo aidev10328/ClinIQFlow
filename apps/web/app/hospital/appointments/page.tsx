@@ -1,10 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
-import { DoctorAppointments } from '../../../components/hospital/DoctorAppointments';
+
+const DoctorAppointments = dynamic(
+  () => import('../../../components/hospital/DoctorAppointments').then((m) => m.DoctorAppointments),
+  { loading: () => null }
+);
 
 // Role-aware appointments page
 
@@ -268,15 +273,12 @@ export default function AppointmentsPage() {
   }, []);
 
   useEffect(() => {
-    fetchDoctors();
-    fetchPatients();
+    Promise.all([fetchDoctors(), fetchPatients()]);
   }, []);
 
   useEffect(() => {
     if (selectedDoctor) {
-      fetchCalendar();
-      fetchSlots();
-      fetchDoctorDetails(selectedDoctor.id);
+      Promise.all([fetchCalendar(), fetchSlots(), fetchDoctorDetails(selectedDoctor.id)]);
     }
   }, [selectedDoctor, calendarMonth, selectedDate, fetchDoctorDetails]);
 
@@ -480,14 +482,7 @@ export default function AppointmentsPage() {
   });
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading appointments...</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   if (doctors.length === 0) {

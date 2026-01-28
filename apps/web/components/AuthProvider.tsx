@@ -1,10 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { useRouter, usePathname } from 'next/navigation';
-import { getSupabaseClient } from '../lib/supabase';
-// apiFetch not needed here - we fetch profile directly with token
+import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
 
 export type Hospital = {
   id: string;
@@ -31,8 +30,7 @@ export type ProductEntitlement = {
   code: string;
   name: string;
   hasAccess: boolean;
-  licenseId: string | null;
-  expiresAt: string | null;
+  hasLicense: boolean;
 };
 
 export type UserEntitlements = {
@@ -62,15 +60,49 @@ type AuthContextShape = {
 
 const AuthContext = createContext<AuthContextShape | undefined>(undefined);
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const AUTH_CACHE_KEY = 'clinqflow_auth_cache';
+
+function loadAuthCache(): { user: User; profile: UserProfile; hospitals: Hospital[] } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = localStorage.getItem(AUTH_CACHE_KEY);
+    if (!cached) return null;
+    const parsed = JSON.parse(cached);
+    if (parsed?.user && parsed?.profile) return parsed;
+  } catch {}
+  return null;
+}
+
+function saveAuthCache(user: User | null, profile: UserProfile | null, hospitals: Hospital[]) {
+  if (typeof window === 'undefined' || !user || !profile) return;
+  try {
+    localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ user, profile, hospitals }));
+  } catch {}
+}
+
+function clearAuthCache() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(AUTH_CACHE_KEY);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Hydrate from cache for instant shell rendering
+  const cached = typeof window !== 'undefined' ? loadAuthCache() : null;
+
   const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [currentHospitalId, setCurrentHospitalIdState] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(cached?.user || null);
+  const [profile, setProfile] = useState<UserProfile | null>(cached?.profile || null);
+  const [hospitals, setHospitals] = useState<Hospital[]>(cached?.hospitals || []);
+  const [currentHospitalId, setCurrentHospitalIdState] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('clinqflow_hospital_id');
+  });
   const [entitlements, setEntitlements] = useState<UserEntitlements | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached);
   const [legalStatus, setLegalStatus] = useState<LegalStatus>('unknown');
+  // For API-based auth (non-Supabase mode)
+  const [apiToken, setApiToken] = useState<string | null>(null);
 
   const supabase = getSupabaseClient();
 
@@ -81,26 +113,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Helper to check product access
   function canAccessProduct(productCode: string): boolean {
-    // Super admins have access to everything
     if (profile?.isSuperAdmin) return true;
-    // Check entitlements
     if (!entitlements) return false;
     const product = entitlements.products.find((p) => p.code === productCode);
     return product?.hasAccess || false;
   }
 
+  // Get the current access token
+  function getAccessToken(): string | null {
+    if (isSupabaseConfigured) {
+      return session?.access_token || null;
+    }
+    return apiToken;
+  }
+
   // Fetch user profile and hospitals from API with timeout
-  // Takes optional accessToken to avoid race conditions with getSession()
   async function fetchProfile(accessToken?: string) {
     try {
       console.log('[AuthProvider] Fetching profile...');
 
-      // If no token provided, try to get it from the session
       let token = accessToken;
-      if (!token) {
+      if (!token && isSupabaseConfigured && supabase) {
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         token = currentSession?.access_token;
         console.log('[AuthProvider] Got token from getSession:', !!token);
+      } else if (!token) {
+        token = apiToken || undefined;
       }
 
       if (!token) {
@@ -110,7 +148,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -163,39 +200,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Check for pending legal requirements when hospital is selected
   useEffect(() => {
-    // Skip if still loading auth
-    if (loading || !session?.access_token) {
+    const token = getAccessToken();
+    if (loading || !token) {
       setLegalStatus('unknown');
       return;
     }
 
-    // Super admins don't have legal requirements - check BEFORE hospital check
     if (profile?.isSuperAdmin) {
       setLegalStatus('complete');
       return;
     }
 
-    // Regular users need a hospital selected
     if (!currentHospitalId) {
       setLegalStatus('unknown');
       return;
     }
 
-    // Already on legal page - don't redirect in a loop
     if (pathname?.startsWith('/legal')) {
       return;
     }
 
     async function checkLegalRequirements() {
-      if (!currentHospitalId) return; // TypeScript guard
+      if (!currentHospitalId) return;
+      const currentToken = getAccessToken();
 
       setLegalStatus('checking');
 
       try {
-        const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
         const res = await fetch(`${API_BASE}/v1/legal/requirements?hospitalId=${currentHospitalId}`, {
           headers: {
-            'Authorization': `Bearer ${session?.access_token}`,
+            'Authorization': `Bearer ${currentToken}`,
             'Content-Type': 'application/json',
             'x-hospital-id': currentHospitalId,
           },
@@ -203,7 +237,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (res.ok) {
           const requirements = await res.json();
-          // Check if any requirements are pending
           const hasPending = requirements.some((r: any) => r.status === 'PENDING');
           if (hasPending) {
             console.log('[AuthProvider] User has pending legal requirements, redirecting...');
@@ -213,176 +246,179 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setLegalStatus('complete');
           }
         } else {
-          // If we can't check, assume complete to avoid blocking
           setLegalStatus('complete');
         }
       } catch (e: any) {
         console.error('[AuthProvider] Error checking legal requirements:', e.message);
-        // On error, assume complete to avoid blocking
         setLegalStatus('complete');
       }
     }
 
     checkLegalRequirements();
-  }, [currentHospitalId, session?.access_token, loading, pathname, profile?.isSuperAdmin, router]);
+  }, [currentHospitalId, session?.access_token, apiToken, loading, pathname, profile?.isSuperAdmin, router]);
 
   // Initialize auth state
   useEffect(() => {
     let mounted = true;
     let subscription: { unsubscribe: () => void } | null = null;
 
-    async function initAuth() {
-      try {
-        console.log('[AuthProvider] Initializing auth...');
-
-        // Get initial session with timeout
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Session fetch timeout')), 10000);
-        });
-
-        const sessionPromise = supabase.auth.getSession();
-
-        let initialSession = null;
-        let error = null;
-
+    if (isSupabaseConfigured && supabase) {
+      // --- Supabase auth mode ---
+      const initSupabaseAuth = async () => {
         try {
-          const result = await Promise.race([sessionPromise, timeoutPromise]);
-          initialSession = result.data?.session;
-          error = result.error;
-        } catch (timeoutErr: any) {
-          // Handle AbortError gracefully - this happens during hot reload
-          if (timeoutErr?.name === 'AbortError' || timeoutErr?.message?.includes('aborted')) {
-            console.warn('[AuthProvider] Session fetch aborted');
-            return; // Exit early, will retry on next mount
+          console.log('[AuthProvider] Initializing Supabase auth...');
+
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Session fetch timeout')), 10000);
+          });
+
+          const sessionPromise = supabase!.auth.getSession();
+
+          let initialSession = null;
+          let error = null;
+
+          try {
+            const result = await Promise.race([sessionPromise, timeoutPromise]);
+            initialSession = result.data?.session;
+            error = result.error;
+          } catch (timeoutErr: any) {
+            if (timeoutErr?.name === 'AbortError' || timeoutErr?.message?.includes('aborted')) {
+              console.warn('[AuthProvider] Session fetch aborted');
+              return;
+            }
+            console.warn('[AuthProvider] Session fetch timed out:', timeoutErr.message);
           }
-          console.warn('[AuthProvider] Session fetch timed out:', timeoutErr.message);
-          // Continue without session - user will need to log in
-        }
 
-        if (error) {
-          // Handle AbortError gracefully
-          if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-            console.warn('[AuthProvider] Session fetch aborted, will retry on auth change');
-            return; // Exit early
-          } else {
-            console.error('[AuthProvider] Session fetch error:', error);
-          }
-        }
-
-        if (!mounted) return;
-
-        // Check if session is expired
-        if (initialSession?.expires_at) {
-          const expiresAt = new Date(initialSession.expires_at * 1000);
-          const now = new Date();
-          if (expiresAt < now) {
-            console.log('[AuthProvider] Session expired at', expiresAt, 'clearing...');
-            await supabase.auth.signOut();
-            initialSession = null;
-            if (typeof window !== 'undefined') {
-              localStorage.removeItem('clinqflow_hospital_id');
+          if (error) {
+            if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+              return;
+            } else {
+              console.error('[AuthProvider] Session fetch error:', error);
             }
           }
-        }
 
-        if (initialSession) {
-          console.log('[AuthProvider] Found existing session for:', initialSession.user?.email);
-          setSession(initialSession);
-          setUser(initialSession.user);
-          const profileData = await fetchProfile(initialSession.access_token);
-
-          // Restore hospital ID from localStorage, but validate it belongs to this user
-          if (typeof window !== 'undefined' && profileData?.hospitals) {
-            const savedHospitalId = localStorage.getItem('clinqflow_hospital_id');
-            if (savedHospitalId) {
-              // Check if the saved hospital ID is valid for this user
-              const isValidHospital = profileData.hospitals.some(
-                (h: Hospital) => h.id === savedHospitalId
-              );
-              if (isValidHospital) {
-                console.log('[AuthProvider] Restored valid hospital ID:', savedHospitalId);
-                setCurrentHospitalIdState(savedHospitalId);
-              } else {
-                console.log('[AuthProvider] Saved hospital ID not valid for this user, clearing');
-                localStorage.removeItem('clinqflow_hospital_id');
-              }
-            }
-          }
-        } else {
-          console.log('[AuthProvider] No existing session found');
-          // Clear any stale localStorage data
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('clinqflow_hospital_id');
-          }
-        }
-        // Success - set loading=false
-        console.log('[AuthProvider] Auth init complete, setting loading=false');
-        if (mounted) setLoading(false);
-      } catch (e: any) {
-        // Handle AbortError gracefully - this happens during hot reload or unmount
-        if (e?.name === 'AbortError' || e?.message?.includes('aborted') || e?.message?.includes('signal')) {
-          console.warn('[AuthProvider] Auth init aborted, will retry on next mount');
-          return; // Don't set loading=false, will retry on next mount
-        }
-        console.error('[AuthProvider] Auth init error:', e);
-        // Only set loading=false on actual errors, not on abort
-        if (mounted) setLoading(false);
-      }
-    }
-
-    initAuth();
-
-    // Listen for auth changes
-    try {
-      const { data } = supabase.auth.onAuthStateChange(
-        async (event: AuthChangeEvent, newSession: Session | null) => {
           if (!mounted) return;
 
-          console.log('[AuthProvider] Auth state changed:', event, newSession?.user?.email);
-
-          const previousUserId = user?.id;
-          setSession(newSession);
-          setUser(newSession?.user || null);
-
-          if (newSession) {
-            const profileData = await fetchProfile(newSession.access_token);
-
-            // If user changed (different account), clear and re-validate hospital ID
-            if (previousUserId && previousUserId !== newSession.user?.id) {
-              console.log('[AuthProvider] User changed, clearing hospital selection');
-              setCurrentHospitalIdState(null);
+          if (initialSession?.expires_at) {
+            const expiresAt = new Date(initialSession.expires_at * 1000);
+            const now = new Date();
+            if (expiresAt < now) {
+              await supabase!.auth.signOut();
+              initialSession = null;
               if (typeof window !== 'undefined') {
                 localStorage.removeItem('clinqflow_hospital_id');
               }
-            } else if (profileData?.hospitals && typeof window !== 'undefined') {
-              // Re-validate saved hospital ID for current user
+            }
+          }
+
+          if (initialSession) {
+            setSession(initialSession);
+            setUser(initialSession.user);
+            const profileData = await fetchProfile(initialSession.access_token);
+
+            // Cache auth state for instant hydration on next visit
+            if (profileData?.user) {
+              saveAuthCache(initialSession.user, profileData.user, profileData.hospitals || []);
+            }
+
+            if (typeof window !== 'undefined' && profileData?.hospitals) {
               const savedHospitalId = localStorage.getItem('clinqflow_hospital_id');
               if (savedHospitalId) {
                 const isValidHospital = profileData.hospitals.some(
                   (h: Hospital) => h.id === savedHospitalId
                 );
-                if (!isValidHospital) {
-                  console.log('[AuthProvider] Saved hospital no longer valid, clearing');
-                  setCurrentHospitalIdState(null);
+                if (isValidHospital) {
+                  setCurrentHospitalIdState(savedHospitalId);
+                } else {
                   localStorage.removeItem('clinqflow_hospital_id');
                 }
               }
             }
           } else {
-            setProfile(null);
-            setHospitals([]);
-            setEntitlements(null);
-            setCurrentHospitalIdState(null);
-            setLegalStatus('unknown');
             if (typeof window !== 'undefined') {
               localStorage.removeItem('clinqflow_hospital_id');
             }
           }
+          if (mounted) setLoading(false);
+        } catch (e: any) {
+          if (e?.name === 'AbortError' || e?.message?.includes('aborted') || e?.message?.includes('signal')) {
+            return;
+          }
+          console.error('[AuthProvider] Auth init error:', e);
+          if (mounted) setLoading(false);
         }
-      );
-      subscription = data.subscription;
-    } catch (e) {
-      console.error('Failed to set up auth listener:', e);
+      }
+
+      initSupabaseAuth();
+
+      try {
+        const { data } = supabase.auth.onAuthStateChange(
+          async (_event: AuthChangeEvent, newSession: Session | null) => {
+            if (!mounted) return;
+            const previousUserId = user?.id;
+            setSession(newSession);
+            setUser(newSession?.user || null);
+
+            if (newSession) {
+              await fetchProfile(newSession.access_token);
+              if (previousUserId && previousUserId !== newSession.user?.id) {
+                setCurrentHospitalIdState(null);
+                if (typeof window !== 'undefined') {
+                  localStorage.removeItem('clinqflow_hospital_id');
+                }
+              }
+            } else {
+              setProfile(null);
+              setHospitals([]);
+              setEntitlements(null);
+              setCurrentHospitalIdState(null);
+              setLegalStatus('unknown');
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('clinqflow_hospital_id');
+              }
+            }
+          }
+        );
+        subscription = data.subscription;
+      } catch (e) {
+        console.error('Failed to set up auth listener:', e);
+      }
+    } else {
+      // --- API-based auth mode (no Supabase) ---
+      console.log('[AuthProvider] Running in API-only auth mode (no Supabase)');
+
+      const initApiAuth = async () => {
+        if (typeof window !== 'undefined') {
+          const savedToken = localStorage.getItem('clinqflow_api_token');
+          if (savedToken) {
+            setApiToken(savedToken);
+            const profileData = await fetchProfile(savedToken);
+            if (profileData) {
+              const apiUser = { id: profileData.user?.id, email: profileData.user?.email } as User;
+              setUser(apiUser);
+              setProfile(profileData.user);
+              saveAuthCache(apiUser, profileData.user, profileData.hospitals || []);
+
+              const savedHospitalId = localStorage.getItem('clinqflow_hospital_id');
+              if (savedHospitalId && profileData.hospitals) {
+                const isValid = profileData.hospitals.some(
+                  (h: Hospital) => h.id === savedHospitalId
+                );
+                if (isValid) {
+                  setCurrentHospitalIdState(savedHospitalId);
+                } else {
+                  localStorage.removeItem('clinqflow_hospital_id');
+                }
+              }
+            } else {
+              localStorage.removeItem('clinqflow_api_token');
+            }
+          }
+        }
+        if (mounted) setLoading(false);
+      }
+
+      initApiAuth();
     }
 
     return () => {
@@ -392,30 +428,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function signIn(email: string, password: string) {
-    try {
-      // Add timeout to Supabase auth call
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Sign in timeout')), 15000);
-      });
+    if (isSupabaseConfigured && supabase) {
+      // Supabase auth
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Sign in timeout')), 15000);
+        });
 
-      const authPromise = supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+        const authPromise = supabase.auth.signInWithPassword({ email, password });
+        const { error } = await Promise.race([authPromise, timeoutPromise]);
+        return { error };
+      } catch (e: any) {
+        console.error('[AuthProvider] Sign in error:', e.message);
+        return { error: e };
+      }
+    } else {
+      // API-based auth
+      try {
+        const res = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
 
-      const { error } = await Promise.race([authPromise, timeoutPromise]);
-      return { error };
-    } catch (e: any) {
-      console.error('[AuthProvider] Sign in error:', e.message);
-      return { error: e };
+        if (res.ok) {
+          const data = await res.json();
+          const token = data.access_token || data.token;
+          if (token) {
+            setApiToken(token);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('clinqflow_api_token', token);
+            }
+            const profileData = await fetchProfile(token);
+            if (profileData) {
+              setUser({ id: profileData.user?.id, email: profileData.user?.email } as User);
+              setProfile(profileData.user);
+            }
+            return { error: null };
+          }
+          return { error: new Error('No token received from API') };
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          return { error: new Error(errData.message || 'Invalid credentials') };
+        }
+      } catch (e: any) {
+        console.error('[AuthProvider] API sign in error:', e.message);
+        return { error: e };
+      }
     }
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+    }
     if (typeof window !== 'undefined') {
       localStorage.removeItem('clinqflow_hospital_id');
+      localStorage.removeItem('clinqflow_api_token');
     }
+    clearAuthCache();
+    setApiToken(null);
     setSession(null);
     setUser(null);
     setProfile(null);
@@ -429,25 +501,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchProfile();
   }
 
+  const contextValue = useMemo<AuthContextShape>(
+    () => ({
+      user,
+      profile,
+      hospitals,
+      currentHospitalId,
+      currentHospital,
+      entitlements,
+      session,
+      loading,
+      legalStatus,
+      setCurrentHospitalId,
+      signIn,
+      signOut,
+      refreshProfile,
+      canAccessProduct,
+    }),
+    [user, profile, hospitals, currentHospitalId, currentHospital, entitlements, session, loading, legalStatus]
+  );
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        hospitals,
-        currentHospitalId,
-        currentHospital,
-        entitlements,
-        session,
-        loading,
-        legalStatus,
-        setCurrentHospitalId,
-        signIn,
-        signOut,
-        refreshProfile,
-        canAccessProduct,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

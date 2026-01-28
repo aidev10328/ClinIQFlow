@@ -1,18 +1,19 @@
 'use client';
 
 import React from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
-import { DoctorProfile } from '../../../components/hospital/DoctorProfile';
+
+const DoctorProfile = dynamic(
+  () => import('../../../components/hospital/DoctorProfile').then((m) => m.DoctorProfile),
+  { loading: () => null }
+);
 
 export default function ProfilePage() {
   const { currentHospital, profile, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return null;
   }
 
   const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');

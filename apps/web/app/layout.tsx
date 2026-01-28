@@ -1,10 +1,25 @@
 import './globals.css';
 import React from 'react';
+import { Inter, Montserrat } from 'next/font/google';
 import { AuthProvider } from '../components/AuthProvider';
 import { RbacProvider } from '../lib/rbac/RbacContext';
 import { ImpersonationProvider } from '../lib/ImpersonationContext';
+import { QueryProvider } from '../lib/QueryProvider';
 import Nav from '../components/Nav';
 import ImpersonationBanner from '../components/ImpersonationBanner';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+const montserrat = Montserrat({
+  subsets: ['latin'],
+  weight: ['600', '700', '800'],
+  variable: '--font-montserrat',
+  display: 'swap',
+});
 
 export const metadata = {
   title: 'ClinQflow',
@@ -13,16 +28,9 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&family=Dancing+Script:wght@700&family=Great+Vibes&family=Allura&family=Sacramento&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="en" className={`${inter.variable} ${montserrat.variable}`}>
       <body className="bg-background text-gray-900 font-sans">
+        <QueryProvider>
         <AuthProvider>
           <ImpersonationProvider>
             <RbacProvider>
@@ -41,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </RbacProvider>
           </ImpersonationProvider>
         </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   );

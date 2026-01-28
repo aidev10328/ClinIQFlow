@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../../components/AuthProvider';
 
 // Types matching the API response
@@ -201,23 +201,26 @@ export function RbacProvider({ children }: { children: React.ReactNode }) {
     [permissions]
   );
 
+  const contextValue = useMemo(
+    () => ({
+      permissions,
+      loading,
+      error,
+      can,
+      canView,
+      canAdd,
+      canEdit,
+      canDelete,
+      canViewField,
+      canEditField,
+      hasAnyPermission,
+      refreshPermissions: fetchPermissions,
+    }),
+    [permissions, loading, error, can, canView, canAdd, canEdit, canDelete, canViewField, canEditField, hasAnyPermission, fetchPermissions]
+  );
+
   return (
-    <RbacContext.Provider
-      value={{
-        permissions,
-        loading,
-        error,
-        can,
-        canView,
-        canAdd,
-        canEdit,
-        canDelete,
-        canViewField,
-        canEditField,
-        hasAnyPermission,
-        refreshPermissions: fetchPermissions,
-      }}
-    >
+    <RbacContext.Provider value={contextValue}>
       {children}
     </RbacContext.Provider>
   );

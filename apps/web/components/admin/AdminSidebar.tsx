@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useAuth } from '../AuthProvider';
+import { useOptimisticPathname } from '../../lib/hooks/useOptimisticPathname';
+import { usePrefetchRoute } from '../../lib/hooks/usePrefetchRoute';
 
 interface NavItem {
   label: string;
@@ -106,7 +107,8 @@ const navItems: NavItem[] = [
 ];
 
 export function AdminSidebar() {
-  const pathname = usePathname();
+  const { pathname, handleNavClick } = useOptimisticPathname();
+  const prefetchRoute = usePrefetchRoute();
   const { profile } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -138,7 +140,8 @@ export function AdminSidebar() {
           <Link
             key={item.href}
             href={item.href}
-            onClick={() => setMobileOpen(false)}
+            onMouseEnter={() => prefetchRoute(item.href)}
+            onClick={() => { handleNavClick(item.href); setMobileOpen(false); }}
             className={`admin-nav-item ${isActive(item.href) ? 'active' : ''}`}
           >
             {item.icon}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 
 export interface ImpersonatedUser {
   id: string;
@@ -96,17 +96,17 @@ export function ImpersonationProvider({ children }: { children: React.ReactNode 
 
   const isImpersonating = impersonatedUser !== null;
 
+  const contextValue = useMemo(() => ({
+    isImpersonating,
+    impersonatedUser,
+    originalUserId,
+    startImpersonation,
+    stopImpersonation,
+    getImpersonationHeader,
+  }), [isImpersonating, impersonatedUser, originalUserId, startImpersonation, stopImpersonation, getImpersonationHeader]);
+
   return (
-    <ImpersonationContext.Provider
-      value={{
-        isImpersonating,
-        impersonatedUser,
-        originalUserId,
-        startImpersonation,
-        stopImpersonation,
-        getImpersonationHeader,
-      }}
-    >
+    <ImpersonationContext.Provider value={contextValue}>
       {children}
     </ImpersonationContext.Provider>
   );

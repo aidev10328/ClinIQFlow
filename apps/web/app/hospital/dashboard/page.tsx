@@ -1,10 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
-import { apiFetch } from '../../../lib/api';
-import { DoctorDashboard } from '../../../components/hospital/DoctorDashboard';
+import { useApiQuery } from '../../../lib/hooks/useApiQuery';
+
+const DoctorDashboard = dynamic(
+  () => import('../../../components/hospital/DoctorDashboard').then((m) => m.DoctorDashboard),
+  { loading: () => null }
+);
 
 interface DashboardStats {
   totalDoctors: number;
@@ -38,96 +43,53 @@ export default function HospitalDashboardPage() {
   }
 
   // Manager/Staff dashboard continues below
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<DashboardStats>({
-    totalDoctors: 0,
-    activeDoctors: 0,
-    pendingDoctors: 0,
-    totalPatients: 0,
-    totalStaff: 0,
-    activeStaff: 0,
-    licensesUsed: 0,
-    licensesTotal: 0,
-    pendingInvites: 0,
-  });
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
+  const { data: members = [], isLoading: membersLoading } = useApiQuery<any[]>(
+    ['hospital', 'members', 'compliance'],
+    '/v1/hospitals/members/compliance'
+  );
+  const { data: staffData = [], isLoading: staffLoading } = useApiQuery<any[]>(
+    ['hospital', 'staff'],
+    '/v1/staff'
+  );
+  const { data: invites = [], isLoading: invitesLoading } = useApiQuery<any[]>(
+    ['hospital', 'invites'],
+    '/v1/invites/pending'
+  );
+  const { data: patients = [], isLoading: patientsLoading } = useApiQuery<any[]>(
+    ['hospital', 'patients'],
+    '/v1/patients'
+  );
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+  const loading = membersLoading || staffLoading || invitesLoading || patientsLoading;
 
-  async function fetchDashboardData() {
-    try {
-      // Fetch members with compliance to get doctor stats
-      const [membersRes, staffRes, invitesRes, patientsRes] = await Promise.all([
-        apiFetch('/v1/hospitals/members/compliance'),
-        apiFetch('/v1/staff'),
-        apiFetch('/v1/invites/pending'),
-        apiFetch('/v1/patients'),
-      ]);
+  const stats = useMemo<DashboardStats>(() => {
+    const doctors = members.filter((m: any) => m.role === 'DOCTOR');
+    const totalDoctors = doctors.length;
+    const activeDoctors = doctors.filter((d: any) => d.complianceStatus === 'compliant').length;
+    const pendingDoctors = doctors.filter((d: any) =>
+      d.complianceStatus === 'pending_signatures' || d.complianceStatus === 'not_logged_in'
+    ).length;
 
-      let totalDoctors = 0;
-      let activeDoctors = 0;
-      let pendingDoctors = 0;
+    const totalStaff = staffData.length;
+    const activeStaff = staffData.filter((s: any) => s.isActive).length;
+    const pendingInvites = invites.filter((i: any) => i.status === 'PENDING').length;
+    const totalPatients = patients.length;
 
-      if (membersRes.ok) {
-        const members = await membersRes.json();
-        const doctors = members.filter((m: any) => m.role === 'DOCTOR');
-        totalDoctors = doctors.length;
-        activeDoctors = doctors.filter((d: any) => d.complianceStatus === 'compliant').length;
-        pendingDoctors = doctors.filter((d: any) =>
-          d.complianceStatus === 'pending_signatures' || d.complianceStatus === 'not_logged_in'
-        ).length;
-      }
-
-      let totalStaff = 0;
-      let activeStaff = 0;
-      if (staffRes.ok) {
-        const staffData = await staffRes.json();
-        totalStaff = staffData.length;
-        activeStaff = staffData.filter((s: any) => s.isActive).length;
-      }
-
-      let pendingInvites = 0;
-      if (invitesRes.ok) {
-        const invites = await invitesRes.json();
-        pendingInvites = invites.filter((i: any) => i.status === 'PENDING').length;
-      }
-
-      let totalPatients = 0;
-      if (patientsRes.ok) {
-        const patients = await patientsRes.json();
-        totalPatients = patients.length;
-      }
-
-      setStats({
-        totalDoctors,
-        activeDoctors,
-        pendingDoctors,
-        totalPatients,
-        totalStaff,
-        activeStaff,
-        licensesUsed: activeDoctors, // Placeholder - will update with actual license data
-        licensesTotal: 10, // Placeholder
-        pendingInvites,
-      });
-
-      // Mock recent activity - in production, this would come from an activity log
-      setRecentActivity([]);
-
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
+    return {
+      totalDoctors,
+      activeDoctors,
+      pendingDoctors,
+      totalPatients,
+      totalStaff,
+      activeStaff,
+      licensesUsed: activeDoctors,
+      licensesTotal: 10,
+      pendingInvites,
+    };
+  }, [members, staffData, invites, patients]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[300px]">
-        <div className="w-6 h-6 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return null;
   }
 
   return (

@@ -944,8 +944,7 @@ export class ProductsService {
           code: p.code as ProductCode,
           name: p.name,
           hasAccess: ent?.has_access || false,
-          licenseId: ent?.license_id || null,
-          expiresAt: ent?.expires_at || null,
+          hasLicense: ent?.has_license || false,
         };
       }),
     };

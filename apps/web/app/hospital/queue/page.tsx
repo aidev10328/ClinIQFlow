@@ -1,10 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
-import { DoctorQueue } from '../../../components/hospital/DoctorQueue';
+
+const DoctorQueue = dynamic(
+  () => import('../../../components/hospital/DoctorQueue').then((m) => m.DoctorQueue),
+  { loading: () => null }
+);
 
 // Role-aware queue page
 
@@ -219,8 +224,7 @@ export default function QueuePage() {
   }, []);
 
   useEffect(() => {
-    fetchDoctors();
-    fetchPatients();
+    Promise.all([fetchDoctors(), fetchPatients()]);
   }, [isDoctor]);
 
   useEffect(() => {
@@ -366,11 +370,7 @@ export default function QueuePage() {
   const isCheckedIn = doctorStatus === 'CHECKED_IN';
 
   if (loading && !queueData) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return null;
   }
 
   if (doctors.length === 0) {

@@ -129,16 +129,16 @@ export default function HospitalLayout({
   }, []);
 
   return (
-    <HospitalGuard>
-      <div className="admin-layout">
-        <HospitalSidebar />
-        <main className="admin-content">
-          <HospitalHeader />
-          <div className="admin-page">
+    <div className="admin-layout">
+      <HospitalSidebar />
+      <main className="admin-content">
+        <HospitalHeader />
+        <div className="admin-page">
+          <HospitalGuard>
             {children}
-          </div>
-        </main>
-      </div>
-    </HospitalGuard>
+          </HospitalGuard>
+        </div>
+      </main>
+    </div>
   );
 }

@@ -544,19 +544,7 @@ export default function HospitalDetailPage() {
   }
 
   if (loading) {
-    return (
-      <div>
-        <PageHeader
-          title="Hospital Details"
-          subtitle="Loading..."
-          breadcrumbs={[
-            { label: 'Hospitals', href: '/admin/hospitals' },
-            { label: 'Details' },
-          ]}
-        />
-        <LoadingState type="cards" />
-      </div>
-    );
+    return null;
   }
 
   if (!hospital) {

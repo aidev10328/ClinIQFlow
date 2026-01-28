@@ -37,8 +37,8 @@ module.exports = {
         background: '#F7FAFC',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        heading: ['Montserrat', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+        heading: ['var(--font-montserrat)', 'Montserrat', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         card: '0 6px 18px rgba(35,73,138,0.06)',

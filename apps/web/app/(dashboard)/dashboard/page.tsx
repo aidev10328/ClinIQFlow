@@ -54,9 +54,8 @@ export default function DashboardPage() {
     }
   }, [user, hospitals, currentHospitalId, currentHospital?.role, loading, router, profile?.isSuperAdmin]);
 
-  // Show loading while auth or legal check is in progress
   if (loading || legalStatus === 'checking' || legalStatus === 'unknown') {
-    return <div className="text-gray-500 p-4">Loading...</div>;
+    return null;
   }
 
   // Don't render if redirecting to legal page

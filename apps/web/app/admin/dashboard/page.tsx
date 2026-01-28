@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { PageHeader, StatCard, LoadingState } from '../../../components/admin/ui';
-import { apiFetch } from '../../../lib/api';
+import React, { useMemo } from 'react';
+import { PageHeader, StatCard } from '../../../components/admin/ui';
+import { useApiQuery } from '../../../lib/hooks/useApiQuery';
 
 interface DashboardStats {
   hospitals: {
@@ -26,100 +26,69 @@ interface DashboardStats {
 }
 
 export default function AdminDashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: hospitals = [], isLoading: hospitalsLoading } = useApiQuery<any[]>(
+    ['admin', 'hospitals'],
+    '/v1/hospitals'
+  );
 
-  useEffect(() => {
-    fetchDashboardStats();
-  }, []);
+  const { data: subscriptions = [], isLoading: subsLoading } = useApiQuery<any[]>(
+    ['admin', 'subscriptions'],
+    '/v1/products/admin/subscriptions'
+  );
 
-  async function fetchDashboardStats() {
-    try {
-      // Fetch hospitals
-      const hospitalsRes = await apiFetch('/v1/hospitals');
-      const hospitals = hospitalsRes.ok ? await hospitalsRes.json() : [];
+  const loading = hospitalsLoading || subsLoading;
 
-      // Fetch subscriptions
-      const subsRes = await apiFetch('/v1/products/admin/subscriptions');
-      const subscriptions = subsRes.ok ? await subsRes.json() : [];
+  const stats = useMemo<DashboardStats | null>(() => {
+    if (loading) return null;
 
-      // Calculate stats
-      const byRegion: Record<string, number> = {};
-      hospitals.forEach((h: any) => {
-        byRegion[h.region] = (byRegion[h.region] || 0) + 1;
-      });
+    const byRegion: Record<string, number> = {};
+    hospitals.forEach((h: any) => {
+      byRegion[h.region] = (byRegion[h.region] || 0) + 1;
+    });
 
-      let totalMrr = 0;
-      let activeCount = 0;
-      let trialCount = 0;
-      let pastDueCount = 0;
-      const trialsExpiring: { hospitalName: string; expiresIn: number }[] = [];
+    let totalMrr = 0;
+    let activeCount = 0;
+    let trialCount = 0;
+    let pastDueCount = 0;
+    const trialsExpiring: { hospitalName: string; expiresIn: number }[] = [];
 
-      subscriptions.forEach((sub: any) => {
-        if (sub.status === 'ACTIVE') {
-          activeCount++;
-          totalMrr += sub.totalMonthly || 0;
-        } else if (sub.status === 'TRIAL') {
-          trialCount++;
-          // Check if trial expires within 7 days
-          if (sub.trialEndsAt) {
-            const expiresAt = new Date(sub.trialEndsAt);
-            const now = new Date();
-            const daysUntil = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-            if (daysUntil > 0 && daysUntil <= 7) {
-              trialsExpiring.push({
-                hospitalName: sub.hospitalName,
-                expiresIn: daysUntil,
-              });
-            }
+    subscriptions.forEach((sub: any) => {
+      if (sub.status === 'ACTIVE') {
+        activeCount++;
+        totalMrr += sub.totalMonthly || 0;
+      } else if (sub.status === 'TRIAL') {
+        trialCount++;
+        if (sub.trialEndsAt) {
+          const expiresAt = new Date(sub.trialEndsAt);
+          const now = new Date();
+          const daysUntil = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysUntil > 0 && daysUntil <= 7) {
+            trialsExpiring.push({ hospitalName: sub.hospitalName, expiresIn: daysUntil });
           }
-        } else if (sub.status === 'PAST_DUE') {
-          pastDueCount++;
         }
-      });
+      } else if (sub.status === 'PAST_DUE') {
+        pastDueCount++;
+      }
+    });
 
-      setStats({
-        hospitals: {
-          total: hospitals.length,
-          byRegion: Object.entries(byRegion).map(([region, count]) => ({ region, count })),
-        },
-        subscriptions: {
-          total: subscriptions.length,
-          active: activeCount,
-          trial: trialCount,
-          pastDue: pastDueCount,
-        },
-        revenue: {
-          mrr: totalMrr,
-          currency: 'USD',
-        },
-        trialsExpiring: trialsExpiring.sort((a, b) => a.expiresIn - b.expiresIn),
-      });
-    } catch (error) {
-      console.error('Failed to fetch dashboard stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
+    return {
+      hospitals: {
+        total: hospitals.length,
+        byRegion: Object.entries(byRegion).map(([region, count]) => ({ region, count })),
+      },
+      subscriptions: { total: subscriptions.length, active: activeCount, trial: trialCount, pastDue: pastDueCount },
+      revenue: { mrr: totalMrr, currency: 'USD' },
+      trialsExpiring: trialsExpiring.sort((a, b) => a.expiresIn - b.expiresIn),
+    };
+  }, [hospitals, subscriptions, loading]);
 
   if (loading) {
-    return (
-      <div>
-        <PageHeader
-          title="Dashboard"
-          subtitle="Overview of your ClinQflow platform"
-        />
-        <LoadingState type="cards" />
-      </div>
-    );
+    return null;
   }
 
   return (
     <div>
-      <PageHeader
-        title="Dashboard"
-        subtitle="Overview of your ClinQflow platform"
-      />
+      <PageHeader title="Dashboard" subtitle="Overview of your ClinQflow platform" />
 
       {/* KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
@@ -176,7 +145,7 @@ export default function AdminDashboardPage() {
               <div key={item.region} className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="text-xl">
-                    {item.region === 'US' ? '🇺🇸' : item.region === 'UK' ? '🇬🇧' : item.region === 'IN' ? '🇮🇳' : '🌍'}
+                    {item.region === 'US' ? '\u{1F1FA}\u{1F1F8}' : item.region === 'UK' ? '\u{1F1EC}\u{1F1E7}' : item.region === 'IN' ? '\u{1F1EE}\u{1F1F3}' : '\u{1F30D}'}
                   </span>
                   <span className="text-sm font-medium text-gray-700">{item.region}</span>
                 </div>
@@ -201,7 +170,6 @@ export default function AdminDashboardPage() {
         <div className="bg-white rounded-lg border border-gray-100 p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">Alerts</h3>
           <div className="space-y-3">
-            {/* Trials Expiring */}
             {stats?.trialsExpiring.map((trial, idx) => (
               <div key={idx} className="flex items-center gap-3 p-3 bg-yellow-50 rounded-lg">
                 <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
@@ -215,7 +183,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             ))}
-            {/* Past Due */}
             {(stats?.subscriptions.pastDue || 0) > 0 && (
               <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
                 <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
@@ -229,7 +196,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             )}
-            {/* No alerts */}
             {(!stats?.trialsExpiring?.length && !stats?.subscriptions.pastDue) && (
               <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
                 <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
@@ -251,10 +217,7 @@ export default function AdminDashboardPage() {
       <div className="mt-5">
         <h3 className="text-sm font-semibold text-gray-900 mb-4">Quick Actions</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <a
-            href="/admin/hospitals"
-            className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
-          >
+          <a href="/admin/hospitals" className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all">
             <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-[var(--color-primary)]">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -262,10 +225,7 @@ export default function AdminDashboardPage() {
             </div>
             <span className="text-sm font-medium text-gray-700">Add Hospital</span>
           </a>
-          <a
-            href="/admin/subscriptions"
-            className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
-          >
+          <a href="/admin/subscriptions" className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all">
             <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center text-green-600">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -273,10 +233,7 @@ export default function AdminDashboardPage() {
             </div>
             <span className="text-sm font-medium text-gray-700">New Subscription</span>
           </a>
-          <a
-            href="/admin/discounts"
-            className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
-          >
+          <a href="/admin/discounts" className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all">
             <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
@@ -284,10 +241,7 @@ export default function AdminDashboardPage() {
             </div>
             <span className="text-sm font-medium text-gray-700">Create Discount</span>
           </a>
-          <a
-            href="/admin/compliance"
-            className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all"
-          >
+          <a href="/admin/compliance" className="flex flex-col items-center gap-2 p-4 bg-white rounded-lg border border-gray-100 hover:border-[var(--color-primary)] hover:shadow-sm transition-all">
             <div className="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center text-yellow-600">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />

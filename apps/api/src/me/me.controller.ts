@@ -1,6 +1,7 @@
 import { Controller, Get, Patch, Body, UseGuards, Req, InternalServerErrorException, BadRequestException } from '@nestjs/common';
 import { SupabaseGuard, AuthenticatedRequest } from '../supabase/supabase.guard';
 import { SupabaseService } from '../supabase/supabase.service';
+import { PrismaService } from '../prisma.service';
 import { ProductsService } from '../products/products.service';
 import { UserEntitlementsDto } from '../products/dto/products.dto';
 import { IsOptional, IsString } from 'class-validator';
@@ -20,6 +21,7 @@ class UpdateProfileDto {
 export class MeController {
   constructor(
     private supabaseService: SupabaseService,
+    private prisma: PrismaService,
     private productsService: ProductsService,
   ) {}
 
@@ -34,8 +36,28 @@ export class MeController {
       console.log('[MeController] Impersonating user:', req.impersonatedUser);
     }
 
-    // Fetch profile using user's token (with admin fallback)
-    const profile = await this.supabaseService.getUserProfile(accessToken, req.user.id);
+    // Fetch profile - try Supabase first, fall back to Prisma
+    let profile = await this.supabaseService.getUserProfile(accessToken, req.user.id);
+    let prismaUser: any = null;
+
+    if (!profile) {
+      // Supabase not available - fall back to Prisma user lookup
+      console.log('[MeController] Supabase profile not available, falling back to Prisma');
+      prismaUser = await this.prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { id: true, email: true, firstName: true, lastName: true, role: true, isActive: true },
+      });
+      if (prismaUser) {
+        profile = {
+          user_id: prismaUser.id,
+          email: prismaUser.email,
+          full_name: [prismaUser.firstName, prismaUser.lastName].filter(Boolean).join(' ') || null,
+          phone: null,
+          is_super_admin: prismaUser.role === 'ADMIN',
+        };
+      }
+    }
+
     console.log('[MeController] Profile result:', profile ? {
       email: profile.email,
       is_super_admin: profile.is_super_admin
@@ -45,79 +67,82 @@ export class MeController {
     const isSuperAdmin = isImpersonating ? false : (profile?.is_super_admin || false);
     let hospitals: any[] = [];
 
-    if (isSuperAdmin && !isImpersonating) {
-      // Super admins see ALL hospitals (but not when impersonating)
-      console.log('[MeController] User is super admin, fetching all hospitals');
-      const allHospitals = await this.supabaseService.getAllHospitals();
-      hospitals = allHospitals.map((h: any) => ({
-        id: h.id,
-        name: h.name,
-        city: h.city,
-        state: h.state,
-        country: h.country,
-        region: h.region,
-        currency: h.currency,
-        timezone: h.timezone,
-        role: 'SUPER_ADMIN',
-        isPrimary: false,
-      }));
-      console.log('[MeController] All hospitals count:', hospitals.length);
-    } else {
-      // Regular users (and impersonated users) see hospitals from memberships
-      // Use admin client for impersonation since we don't have the impersonated user's token
-      const adminClient = this.supabaseService.getAdminClient();
-      if (adminClient && isImpersonating) {
-        const { data: memberships } = await adminClient
-          .from('hospital_memberships')
-          .select(`
-            id,
-            role,
-            is_primary,
-            status,
-            hospital:hospitals (
-              id,
-              name,
-              city,
-              state,
-              country,
-              region,
-              currency,
-              timezone,
-              status
-            )
-          `)
-          .eq('user_id', req.user.id)
-          .eq('status', 'ACTIVE');
-
-        hospitals = (memberships || []).map((m: any) => ({
-          id: m.hospital?.id,
-          name: m.hospital?.name,
-          city: m.hospital?.city,
-          state: m.hospital?.state,
-          country: m.hospital?.country,
-          region: m.hospital?.region,
-          currency: m.hospital?.currency,
-          timezone: m.hospital?.timezone,
-          role: m.role,
-          isPrimary: m.is_primary,
-        })).filter((h: any) => h.id);
+    if (this.supabaseService.isSupabaseConfigured) {
+      // Supabase mode - fetch hospitals from Supabase
+      if (isSuperAdmin && !isImpersonating) {
+        console.log('[MeController] User is super admin, fetching all hospitals');
+        const allHospitals = await this.supabaseService.getAllHospitals();
+        hospitals = allHospitals.map((h: any) => ({
+          id: h.id,
+          name: h.name,
+          city: h.city,
+          state: h.state,
+          country: h.country,
+          region: h.region,
+          currency: h.currency,
+          timezone: h.timezone,
+          role: 'SUPER_ADMIN',
+          isPrimary: false,
+        }));
+        console.log('[MeController] All hospitals count:', hospitals.length);
       } else {
-        const memberships = await this.supabaseService.getUserMemberships(accessToken, req.user.id);
-        console.log('[MeController] Memberships count:', memberships.length);
+        const adminClient = this.supabaseService.getAdminClient();
+        if (adminClient && isImpersonating) {
+          const { data: memberships } = await adminClient
+            .from('hospital_memberships')
+            .select(`
+              id,
+              role,
+              is_primary,
+              status,
+              hospital:hospitals (
+                id,
+                name,
+                city,
+                state,
+                country,
+                region,
+                currency,
+                timezone,
+                status
+              )
+            `)
+            .eq('user_id', req.user.id)
+            .eq('status', 'ACTIVE');
 
-        hospitals = memberships.map((m: any) => ({
-          id: m.hospital?.id,
-          name: m.hospital?.name,
-          city: m.hospital?.city,
-          state: m.hospital?.state,
-          country: m.hospital?.country,
-          region: m.hospital?.region,
-          currency: m.hospital?.currency,
-          timezone: m.hospital?.timezone,
-          role: m.role,
-          isPrimary: m.is_primary,
-        })).filter((h: any) => h.id);
+          hospitals = (memberships || []).map((m: any) => ({
+            id: m.hospital?.id,
+            name: m.hospital?.name,
+            city: m.hospital?.city,
+            state: m.hospital?.state,
+            country: m.hospital?.country,
+            region: m.hospital?.region,
+            currency: m.hospital?.currency,
+            timezone: m.hospital?.timezone,
+            role: m.role,
+            isPrimary: m.is_primary,
+          })).filter((h: any) => h.id);
+        } else {
+          const memberships = await this.supabaseService.getUserMemberships(accessToken, req.user.id);
+          console.log('[MeController] Memberships count:', memberships.length);
+
+          hospitals = memberships.map((m: any) => ({
+            id: m.hospital?.id,
+            name: m.hospital?.name,
+            city: m.hospital?.city,
+            state: m.hospital?.state,
+            country: m.hospital?.country,
+            region: m.hospital?.region,
+            currency: m.hospital?.currency,
+            timezone: m.hospital?.timezone,
+            role: m.role,
+            isPrimary: m.is_primary,
+          })).filter((h: any) => h.id);
+        }
       }
+    } else {
+      // No Supabase - hospitals not available via Prisma (no hospital model yet)
+      console.log('[MeController] No Supabase configured, skipping hospital lookup');
     }
 
     // Get entitlements for current hospital if specified

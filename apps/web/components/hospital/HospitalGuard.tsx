@@ -26,16 +26,9 @@ export function HospitalGuard({ children }: HospitalGuardProps) {
     }
   }, [user, profile, hospitals, currentHospitalId, loading, router]);
 
-  // Show loading while auth or legal check is in progress
+  // Show nothing while auth or legal check is in progress (loading.tsx handles the spinner)
   if (loading || legalStatus === 'checking' || legalStatus === 'unknown') {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading...</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // Check if user has any valid hospital role (or is super admin)

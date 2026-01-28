@@ -209,9 +209,8 @@ export default function HospitalBillingPage() {
     )
   );
 
-  // Show loading while auth, data, or legal check is in progress
   if (authLoading || loading || legalStatus === 'checking' || legalStatus === 'unknown') {
-    return <div className="p-4 text-gray-500">Loading...</div>;
+    return null;
   }
 
   // Don't render if redirecting to legal page

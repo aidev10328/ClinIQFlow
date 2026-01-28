@@ -26,6 +26,18 @@ export class DoctorsService {
       return existingProfile;
     }
 
+    // Verify user exists before creating profile
+    const { data: userExists } = await adminClient
+      .from('profiles')
+      .select('user_id')
+      .eq('user_id', userId)
+      .single();
+
+    if (!userExists) {
+      console.error(`[DoctorsService] Cannot create doctor profile: user ${userId} does not exist`);
+      throw new Error(`User ${userId} not found. Cannot create doctor profile.`);
+    }
+
     // Create new profile
     const { data: newProfile, error } = await adminClient
       .from('doctor_profiles')

@@ -3,8 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/AuthProvider';
-import ReactMarkdown from 'react-markdown';
-import SignaturePad from '../../../components/SignaturePad';
+import dynamic from 'next/dynamic';
+
+const ReactMarkdown = dynamic(() => import('react-markdown'), {
+  loading: () => <div className="animate-pulse h-40 bg-gray-100 rounded" />,
+});
+const SignaturePad = dynamic(() => import('../../../components/SignaturePad'), {
+  loading: () => <div className="animate-pulse h-32 bg-gray-100 rounded" />,
+});
 
 // Types
 interface LegalRequirement {

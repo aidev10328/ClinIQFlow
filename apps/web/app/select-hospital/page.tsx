@@ -63,11 +63,7 @@ export default function SelectHospitalPage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="text-gray-500">Loading...</div>
-      </div>
-    );
+    return null;
   }
 
   if (!user) {
