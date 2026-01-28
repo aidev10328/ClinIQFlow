@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../AuthProvider';
 import { useOptimisticPathname } from '../../lib/hooks/useOptimisticPathname';
 import { usePrefetchRoute } from '../../lib/hooks/usePrefetchRoute';
-import { formatTimeInTimezone, formatDateInTimezone, getTimezoneLabel, getCurrencySymbol } from '../../lib/timezone';
 
 interface NavItem {
   label: string;
@@ -73,6 +72,11 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   ),
+  hospital: (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  ),
 };
 
 export function HospitalSidebar() {
@@ -93,44 +97,29 @@ export function HospitalSidebar() {
   const navSections: NavSection[] = useMemo(() => {
     const sections: NavSection[] = [];
 
-    // Management section - visible to all roles
+    // Management section
     const managementItems: NavItem[] = [
       { label: 'Dashboard', href: '/hospital/dashboard', icon: icons.dashboard },
     ];
 
-    // Appointments - managers always see, doctors see "My Appointments", staff if has product access
-    if (hasAppointments || isManager || isDoctor) {
+    // Hospital Details - only for managers
+    if (isManager) {
       managementItems.push({
-        label: isDoctor ? 'My Appointments' : 'Appointments',
-        href: '/hospital/appointments',
-        icon: icons.appointments
+        label: 'Hospital',
+        href: '/hospital/details',
+        icon: icons.hospital
       });
     }
 
-    // Daily Queue - visible to all
-    managementItems.push({
-      label: 'Daily Queue',
-      href: '/hospital/queue',
-      icon: icons.queue
-    });
-
-    sections.push({ title: 'Management', items: managementItems });
-
-    // ClinIQ Flow section
-    const cliniqItems: NavItem[] = [];
-
-    // Doctors list - only for managers
+    // Doctors - managers see list, doctors see "My Profile"
     if (isManager) {
-      cliniqItems.push({
+      managementItems.push({
         label: 'Doctors',
         href: '/hospital/doctors',
         icon: icons.doctors
       });
-    }
-
-    // My Profile - for doctors only
-    if (isDoctor) {
-      cliniqItems.push({
+    } else if (isDoctor) {
+      managementItems.push({
         label: 'My Profile',
         href: '/hospital/profile',
         icon: icons.profile
@@ -138,7 +127,7 @@ export function HospitalSidebar() {
     }
 
     // Patients - visible to all
-    cliniqItems.push({
+    managementItems.push({
       label: 'Patients',
       href: '/hospital/patients',
       icon: icons.patients
@@ -146,12 +135,31 @@ export function HospitalSidebar() {
 
     // Staff - only for managers
     if (isManager) {
-      cliniqItems.push({
+      managementItems.push({
         label: 'Staff',
         href: '/hospital/staff',
         icon: icons.staff
       });
     }
+
+    sections.push({ title: 'Management', items: managementItems });
+
+    // ClinIQ Flow section - Appointments & Daily Queue
+    const cliniqItems: NavItem[] = [];
+
+    if (hasAppointments || isManager || isDoctor) {
+      cliniqItems.push({
+        label: isDoctor ? 'My Appointments' : 'Appointments',
+        href: '/hospital/appointments',
+        icon: icons.appointments
+      });
+    }
+
+    cliniqItems.push({
+      label: 'Daily Queue',
+      href: '/hospital/queue',
+      icon: icons.queue
+    });
 
     if (cliniqItems.length > 0) {
       sections.push({ title: 'ClinIQ Flow', items: cliniqItems });
@@ -162,7 +170,6 @@ export function HospitalSidebar() {
       sections.push({
         title: 'Administration',
         items: [
-          { label: 'Licenses', href: '/hospital/licenses', icon: icons.licenses },
           { label: 'Billing', href: '/hospital/billing', icon: icons.billing },
           { label: 'Settings', href: '/hospital/settings', icon: icons.settings },
         ],
@@ -177,30 +184,6 @@ export function HospitalSidebar() {
     'ClinIQ Flow': true,
     'Administration': true,
   });
-  const [currentTime, setCurrentTime] = useState<string>('');
-  const [currentDate, setCurrentDate] = useState<string>('');
-
-  // Get timezone from hospital
-  const timezone = currentHospital?.timezone || 'America/Chicago';
-  const timezoneLabel = getTimezoneLabel(timezone);
-
-  // Update time every minute
-  const updateTime = useCallback(() => {
-    const now = new Date();
-    setCurrentTime(formatTimeInTimezone(now, timezone));
-    setCurrentDate(formatDateInTimezone(now, timezone, {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric'
-    }));
-  }, [timezone]);
-
-  useEffect(() => {
-    updateTime();
-    const interval = setInterval(updateTime, 60000);
-    return () => clearInterval(interval);
-  }, [updateTime]);
-
   const isActive = (href: string) => {
     if (href === '/hospital/dashboard') {
       return pathname === '/hospital' || pathname === '/hospital/dashboard';
@@ -268,45 +251,7 @@ export function HospitalSidebar() {
         ))}
       </nav>
 
-      {/* System Status & Info at Bottom */}
-      <div className="mt-auto">
-        {/* Date, Time, Location, Currency Info */}
-        {currentHospital && (
-          <div className="px-3 py-2.5 mx-3 mb-2 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100">
-            <div className="space-y-2">
-              {/* Date & Time */}
-              <div className="flex items-center gap-2 text-[10px]">
-                <svg className="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-gray-700 font-medium">{currentDate}</span>
-                <span className="text-blue-300">|</span>
-                <span className="text-blue-600 font-semibold">{currentTime}</span>
-                <span className="text-blue-400 text-[9px]">({timezoneLabel})</span>
-              </div>
-              {/* Location */}
-              <div className="flex items-center gap-2 text-[10px]">
-                <svg className="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <span className="text-gray-700">{currentHospital.city}{currentHospital.state ? `, ${currentHospital.state}` : ''}, {currentHospital.country}</span>
-              </div>
-              {/* Currency */}
-              <div className="flex items-center gap-2 text-[10px]">
-                <svg className="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-gray-700">Currency: <span className="font-semibold text-blue-600">{getCurrencySymbol(currentHospital.currency)}</span> ({currentHospital.currency})</span>
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="system-status">
-          <div className="system-status-dot" />
-          <span className="system-status-text">System Healthy</span>
-        </div>
-      </div>
+      <div className="mt-auto"></div>
 
       {/* ClinIQ Logo at Bottom */}
       <div className="admin-sidebar-footer">

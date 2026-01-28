@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { HospitalGuard } from '../../components/hospital/HospitalGuard';
 import { HospitalSidebar } from '../../components/hospital/HospitalSidebar';
 import { useAuth } from '../../components/AuthProvider';
+import { formatTimeInTimezone, formatDateInTimezone, getTimezoneLabel } from '../../lib/timezone';
 
 function getRoleDisplayName(role?: string): string {
   switch (role) {
@@ -19,12 +20,34 @@ function HospitalHeader() {
   const { profile, currentHospital, hospitals, signOut } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [currentTime, setCurrentTime] = useState<string>('');
+  const [currentDate, setCurrentDate] = useState<string>('');
 
   // Get display name for current role
   const roleDisplayName = profile?.isSuperAdmin ? 'Super Admin' : getRoleDisplayName(currentHospital?.role);
 
   // Check if user has multiple hospitals
   const hasMultipleHospitals = hospitals && hospitals.length > 1;
+
+  // Timezone
+  const timezone = currentHospital?.timezone || 'America/Chicago';
+  const timezoneLabel = getTimezoneLabel(timezone);
+
+  const updateTime = useCallback(() => {
+    const now = new Date();
+    setCurrentTime(formatTimeInTimezone(now, timezone));
+    setCurrentDate(formatDateInTimezone(now, timezone, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
+    }));
+  }, [timezone]);
+
+  useEffect(() => {
+    updateTime();
+    const interval = setInterval(updateTime, 60000);
+    return () => clearInterval(interval);
+  }, [updateTime]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -47,6 +70,38 @@ function HospitalHeader() {
         )}
       </div>
       <div className="admin-header-right">
+        {/* Date, Time & Location */}
+        {currentHospital && (
+          <div className="hidden md:flex items-center gap-3 mr-2 text-xs text-gray-500">
+            <div className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-gray-600 font-medium">{currentDate}</span>
+            </div>
+            <span className="text-gray-300">|</span>
+            <div className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-gray-700 font-semibold">{currentTime}</span>
+              <span className="text-gray-400 text-[10px]">({timezoneLabel})</span>
+            </div>
+            <span className="text-gray-300">|</span>
+            <div className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="text-gray-600">{currentHospital.city}{currentHospital.state ? `, ${currentHospital.state}` : ''}</span>
+            </div>
+            <span className="text-gray-300">|</span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-green-600 font-medium">Healthy</span>
+            </div>
+          </div>
+        )}
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
