@@ -18,6 +18,8 @@ const AreaChart = dynamic(() => import('recharts').then((m) => m.AreaChart), { s
 const Area = dynamic(() => import('recharts').then((m) => m.Area), { ssr: false });
 const LineChart = dynamic(() => import('recharts').then((m) => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then((m) => m.Line), { ssr: false });
+const BarChart = dynamic(() => import('recharts').then((m) => m.BarChart), { ssr: false });
+const Bar = dynamic(() => import('recharts').then((m) => m.Bar), { ssr: false });
 const PieChart = dynamic(() => import('recharts').then((m) => m.PieChart), { ssr: false });
 const Pie = dynamic(() => import('recharts').then((m) => m.Pie), { ssr: false });
 const XAxis = dynamic(() => import('recharts').then((m) => m.XAxis), { ssr: false });
@@ -203,6 +205,7 @@ export default function HospitalDashboardPage() {
 
   const [patientFilter, setPatientFilter] = useState<TimeFilter>('month');
   const [apptFilter, setApptFilter] = useState<TimeFilter>('month');
+  const [patientBarFilter, setPatientBarFilter] = useState<'day' | 'week' | 'month' | 'year'>('month');
   const [chartDoctorFilter, setChartDoctorFilter] = useState<string | null>(null); // null = All Hospital
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState(() => getCurrentTime().getMonth());
@@ -398,7 +401,54 @@ export default function HospitalDashboardPage() {
     ];
   }, [licenseStats, stats]);
 
-  // Team Status donut data
+  // Patient Bar Chart data (new vs existing)
+  const patientBarData = useMemo(() => {
+    const now = new Date();
+    let periodStart: Date;
+    let periodLabel: string;
+
+    switch (patientBarFilter) {
+      case 'day':
+        periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        periodLabel = 'Today';
+        break;
+      case 'week':
+        periodStart = new Date(now);
+        periodStart.setDate(now.getDate() - now.getDay());
+        periodStart.setHours(0, 0, 0, 0);
+        periodLabel = 'This Week';
+        break;
+      case 'year':
+        periodStart = new Date(now.getFullYear(), 0, 1);
+        periodLabel = 'This Year';
+        break;
+      default: // month
+        periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        periodLabel = 'This Month';
+    }
+
+    // New patients: created within the period
+    const newPatients = patients.filter((p: any) => new Date(p.createdAt) >= periodStart).length;
+
+    // Existing patients: created before the period but had appointments within the period
+    const existingPatientIds = new Set(
+      appointments
+        .filter((a: any) => {
+          const apptDate = new Date(a.appointmentDate || a.createdAt);
+          return apptDate >= periodStart;
+        })
+        .map((a: any) => a.patientId)
+    );
+
+    const existingPatients = patients.filter((p: any) => {
+      const created = new Date(p.createdAt);
+      return created < periodStart && existingPatientIds.has(p.id);
+    }).length;
+
+    return { newPatients, existingPatients, periodLabel };
+  }, [patients, appointments, patientBarFilter]);
+
+  // Team Status donut data (keeping for appointment status)
   const teamStatusData = useMemo(() => [
     { name: 'Active', value: stats.activeDoctors },
     { name: 'Pending', value: stats.pendingDoctors },
@@ -461,7 +511,7 @@ export default function HospitalDashboardPage() {
         m[s.dayOfWeek].push({ shiftType: 'AM', shiftStart: '06:00', shiftEnd: '14:00' });
       }
       if (hasEvening) {
-        m[s.dayOfWeek].push({ shiftType: 'PM', shiftStart: '14:00', shiftEnd: '22:00' });
+        m[s.dayOfWeek].push({ shiftType: 'AFT', shiftStart: '14:00', shiftEnd: '22:00' });
       }
       if (hasNight) {
         m[s.dayOfWeek].push({ shiftType: 'NT', shiftStart: '22:00', shiftEnd: '06:00' });
@@ -576,30 +626,56 @@ export default function HospitalDashboardPage() {
               </div>
             </div>
 
-            {/* Team Status Donut */}
+            {/* Patient Donut (New vs Existing) */}
             <div className="flex-1 bg-white rounded-lg border border-slate-200 p-2 flex items-center gap-2">
               <div className="relative w-16 h-16 flex-shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={teamStatusData.length > 0 ? teamStatusData : [{ name: 'None', value: 1 }]} cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none">
-                      {(teamStatusData.length > 0 ? teamStatusData : [{ name: 'None', value: 1 }]).map((_, i: number) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
+                    <Pie
+                      data={[
+                        { name: 'New', value: patientBarData.newPatients || 0 },
+                        { name: 'Existing', value: patientBarData.existingPatients || 0 }
+                      ].filter(d => d.value > 0)}
+                      cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none"
+                    >
+                      <Cell fill={chartColors.accent} />
+                      <Cell fill={chartColors.primary} />
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs font-bold text-slate-900">{stats.totalDoctors}</span>
+                  <span className="text-xs font-bold text-slate-900">{patientBarData.newPatients + patientBarData.existingPatients}</span>
                   <span className="text-[8px] text-slate-400">total</span>
                 </div>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Team</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Patients</p>
+                  <div className="flex gap-0.5">
+                    {(['day', 'week', 'month', 'year'] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setPatientBarFilter(f)}
+                        className={`px-1 py-0.5 text-[7px] font-medium rounded transition-colors ${
+                          patientBarFilter === f
+                            ? 'bg-navy-600 text-white'
+                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        }`}
+                      >
+                        {f.charAt(0).toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="space-y-0.5">
-                  {teamStatusData.slice(0, 3).map((d: any, i: number) => (
-                    <span key={i} className="flex items-center gap-1 text-[9px] text-slate-600">
-                      <span className="w-1.5 h-1.5 rounded-sm flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
-                      <span className="truncate">{d.name}: {d.value}</span>
-                    </span>
-                  ))}
+                  <span className="flex items-center gap-1 text-[9px] text-slate-600">
+                    <span className="w-1.5 h-1.5 rounded-sm flex-shrink-0" style={{ background: chartColors.accent }} />
+                    <span className="truncate">New: {patientBarData.newPatients}</span>
+                  </span>
+                  <span className="flex items-center gap-1 text-[9px] text-slate-600">
+                    <span className="w-1.5 h-1.5 rounded-sm flex-shrink-0" style={{ background: chartColors.primary }} />
+                    <span className="truncate">Existing: {patientBarData.existingPatients}</span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -821,10 +897,10 @@ export default function HospitalDashboardPage() {
                       };
                       const getShiftColor = (type: string, isCurrentDay: boolean) => {
                         if (isCurrentDay) return 'bg-white/20 text-white';
-                        if (type === 'AM') return 'bg-lime-100 text-lime-700';
-                        if (type === 'PM') return 'bg-amber-100 text-amber-700';
-                        if (type === 'NT') return 'bg-purple-100 text-purple-700';
-                        return 'bg-navy-100 text-navy-700';
+                        if (type === 'AM') return 'bg-yellow-100 text-yellow-700';
+                        if (type === 'AFT') return 'bg-orange-100 text-orange-700';
+                        if (type === 'NT') return 'bg-navy-700 text-white';
+                        return 'bg-navy-700 text-white';
                       };
                       const isCurrentDay = idx === hospitalNow.getDay();
                       return (

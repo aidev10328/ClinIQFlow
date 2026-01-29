@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../../../components/AuthProvider';
 import { apiFetch } from '../../../../lib/api';
 import { useHospitalTimezone } from '../../../../hooks/useHospitalTimezone';
@@ -102,6 +103,7 @@ function getStatusLabel(status?: string) {
 export default function DoctorDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { currentHospital, user, profile } = useAuth();
   const { timezoneLabel, getCurrentTime } = useHospitalTimezone();
 
@@ -114,6 +116,7 @@ export default function DoctorDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'schedule'>('overview');
   const [doctor, setDoctor] = useState<DoctorProfile | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -365,6 +368,7 @@ export default function DoctorDetailPage() {
 
   async function handleSaveSchedule() {
     setSaving(true);
+    setSaveSuccess(false);
     try {
       const schedulesToSave = schedule.map((day) => {
         if (!day.isWorking || (!day.morningShift && !day.eveningShift && !day.nightShift)) {
@@ -383,12 +387,20 @@ export default function DoctorDetailPage() {
         body: JSON.stringify({ schedules: schedulesToSave }),
       });
 
-      if (!res.ok) {
+      if (res.ok) {
+        setSaveSuccess(true);
+        // Refetch schedules to ensure UI is in sync
+        await fetchSchedules();
+        // Invalidate dashboard cache so it shows updated data
+        queryClient.invalidateQueries({ queryKey: ['hospital', 'members', 'compliance'] });
+        setTimeout(() => setSaveSuccess(false), 2000);
+      } else {
         const error = await res.json();
         alert(error.message || 'Failed to save schedule');
       }
     } catch (error) {
       console.error('Failed to save schedule:', error);
+      alert('Failed to save schedule');
     } finally {
       setSaving(false);
     }
@@ -727,17 +739,17 @@ export default function DoctorDetailPage() {
             <div className="flex items-center gap-3">
               <h3 className="text-sm font-medium text-slate-700">Weekly Schedule</h3>
               <div className="flex items-center gap-2 text-[10px]">
-                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">AM</span>
+                <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 font-semibold">AM</span>
                 <span className="text-slate-400">{formatTime(shiftTimings.morning.start)}-{formatTime(shiftTimings.morning.end)}</span>
-                <span className="px-1.5 py-0.5 rounded bg-navy-100 text-navy-700 font-semibold">PM</span>
+                <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-semibold">AFT</span>
                 <span className="text-slate-400">{formatTime(shiftTimings.evening.start)}-{formatTime(shiftTimings.evening.end)}</span>
-                <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold">NT</span>
+                <span className="px-1.5 py-0.5 rounded bg-navy-700 text-white font-semibold">NT</span>
                 <span className="text-slate-400">{formatTime(shiftTimings.night.start)}-{formatTime(shiftTimings.night.end)}</span>
                 <button onClick={() => { setEditingShiftTimings(shiftTimings); setShowShiftTimingsModal(true); }} className="text-navy-600 hover:underline ml-1">Edit</button>
               </div>
             </div>
-            <button onClick={handleSaveSchedule} disabled={saving} className="px-3 py-1.5 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50 transition-colors">
-              {saving ? 'Saving...' : 'Save Schedule'}
+            <button onClick={handleSaveSchedule} disabled={saving} className={`px-3 py-1.5 text-xs font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${saveSuccess ? 'bg-green-600 hover:bg-green-700' : 'bg-navy-600 hover:bg-navy-700'}`}>
+              {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Schedule'}
             </button>
           </div>
 
@@ -752,9 +764,9 @@ export default function DoctorDetailPage() {
                       {['morning', 'evening', 'night'].map((shift) => {
                         const isActive = day[`${shift}Shift` as keyof DoctorSchedule] as boolean;
                         const shiftConfig = {
-                          morning: { label: 'AM', active: 'bg-amber-100 text-amber-700 border-amber-200', inactive: 'bg-white text-slate-300 border-slate-200' },
-                          evening: { label: 'PM', active: 'bg-navy-100 text-navy-700 border-blue-200', inactive: 'bg-white text-slate-300 border-slate-200' },
-                          night: { label: 'NT', active: 'bg-purple-100 text-purple-700 border-purple-200', inactive: 'bg-white text-slate-300 border-slate-200' },
+                          morning: { label: 'AM', active: 'bg-yellow-100 text-yellow-700 border-yellow-200', inactive: 'bg-white text-slate-300 border-slate-200' },
+                          evening: { label: 'AFT', active: 'bg-orange-100 text-orange-700 border-orange-200', inactive: 'bg-white text-slate-300 border-slate-200' },
+                          night: { label: 'NT', active: 'bg-navy-700 text-white border-navy-600', inactive: 'bg-white text-slate-300 border-slate-200' },
                         };
                         const cfg = shiftConfig[shift as keyof typeof shiftConfig];
                         return (
@@ -911,11 +923,12 @@ export default function DoctorDetailPage() {
             </div>
             <div className="p-5 space-y-4">
               {(['morning', 'evening', 'night'] as const).map((shift) => {
-                const colors = { morning: { bg: 'bg-amber-50', border: 'border-amber-100', text: 'text-amber-700' }, evening: { bg: 'bg-navy-50', border: 'border-navy-100', text: 'text-navy-700' }, night: { bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-700' } };
+                const colors = { morning: { bg: 'bg-yellow-50', border: 'border-yellow-100', text: 'text-yellow-700' }, evening: { bg: 'bg-orange-50', border: 'border-orange-100', text: 'text-orange-700' }, night: { bg: 'bg-navy-50', border: 'border-navy-100', text: 'text-navy-700' } };
+                const labels = { morning: 'Morning', evening: 'Afternoon', night: 'Night' };
                 const c = colors[shift];
                 return (
                   <div key={shift} className={`p-4 rounded-lg ${c.bg} border ${c.border}`}>
-                    <p className={`text-sm font-semibold ${c.text} capitalize mb-3`}>{shift} Shift</p>
+                    <p className={`text-sm font-semibold ${c.text} mb-3`}>{labels[shift]} Shift</p>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs text-slate-600 mb-1">Start Time</label>

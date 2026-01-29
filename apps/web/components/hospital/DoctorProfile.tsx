@@ -306,8 +306,11 @@ export function DoctorProfile() {
     }));
   }
 
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   async function handleSaveSchedule() {
     setSaving(true);
+    setSaveSuccess(false);
     try {
       const schedulesToSave = schedule.map((day) => {
         if (!day.isWorking || (!day.morningShift && !day.eveningShift && !day.nightShift)) {
@@ -338,7 +341,12 @@ export function DoctorProfile() {
         body: JSON.stringify({ schedules: schedulesToSave }),
       });
 
-      if (!res.ok) {
+      if (res.ok) {
+        setSaveSuccess(true);
+        // Refetch schedules to ensure UI is in sync with database
+        await fetchSchedules();
+        setTimeout(() => setSaveSuccess(false), 2000);
+      } else {
         const error = await res.json();
         alert(error.message || 'Failed to save schedule');
       }
@@ -958,9 +966,13 @@ export function DoctorProfile() {
                   <button
                     onClick={handleSaveSchedule}
                     disabled={saving}
-                    className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] rounded-lg disabled:opacity-50 transition-colors"
+                    className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${
+                      saveSuccess
+                        ? 'bg-green-500 hover:bg-green-600'
+                        : 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)]'
+                    }`}
                   >
-                    {saving ? 'Saving...' : 'Save'}
+                    {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
                   </button>
                 </div>
                 <div className="p-4">
@@ -978,7 +990,7 @@ export function DoctorProfile() {
                         </span>
                         <div className="flex gap-2 flex-1">
                           <label className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                            day.morningShift ? 'bg-amber-200 text-amber-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                            day.morningShift ? 'bg-yellow-200 text-yellow-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
                           }`}>
                             <input
                               type="checkbox"
@@ -989,7 +1001,7 @@ export function DoctorProfile() {
                             Morning
                           </label>
                           <label className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                            day.eveningShift ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                            day.eveningShift ? 'bg-orange-200 text-orange-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
                           }`}>
                             <input
                               type="checkbox"
@@ -997,10 +1009,10 @@ export function DoctorProfile() {
                               onChange={(e) => handleScheduleChange(idx, 'eveningShift', e.target.checked)}
                               className="sr-only"
                             />
-                            Evening
+                            Afternoon
                           </label>
                           <label className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                            day.nightShift ? 'bg-purple-200 text-purple-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                            day.nightShift ? 'bg-navy-700 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
                           }`}>
                             <input
                               type="checkbox"
