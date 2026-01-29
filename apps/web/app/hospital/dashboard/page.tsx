@@ -222,6 +222,12 @@ export default function HospitalDashboardPage() {
   const apptEnd = useMemo(() => new Date().toISOString().split('T')[0], []);
   const { data: appointments = [] } = useApiQuery<any[]>(['hospital', 'appointments', 'all', apptStart, apptEnd], `/v1/appointments?startDate=${apptStart}&endDate=${apptEnd}`);
 
+  // Queue stats for walk-in trends
+  const { data: queueStats = [] } = useApiQuery<{ date: string; walkIns: number; scheduled: number }[]>(
+    ['hospital', 'queue-stats', apptStart, apptEnd, chartDoctorFilter || ''],
+    `/v1/queue/stats?startDate=${apptStart}&endDate=${apptEnd}${chartDoctorFilter ? `&doctorProfileId=${chartDoctorFilter}` : ''}`
+  );
+
   const { data: selectedDoctorProfileData } = useApiQuery<any>(
     ['hospital', 'doctor-profile', selectedDoctorId || ''],
     selectedDoctorId ? `/v1/doctors/${selectedDoctorId}/profile` : '',
@@ -303,8 +309,8 @@ export default function HospitalDashboardPage() {
     }
 
     const newMap: Record<string, number> = {};
-    const totalMap: Record<string, number> = {};
-    buckets.forEach((b) => { newMap[b.key] = 0; totalMap[b.key] = 0; });
+    const walkInMap: Record<string, number> = {};
+    buckets.forEach((b) => { newMap[b.key] = 0; walkInMap[b.key] = 0; });
 
     // Count NEW patient registrations by createdAt date
     filteredPatients.forEach((p: any) => {
@@ -324,19 +330,32 @@ export default function HospitalDashboardPage() {
       if (newMap[k] !== undefined) newMap[k]++;
     });
 
-    // Calculate cumulative total
-    let cumulative = filteredPatients.filter((p: any) => new Date(p.createdAt) < start).length;
-    buckets.forEach((b) => {
-      cumulative += newMap[b.key];
-      totalMap[b.key] = cumulative;
+    // Add walk-ins from queue stats
+    queueStats.forEach((stat) => {
+      const d = new Date(stat.date);
+      if (d < start) return;
+
+      let k: string;
+      if (type === 'hours') {
+        // For hourly view, we don't have hourly queue data, so skip
+        return;
+      } else if (type === 'months') {
+        k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      } else {
+        k = stat.date;
+      }
+
+      if (walkInMap[k] !== undefined) {
+        walkInMap[k] += stat.walkIns;
+      }
     });
 
     return buckets.map((b) => ({
       label: b.label,
-      'New': newMap[b.key] || 0,
-      'Total': totalMap[b.key] || 0,
+      'Registered': newMap[b.key] || 0,
+      'Walk-ins': walkInMap[b.key] || 0,
     }));
-  }, [patients, appointments, patientFilter, chartDoctorFilter]);
+  }, [patients, appointments, patientFilter, chartDoctorFilter, queueStats]);
 
   const apptChartData = useMemo(() => {
     const { start, type } = getDateRange(apptFilter);
@@ -650,14 +669,14 @@ export default function HospitalDashboardPage() {
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={{ stroke: '#E2E8F0' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="New" stroke={chartColors.primary} strokeWidth={2} fill="url(#newPatientFill)" dot={false} />
-                  <Area type="monotone" dataKey="Total" stroke={chartColors.accent} strokeWidth={2} fill="url(#returningFill)" dot={false} />
+                  <Area type="monotone" dataKey="Registered" stroke={chartColors.primary} strokeWidth={2} fill="url(#newPatientFill)" dot={false} />
+                  <Area type="monotone" dataKey="Walk-ins" stroke={chartColors.accent} strokeWidth={2} fill="url(#returningFill)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-3 mt-1 flex-shrink-0">
-              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.primary }} />New Patients</span>
-              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Cumulative</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.primary }} />Registered</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Walk-ins</span>
             </div>
           </div>
 

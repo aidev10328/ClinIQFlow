@@ -709,4 +709,54 @@ export class QueueService {
       } : undefined,
     };
   }
+
+  /**
+   * Get queue stats for trends (walk-ins by date)
+   */
+  async getQueueStats(
+    hospitalId: string,
+    startDate: string,
+    endDate: string,
+    doctorProfileId?: string,
+  ): Promise<{ date: string; walkIns: number; scheduled: number }[]> {
+    const adminClient = this.getAdminClientOrThrow();
+
+    let query = adminClient
+      .from('queue_entries')
+      .select('queue_date, entry_type')
+      .eq('hospital_id', hospitalId)
+      .gte('queue_date', startDate)
+      .lte('queue_date', endDate);
+
+    if (doctorProfileId) {
+      query = query.eq('doctor_profile_id', doctorProfileId);
+    }
+
+    const { data: entries, error } = await query;
+
+    if (error) {
+      this.logger.error('Error fetching queue stats:', error);
+      throw new BadRequestException('Failed to fetch queue stats');
+    }
+
+    // Group by date and count
+    const statsByDate: Record<string, { walkIns: number; scheduled: number }> = {};
+
+    (entries || []).forEach((entry: any) => {
+      const date = entry.queue_date;
+      if (!statsByDate[date]) {
+        statsByDate[date] = { walkIns: 0, scheduled: 0 };
+      }
+      if (entry.entry_type === 'WALK_IN') {
+        statsByDate[date].walkIns++;
+      } else {
+        statsByDate[date].scheduled++;
+      }
+    });
+
+    // Convert to array sorted by date
+    return Object.entries(statsByDate)
+      .map(([date, stats]) => ({ date, ...stats }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
 }

@@ -25,6 +25,29 @@ export class QueueController {
   constructor(private readonly queueService: QueueService) {}
 
   /**
+   * Get queue stats for trends (walk-ins and scheduled by date)
+   * GET /v1/queue/stats?startDate=2024-01-01&endDate=2024-01-31&doctorProfileId=xxx
+   */
+  @Get('stats')
+  async getQueueStats(
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('doctorProfileId') doctorProfileId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException('x-hospital-id header required');
+    }
+
+    if (!startDate || !endDate) {
+      throw new BadRequestException('startDate and endDate query parameters required');
+    }
+
+    return this.queueService.getQueueStats(hospitalId, startDate, endDate, doctorProfileId || undefined);
+  }
+
+  /**
    * Get daily queue for a doctor
    * GET /v1/queue/daily?doctorProfileId=xxx&date=2024-01-26
    */
