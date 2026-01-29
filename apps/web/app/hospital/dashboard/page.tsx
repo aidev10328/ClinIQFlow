@@ -302,25 +302,13 @@ export default function HospitalDashboardPage() {
       filteredPatients = patients.filter((p: any) => doctorPatientIds.has(p.id));
     }
 
-    const sorted = [...filteredPatients].sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-    // Track first visit dates to determine new vs returning
-    const patientFirstVisit: Record<string, Date> = {};
-    sorted.forEach((p: any) => {
-      patientFirstVisit[p.id] = new Date(p.createdAt);
-    });
-
     const newMap: Record<string, number> = {};
-    const returningMap: Record<string, number> = {};
-    buckets.forEach((b) => { newMap[b.key] = 0; returningMap[b.key] = 0; });
+    const totalMap: Record<string, number> = {};
+    buckets.forEach((b) => { newMap[b.key] = 0; totalMap[b.key] = 0; });
 
-    // Count appointments per bucket
-    const relevantAppts = chartDoctorFilter
-      ? appointments.filter((a: any) => a.doctorProfileId === chartDoctorFilter || a.doctorId === chartDoctorFilter)
-      : appointments;
-
-    relevantAppts.forEach((a: any) => {
-      const d = new Date(a.appointmentDate || a.createdAt);
+    // Count NEW patient registrations by createdAt date
+    filteredPatients.forEach((p: any) => {
+      const d = new Date(p.createdAt);
       if (d < start) return;
 
       let k: string;
@@ -333,22 +321,20 @@ export default function HospitalDashboardPage() {
         k = bKey(d);
       }
 
-      if (newMap[k] === undefined) return;
+      if (newMap[k] !== undefined) newMap[k]++;
+    });
 
-      const patientId = a.patientId;
-      const firstVisit = patientFirstVisit[patientId];
-      if (firstVisit && d.getTime() - firstVisit.getTime() < 7 * 24 * 60 * 60 * 1000) {
-        // Within 7 days of first visit = new patient
-        newMap[k]++;
-      } else {
-        returningMap[k]++;
-      }
+    // Calculate cumulative total
+    let cumulative = filteredPatients.filter((p: any) => new Date(p.createdAt) < start).length;
+    buckets.forEach((b) => {
+      cumulative += newMap[b.key];
+      totalMap[b.key] = cumulative;
     });
 
     return buckets.map((b) => ({
       label: b.label,
-      'New Patients': newMap[b.key] || 0,
-      'Returning': returningMap[b.key] || 0,
+      'New': newMap[b.key] || 0,
+      'Total': totalMap[b.key] || 0,
     }));
   }, [patients, appointments, patientFilter, chartDoctorFilter]);
 
@@ -628,11 +614,11 @@ export default function HospitalDashboardPage() {
             </div>
           </div>
 
-          {/* Patient Growth Chart */}
+          {/* Patient Trends Chart */}
           <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold text-slate-900">Patient Activity</h3>
+                <h3 className="text-xs font-semibold text-slate-900">Patients Trends</h3>
                 <select
                   value={chartDoctorFilter || ''}
                   onChange={(e) => setChartDoctorFilter(e.target.value || null)}
@@ -664,22 +650,22 @@ export default function HospitalDashboardPage() {
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={{ stroke: '#E2E8F0' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="New Patients" stroke={chartColors.primary} strokeWidth={2} fill="url(#newPatientFill)" dot={false} />
-                  <Area type="monotone" dataKey="Returning" stroke={chartColors.accent} strokeWidth={2} fill="url(#returningFill)" dot={false} />
+                  <Area type="monotone" dataKey="New" stroke={chartColors.primary} strokeWidth={2} fill="url(#newPatientFill)" dot={false} />
+                  <Area type="monotone" dataKey="Total" stroke={chartColors.accent} strokeWidth={2} fill="url(#returningFill)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-3 mt-1 flex-shrink-0">
               <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.primary }} />New Patients</span>
-              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Returning</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Cumulative</span>
             </div>
           </div>
 
-          {/* Appointments Chart */}
+          {/* Appointments Trends Chart */}
           <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold text-slate-900">Appointments</h3>
+                <h3 className="text-xs font-semibold text-slate-900">Appointments Trends</h3>
                 <select
                   value={chartDoctorFilter || ''}
                   onChange={(e) => setChartDoctorFilter(e.target.value || null)}
