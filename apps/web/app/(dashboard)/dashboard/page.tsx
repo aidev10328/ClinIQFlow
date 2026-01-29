@@ -23,8 +23,8 @@ export default function DashboardPage() {
       return;
     }
 
-    // Users without hospital selected go to selector
-    if (!loading && user && hospitals.length > 0 && !currentHospitalId) {
+    // Users without hospital selected go to selector (handles no hospitals case too)
+    if (!loading && user && !profile?.isSuperAdmin && !currentHospitalId) {
       router.push('/select-hospital');
       return;
     }

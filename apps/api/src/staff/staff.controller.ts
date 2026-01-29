@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { StaffService } from './staff.service';
 import { SupabaseGuard, AuthenticatedRequest } from '../supabase/supabase.guard';
-import { CreateStaffDto, UpdateStaffDto } from './dto/staff.dto';
+import { CreateStaffDto, UpdateStaffDto, ResetPasswordDto } from './dto/staff.dto';
 
 @Controller('v1/staff')
 @UseGuards(SupabaseGuard)
@@ -85,6 +85,30 @@ export class StaffController {
     return this.staffService.updateStaff(
       staffId,
       dto,
+      hospitalId,
+      req.user.id,
+      req.accessToken,
+    );
+  }
+
+  /**
+   * Reset a staff member's password (HOSPITAL_MANAGER only)
+   * POST /v1/staff/:staffId/reset-password
+   */
+  @Post(':staffId/reset-password')
+  async resetPassword(
+    @Param('staffId') staffId: string,
+    @Body() dto: ResetPasswordDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException('x-hospital-id header is required');
+    }
+
+    return this.staffService.resetPassword(
+      staffId,
+      dto.newPassword,
       hospitalId,
       req.user.id,
       req.accessToken,

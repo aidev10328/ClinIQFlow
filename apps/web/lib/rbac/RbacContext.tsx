@@ -61,7 +61,7 @@ export function RbacProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       setError(null);
 
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
       const headers: Record<string, string> = {
         'Authorization': `Bearer ${session.access_token}`,
         'Content-Type': 'application/json',

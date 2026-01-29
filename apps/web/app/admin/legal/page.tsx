@@ -62,7 +62,7 @@ export default function AdminLegalPage() {
   const [editingDoc, setEditingDoc] = useState<LegalDocument | null>(null);
   const [updating, setUpdating] = useState(false);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
   // Fetch documents
   const fetchDocuments = useCallback(async () => {

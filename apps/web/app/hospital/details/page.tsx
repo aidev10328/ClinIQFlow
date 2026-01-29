@@ -1,11 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
 import { useRbac } from '../../../lib/rbac/RbacContext';
+import { COUNTRIES, COUNTRY_NAME_TO_CODE } from '../../../lib/countries';
+import { getStatesForCountry, getStateName } from '../../../lib/countryStateData';
+import PhoneInput from '../../../components/PhoneInput';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -15,22 +18,48 @@ interface HospitalDetails {
   id: string;
   name: string;
   addressLine1?: string;
+  addressLine2?: string;
   city?: string;
   state?: string;
   postal?: string;
   country: string;
+  region?: string;
   phone?: string;
   email?: string;
   website?: string;
   logoUrl?: string;
+  pictureUrl?: string;
+  legalEntityName?: string;
+  taxIdType?: string;
+  taxIdValue?: string;
+  billingContactEmail?: string;
+  billingAddressLine1?: string;
+  billingAddressLine2?: string;
+  billingCity?: string;
+  billingState?: string;
+  billingPostal?: string;
+  billingCountry?: string;
+  storesPhi?: boolean;
+  estimatedPatientVolume?: number;
+  dataRetentionDays?: number;
+  hospitalType?: string;
+  specialties?: { id: string; name: string }[];
+}
+
+interface Specialization {
+  id: string;
+  name: string;
+  description?: string;
 }
 
 interface StaffMember {
   id: string;
   email: string;
   displayName: string;
+  title?: string | null;
   phone?: string | null;
   status: string;
+  assignedDoctorIds?: string[] | null;
   createdAt: string;
 }
 
@@ -108,24 +137,41 @@ function HospitalAdministrationContent() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Hospital
-  const [hospitalEditMode, setHospitalEditMode] = useState(false);
-  const [addressEditMode, setAddressEditMode] = useState(false);
-  const [hospitalSaving, setHospitalSaving] = useState(false);
-  const [addressSaving, setAddressSaving] = useState(false);
+  const [generalEditMode, setGeneralEditMode] = useState(false);
+  const [billingAddressEditMode, setBillingAddressEditMode] = useState(false);
+  const [legalComplianceEditMode, setLegalComplianceEditMode] = useState(false);
+  const [classificationEditMode, setClassificationEditMode] = useState(false);
+  const [generalSaving, setGeneralSaving] = useState(false);
+  const [billingAddressSaving, setBillingAddressSaving] = useState(false);
+  const [legalComplianceSaving, setLegalComplianceSaving] = useState(false);
+  const [classificationSaving, setClassificationSaving] = useState(false);
   const [hospital, setHospital] = useState<Partial<HospitalDetails>>({});
   const [originalHospital, setOriginalHospital] = useState<Partial<HospitalDetails>>({});
+  const [specializations, setSpecializations] = useState<Specialization[]>([]);
+  const [selectedSpecialtyIds, setSelectedSpecialtyIds] = useState<string[]>([]);
+  const [sameAsHospitalAddress, setSameAsHospitalAddress] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [picturePreview, setPicturePreview] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const pictureInputRef = useRef<HTMLInputElement>(null);
 
   // Manager Profile
   const [profileEditMode, setProfileEditMode] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
-  const [profileForm, setProfileForm] = useState({ fullName: '', phone: '' });
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '' });
 
   // Staff
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [staffSaving, setStaffSaving] = useState(false);
-  const [staffForm, setStaffForm] = useState({ email: '', password: '', displayName: '', phone: '' });
+  const [staffForm, setStaffForm] = useState({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' });
+  const [staffAssignAll, setStaffAssignAll] = useState(true);
+  const [staffSelectedDoctorIds, setStaffSelectedDoctorIds] = useState<string[]>([]);
+  const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
+  const [passwordResetStaff, setPasswordResetStaff] = useState<StaffMember | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
 
   // Doctors
   const [doctors, setDoctors] = useState<Doctor[]>([]);
@@ -170,7 +216,7 @@ function HospitalAdministrationContent() {
     async function fetchAll() {
       if (!currentHospitalId) return;
       try {
-        const [hospRes, staffRes, membersRes, invitesRes, subRes, statsRes, licRes, patientsRes] = await Promise.all([
+        const [hospRes, staffRes, membersRes, invitesRes, subRes, statsRes, licRes, patientsRes, specRes] = await Promise.all([
           apiFetch(`/v1/hospitals/${currentHospitalId}`),
           apiFetch('/v1/staff'),
           apiFetch('/v1/hospitals/members/compliance'),
@@ -179,12 +225,31 @@ function HospitalAdministrationContent() {
           apiFetch('/v1/products/subscription/license-stats'),
           apiFetch('/v1/products/licenses'),
           apiFetch('/v1/patients'),
+          apiFetch('/v1/specializations'),
         ]);
 
+        if (specRes.ok) setSpecializations(await specRes.json());
         if (hospRes.ok) {
           const d = await hospRes.json();
+          // Normalize country to ISO code if stored as full name
+          if (d.country && d.country.length > 2) {
+            const code = COUNTRY_NAME_TO_CODE[d.country];
+            if (code) d.country = code;
+          }
+          if (d.billingCountry && d.billingCountry.length > 2) {
+            const code = COUNTRY_NAME_TO_CODE[d.billingCountry];
+            if (code) d.billingCountry = code;
+          }
           setHospital(d);
           setOriginalHospital(d);
+          setSelectedSpecialtyIds((d.specialties || []).map((s: any) => s.id));
+          setLogoPreview(d.logoUrl || null);
+          setPicturePreview(d.pictureUrl || null);
+          if (d.billingAddressLine1 && d.billingAddressLine1 === d.addressLine1 &&
+              d.billingCity === d.city && d.billingState === d.state &&
+              d.billingPostal === d.postal && d.billingCountry === d.country) {
+            setSameAsHospitalAddress(true);
+          }
         }
         if (staffRes.ok) setStaff(await staffRes.json());
         if (membersRes.ok) {
@@ -205,52 +270,177 @@ function HospitalAdministrationContent() {
     }
     fetchAll();
 
-    if (profile) setProfileForm({ fullName: profile.fullName || '', phone: profile.phone || '' });
+    if (profile) {
+      const nameParts = (profile.fullName || '').split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      setProfileForm({ firstName, lastName, phone: profile.phone || '' });
+    }
 
     const tab = searchParams.get('tab');
     if (tab && ['details', 'manager', 'staff', 'doctors', 'patients'].includes(tab)) setActiveTab(tab as TabType);
   }, [currentHospitalId, profile, searchParams]);
 
   // ─── HANDLERS ────────────────────────────────────────────────────────────────
-  async function saveHospital() {
-    if (!currentHospitalId) return;
-    setHospitalSaving(true);
-    try {
-      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({ name: hospital.name, phone: hospital.phone, email: hospital.email, website: hospital.website }) });
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'Hospital updated' });
-        setHospitalEditMode(false);
-        setOriginalHospital(hospital);
-        refreshProfile();
-      } else {
-        setMessage({ type: 'error', text: 'Failed to update' });
-      }
-    } catch { setMessage({ type: 'error', text: 'Failed to update' }); }
-    finally { setHospitalSaving(false); }
+  // Helper: resolve country code for display
+  const displayCountry = (code: string) => COUNTRIES.find(c => c.code === code)?.name || code;
+  const displayState = (country: string, state: string) => {
+    const states = getStatesForCountry(country);
+    return states.find(s => s.code === state)?.name || state;
+  };
+
+  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setMessage({ type: 'error', text: 'Logo must be under 2MB' }); return; }
+    const reader = new FileReader();
+    reader.onloadend = () => { setLogoPreview(reader.result as string); setHospital(h => ({ ...h, logoUrl: reader.result as string })); };
+    reader.readAsDataURL(file);
   }
 
-  async function saveAddress() {
+  function handlePictureChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setMessage({ type: 'error', text: 'Picture must be under 2MB' }); return; }
+    const reader = new FileReader();
+    reader.onloadend = () => { setPicturePreview(reader.result as string); setHospital(h => ({ ...h, pictureUrl: reader.result as string })); };
+    reader.readAsDataURL(file);
+  }
+
+  async function saveGeneral() {
     if (!currentHospitalId) return;
-    setAddressSaving(true);
+    if (!hospital.name?.trim()) { setMessage({ type: 'error', text: 'Hospital Name is required' }); return; }
+    if (!hospital.addressLine1?.trim() || !hospital.city?.trim() || !hospital.state?.trim() || !hospital.postal?.trim() || !hospital.country?.trim()) {
+      setMessage({ type: 'error', text: 'All address fields (except Line 2) are required' }); return;
+    }
+    setGeneralSaving(true);
     try {
-      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({ addressLine1: hospital.addressLine1, city: hospital.city, state: hospital.state, postal: hospital.postal, country: hospital.country }) });
+      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({
+        name: hospital.name, phone: hospital.phone, email: hospital.email, website: hospital.website,
+        addressLine1: hospital.addressLine1, addressLine2: hospital.addressLine2,
+        city: hospital.city, state: hospital.state, postal: hospital.postal, country: hospital.country,
+        logoUrl: hospital.logoUrl, pictureUrl: hospital.pictureUrl,
+      })});
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Address updated' });
-        setAddressEditMode(false);
+        setMessage({ type: 'success', text: 'Hospital information updated' });
+        setGeneralEditMode(false);
         setOriginalHospital(hospital);
         refreshProfile();
       } else {
         setMessage({ type: 'error', text: 'Failed to update' });
       }
     } catch { setMessage({ type: 'error', text: 'Failed to update' }); }
-    finally { setAddressSaving(false); }
+    finally { setGeneralSaving(false); }
   }
+
+  async function saveBillingAddress() {
+    if (!currentHospitalId) return;
+    const billingData = sameAsHospitalAddress
+      ? { billingAddressLine1: hospital.addressLine1, billingAddressLine2: hospital.addressLine2, billingCity: hospital.city, billingState: hospital.state, billingPostal: hospital.postal, billingCountry: hospital.country }
+      : { billingAddressLine1: hospital.billingAddressLine1, billingAddressLine2: hospital.billingAddressLine2, billingCity: hospital.billingCity, billingState: hospital.billingState, billingPostal: hospital.billingPostal, billingCountry: hospital.billingCountry };
+    if (!billingData.billingAddressLine1?.trim() || !billingData.billingCity?.trim() || !billingData.billingState?.trim() || !billingData.billingPostal?.trim() || !billingData.billingCountry?.trim()) {
+      setMessage({ type: 'error', text: 'All billing address fields are required' }); return;
+    }
+    setBillingAddressSaving(true);
+    try {
+      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify(billingData) });
+      if (res.ok) {
+        if (sameAsHospitalAddress) setHospital(h => ({ ...h, ...billingData }));
+        setMessage({ type: 'success', text: 'Billing address updated' });
+        setBillingAddressEditMode(false);
+        setOriginalHospital(hospital);
+      } else {
+        setMessage({ type: 'error', text: 'Failed to update' });
+      }
+    } catch { setMessage({ type: 'error', text: 'Failed to update' }); }
+    finally { setBillingAddressSaving(false); }
+  }
+
+  async function saveLegalCompliance() {
+    if (!currentHospitalId) return;
+    setLegalComplianceSaving(true);
+    try {
+      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({
+        legalEntityName: hospital.legalEntityName, taxIdType: hospital.taxIdType || undefined,
+        taxIdValue: hospital.taxIdValue, billingContactEmail: hospital.billingContactEmail,
+        storesPhi: hospital.storesPhi,
+        estimatedPatientVolume: hospital.estimatedPatientVolume ? Number(hospital.estimatedPatientVolume) : undefined,
+        dataRetentionDays: hospital.dataRetentionDays ? Number(hospital.dataRetentionDays) : undefined,
+      })});
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Legal & compliance info updated' });
+        setLegalComplianceEditMode(false);
+        setOriginalHospital(hospital);
+      } else {
+        setMessage({ type: 'error', text: 'Failed to update' });
+      }
+    } catch { setMessage({ type: 'error', text: 'Failed to update' }); }
+    finally { setLegalComplianceSaving(false); }
+  }
+
+  async function saveClassification() {
+    if (!currentHospitalId) return;
+    if (!hospital.hospitalType) { setMessage({ type: 'error', text: 'Hospital Type is required' }); return; }
+    if (selectedSpecialtyIds.length === 0) { setMessage({ type: 'error', text: 'At least one specialty is required' }); return; }
+    setClassificationSaving(true);
+    try {
+      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({ hospitalType: hospital.hospitalType, specialtyIds: selectedSpecialtyIds }) });
+      if (res.ok) {
+        const updated = await res.json();
+        setMessage({ type: 'success', text: 'Classification updated' });
+        setClassificationEditMode(false);
+        setHospital(updated);
+        setOriginalHospital(updated);
+        setSelectedSpecialtyIds((updated.specialties || []).map((s: any) => s.id));
+      } else {
+        setMessage({ type: 'error', text: 'Failed to update' });
+      }
+    } catch { setMessage({ type: 'error', text: 'Failed to update' }); }
+    finally { setClassificationSaving(false); }
+  }
+
+  const taxIdTypesByRegion: Record<string, { value: string; label: string }[]> = {
+    US: [{ value: 'EIN', label: 'EIN (Employer Identification Number)' }, { value: 'NPI', label: 'NPI (National Provider Identifier)' }],
+    IN: [{ value: 'GSTIN', label: 'GSTIN' }, { value: 'PAN', label: 'PAN' }, { value: 'TIN', label: 'TIN' }],
+    UK: [{ value: 'UTR', label: 'UTR (Unique Taxpayer Reference)' }, { value: 'CRN', label: 'CRN (Company Registration Number)' }],
+  };
+  const availableTaxIdTypes = taxIdTypesByRegion[hospital.region || ''] || Object.values(taxIdTypesByRegion).flat();
+
+  const hospitalTypeOptions = [
+    { value: 'GENERAL', label: 'General Hospital' },
+    { value: 'SPECIALTY', label: 'Specialty Hospital' },
+    { value: 'TEACHING', label: 'Teaching Hospital' },
+    { value: 'RESEARCH', label: 'Research Hospital' },
+    { value: 'CLINIC', label: 'Clinic' },
+    { value: 'URGENT_CARE', label: 'Urgent Care' },
+    { value: 'REHABILITATION', label: 'Rehabilitation' },
+    { value: 'PSYCHIATRIC', label: 'Psychiatric' },
+    { value: 'CHILDREN', label: "Children's Hospital" },
+    { value: 'GOVERNMENT', label: 'Government Hospital' },
+  ];
+
+  const staffTitleOptions = [
+    'Receptionist',
+    'Front Desk',
+    'Office Manager',
+    'Billing Coordinator',
+    'Medical Assistant',
+    'Nurse',
+    'Lab Technician',
+    'Pharmacist',
+    'Administrative Assistant',
+    'IT Support',
+    'HR Manager',
+    'Accounts',
+    'Other',
+  ];
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     setProfileSaving(true);
     try {
-      const res = await apiFetch('/v1/me', { method: 'PATCH', body: JSON.stringify(profileForm) });
+      const fullName = `${profileForm.firstName} ${profileForm.lastName}`.trim();
+      const res = await apiFetch('/v1/me', { method: 'PATCH', body: JSON.stringify({ fullName, phone: profileForm.phone }) });
       if (res.ok) {
         setMessage({ type: 'success', text: 'Profile updated' });
         setProfileEditMode(false);
@@ -265,16 +455,20 @@ function HospitalAdministrationContent() {
   async function saveStaff(e: React.FormEvent) {
     e.preventDefault();
     setStaffSaving(true);
+    const assignedDoctorIds = staffAssignAll ? null : staffSelectedDoctorIds;
+    const displayName = `${staffForm.firstName} ${staffForm.lastName}`.trim();
     try {
       const url = editingStaff ? `/v1/staff/${editingStaff.id}` : '/v1/staff';
       const body = editingStaff
-        ? { displayName: staffForm.displayName, phone: staffForm.phone || undefined }
-        : { email: staffForm.email, password: staffForm.password, displayName: staffForm.displayName, phone: staffForm.phone || undefined };
+        ? { displayName, title: staffForm.title || undefined, phone: staffForm.phone || undefined, assignedDoctorIds }
+        : { email: staffForm.email, password: staffForm.password, displayName, title: staffForm.title || undefined, phone: staffForm.phone || undefined, assignedDoctorIds };
       const res = await apiFetch(url, { method: editingStaff ? 'PATCH' : 'POST', body: JSON.stringify(body) });
       if (res.ok) {
         setShowStaffModal(false);
         setEditingStaff(null);
-        setStaffForm({ email: '', password: '', displayName: '', phone: '' });
+        setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' });
+        setStaffAssignAll(true);
+        setStaffSelectedDoctorIds([]);
         const r = await apiFetch('/v1/staff');
         if (r.ok) setStaff(await r.json());
         setMessage({ type: 'success', text: editingStaff ? 'Staff updated' : 'Staff created' });
@@ -284,6 +478,28 @@ function HospitalAdministrationContent() {
       }
     } catch { alert('Failed to save'); }
     finally { setStaffSaving(false); }
+  }
+
+  async function handlePasswordReset(e: React.FormEvent) {
+    e.preventDefault();
+    if (!passwordResetStaff) return;
+    setResettingPassword(true);
+    try {
+      const res = await apiFetch(`/v1/staff/${passwordResetStaff.id}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ newPassword: resetPassword }),
+      });
+      if (res.ok) {
+        setShowPasswordResetModal(false);
+        setPasswordResetStaff(null);
+        setResetPassword('');
+        setMessage({ type: 'success', text: `Password reset for ${passwordResetStaff.displayName}` });
+      } else {
+        const err = await res.json();
+        alert(err.message || 'Failed to reset password');
+      }
+    } catch { alert('Failed to reset password'); }
+    finally { setResettingPassword(false); }
   }
 
   async function deleteStaff(id: string) {
@@ -453,80 +669,368 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL DETAILS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'details' && (
-        <div className="grid grid-cols-2 gap-3">
-          {/* General Info Card */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
+        <div className="grid grid-cols-2 gap-3" style={{ gridAutoRows: 'min-content' }}>
+
+          {/* ── Card 1: General Information (merged General + Address + Images) ── */}
+          <div className="bg-white rounded-lg border border-slate-200 p-3 row-span-2">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold text-slate-700">General Information</h3>
-              {hospitalEditMode ? (
+              {generalEditMode ? (
                 <div className="flex gap-1">
-                  <button onClick={() => { setHospital(originalHospital); setHospitalEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                  <button onClick={saveHospital} disabled={hospitalSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{hospitalSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => { setHospital(originalHospital); setLogoPreview(originalHospital.logoUrl || null); setPicturePreview(originalHospital.pictureUrl || null); setGeneralEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                  <button onClick={saveGeneral} disabled={generalSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{generalSaving ? '...' : 'Save'}</button>
                 </div>
               ) : canEditSettings && (
-                <button onClick={() => setHospitalEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                <button onClick={() => setGeneralEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
-            {hospitalEditMode ? (
+            {generalEditMode ? (
               <div className="space-y-2">
-                <input value={hospital.name || ''} onChange={e => setHospital({ ...hospital, name: e.target.value })} placeholder="Hospital Name" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                <input value={hospital.phone || ''} onChange={e => setHospital({ ...hospital, phone: e.target.value })} placeholder="Phone" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                <input value={hospital.email || ''} onChange={e => setHospital({ ...hospital, email: e.target.value })} placeholder="Email" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                <input value={hospital.website || ''} onChange={e => setHospital({ ...hospital, website: e.target.value })} placeholder="Website" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                {/* Images */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500 mb-1 block">Logo</label>
+                    <div onClick={() => logoInputRef.current?.click()} className="h-16 border-2 border-dashed border-slate-200 rounded cursor-pointer flex items-center justify-center hover:border-slate-400 transition-colors overflow-hidden">
+                      {logoPreview ? (
+                        <img src={logoPreview} alt="Logo" className="h-full w-full object-contain" />
+                      ) : (
+                        <div className="text-center">
+                          <svg className="w-4 h-4 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          <p className="text-[9px] text-slate-400 mt-0.5">Upload</p>
+                        </div>
+                      )}
+                    </div>
+                    <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 mb-1 block">Hospital Picture</label>
+                    <div onClick={() => pictureInputRef.current?.click()} className="h-16 border-2 border-dashed border-slate-200 rounded cursor-pointer flex items-center justify-center hover:border-slate-400 transition-colors overflow-hidden">
+                      {picturePreview ? (
+                        <img src={picturePreview} alt="Hospital" className="h-full w-full object-contain" />
+                      ) : (
+                        <div className="text-center">
+                          <svg className="w-4 h-4 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          <p className="text-[9px] text-slate-400 mt-0.5">Upload</p>
+                        </div>
+                      )}
+                    </div>
+                    <input ref={pictureInputRef} type="file" accept="image/*" onChange={handlePictureChange} className="hidden" />
+                  </div>
+                </div>
+
+                {/* Hospital Name */}
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600">Hospital Name <span className="text-red-500">*</span></label>
+                  <input value={hospital.name || ''} onChange={e => setHospital({ ...hospital, name: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500">Phone</label>
+                    <PhoneInput value={hospital.phone || ''} onChange={(value) => setHospital({ ...hospital, phone: value })} placeholder="Phone number" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500">Email</label>
+                    <input value={hospital.email || ''} onChange={e => setHospital({ ...hospital, email: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500">Website</label>
+                  <input value={hospital.website || ''} onChange={e => setHospital({ ...hospital, website: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                </div>
+
+                {/* Address Section */}
+                <div className="border-t border-slate-100 pt-2">
+                  <p className="text-[10px] font-semibold text-slate-600 mb-1.5">Address</p>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Street Address <span className="text-red-500">*</span></label>
+                      <input value={hospital.addressLine1 || ''} onChange={e => setHospital({ ...hospital, addressLine1: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500">Address Line 2</label>
+                      <input value={hospital.addressLine2 || ''} onChange={e => setHospital({ ...hospital, addressLine2: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">Country <span className="text-red-500">*</span></label>
+                        <select value={hospital.country || ''} onChange={e => setHospital({ ...hospital, country: e.target.value, state: '' })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                          <option value="">Select Country</option>
+                          {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">State <span className="text-red-500">*</span></label>
+                        {getStatesForCountry(hospital.country || '').length > 0 ? (
+                          <select value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                            <option value="">Select State</option>
+                            {getStatesForCountry(hospital.country || '').map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                          </select>
+                        ) : (
+                          <input value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} placeholder="State/Province" required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">City <span className="text-red-500">*</span></label>
+                        <input value={hospital.city || ''} onChange={e => setHospital({ ...hospital, city: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">Postal Code <span className="text-red-500">*</span></label>
+                        <input value={hospital.postal || ''} onChange={e => setHospital({ ...hospital, postal: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-1.5 text-[11px]">
-                <div><span className="text-slate-400 w-16 inline-block">Name</span><span className="text-slate-700 font-medium">{hospital.name || '—'}</span></div>
+                {(hospital.logoUrl || hospital.pictureUrl) && (
+                  <div className="flex gap-2 mb-2">
+                    {hospital.logoUrl && <img src={hospital.logoUrl} alt="Logo" className="w-10 h-10 rounded object-cover border border-slate-200" />}
+                    {hospital.pictureUrl && <img src={hospital.pictureUrl} alt="Hospital" className="w-10 h-10 rounded object-cover border border-slate-200" />}
+                  </div>
+                )}
+                <div><span className="text-slate-500 w-16 inline-block font-semibold">Name *</span><span className="text-slate-700 font-medium">{hospital.name || '—'}</span></div>
                 <div><span className="text-slate-400 w-16 inline-block">Phone</span><span className="text-slate-700">{hospital.phone || '—'}</span></div>
                 <div><span className="text-slate-400 w-16 inline-block">Email</span><span className="text-slate-700">{hospital.email || '—'}</span></div>
                 <div><span className="text-slate-400 w-16 inline-block">Website</span>{hospital.website ? <a href={hospital.website} className="text-navy-600 hover:underline">{hospital.website}</a> : <span className="text-slate-700">—</span>}</div>
+                <div className="border-t border-slate-100 pt-1.5 mt-1.5">
+                  <div><span className="text-slate-500 w-16 inline-block font-semibold">Street *</span><span className="text-slate-700">{hospital.addressLine1 || '—'}</span></div>
+                  {hospital.addressLine2 && <div><span className="text-slate-400 w-16 inline-block">Line 2</span><span className="text-slate-700">{hospital.addressLine2}</span></div>}
+                  <div><span className="text-slate-500 w-16 inline-block font-semibold">City *</span><span className="text-slate-700">{hospital.city || '—'}</span></div>
+                  <div><span className="text-slate-500 w-16 inline-block font-semibold">State *</span><span className="text-slate-700">{displayState(hospital.country || '', hospital.state || '') || '—'}</span></div>
+                  <div><span className="text-slate-500 w-16 inline-block font-semibold">Postal *</span><span className="text-slate-700">{hospital.postal || '—'}</span></div>
+                  <div><span className="text-slate-500 w-16 inline-block font-semibold">Country *</span><span className="text-slate-700">{displayCountry(hospital.country || '') || '—'}</span></div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Address Card */}
+          {/* ── Card 2: Billing Address ── */}
           <div className="bg-white rounded-lg border border-slate-200 p-3">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">Address</h3>
-              {addressEditMode ? (
+              <h3 className="text-xs font-semibold text-slate-700">Billing Address</h3>
+              {billingAddressEditMode ? (
                 <div className="flex gap-1">
-                  <button onClick={() => { setHospital(originalHospital); setAddressEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                  <button onClick={saveAddress} disabled={addressSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{addressSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => { setHospital(originalHospital); setSameAsHospitalAddress(false); setBillingAddressEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                  <button onClick={saveBillingAddress} disabled={billingAddressSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{billingAddressSaving ? '...' : 'Save'}</button>
                 </div>
               ) : canEditSettings && (
-                <button onClick={() => setAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
-            {addressEditMode ? (
+            {billingAddressEditMode ? (
               <div className="space-y-2">
-                <input value={hospital.addressLine1 || ''} onChange={e => setHospital({ ...hospital, addressLine1: e.target.value })} placeholder="Street Address" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={hospital.city || ''} onChange={e => setHospital({ ...hospital, city: e.target.value })} placeholder="City" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  <input value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} placeholder="State" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={hospital.postal || ''} onChange={e => setHospital({ ...hospital, postal: e.target.value })} placeholder="Postal" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  <input value={hospital.country || ''} onChange={e => setHospital({ ...hospital, country: e.target.value })} placeholder="Country" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                </div>
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
+                  <input type="checkbox" checked={sameAsHospitalAddress} onChange={e => {
+                    const checked = e.target.checked;
+                    setSameAsHospitalAddress(checked);
+                    if (checked) {
+                      setHospital(h => ({ ...h, billingAddressLine1: h.addressLine1, billingAddressLine2: h.addressLine2, billingCity: h.city, billingState: h.state, billingPostal: h.postal, billingCountry: h.country }));
+                    }
+                  }} className="w-3 h-3 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+                  <span className="font-medium">Same as hospital address</span>
+                </label>
+                {!sameAsHospitalAddress && (
+                  <>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600">Street Address <span className="text-red-500">*</span></label>
+                      <input value={hospital.billingAddressLine1 || ''} onChange={e => setHospital({ ...hospital, billingAddressLine1: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500">Address Line 2</label>
+                      <input value={hospital.billingAddressLine2 || ''} onChange={e => setHospital({ ...hospital, billingAddressLine2: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">Country <span className="text-red-500">*</span></label>
+                        <select value={hospital.billingCountry || ''} onChange={e => setHospital({ ...hospital, billingCountry: e.target.value, billingState: '' })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                          <option value="">Select Country</option>
+                          {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">State <span className="text-red-500">*</span></label>
+                        {getStatesForCountry(hospital.billingCountry || '').length > 0 ? (
+                          <select value={hospital.billingState || ''} onChange={e => setHospital({ ...hospital, billingState: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                            <option value="">Select State</option>
+                            {getStatesForCountry(hospital.billingCountry || '').map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                          </select>
+                        ) : (
+                          <input value={hospital.billingState || ''} onChange={e => setHospital({ ...hospital, billingState: e.target.value })} placeholder="State/Province" required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">City <span className="text-red-500">*</span></label>
+                        <input value={hospital.billingCity || ''} onChange={e => setHospital({ ...hospital, billingCity: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600">Postal Code <span className="text-red-500">*</span></label>
+                        <input value={hospital.billingPostal || ''} onChange={e => setHospital({ ...hospital, billingPostal: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-1.5 text-[11px]">
-                <div><span className="text-slate-400 w-16 inline-block">Street</span><span className="text-slate-700">{hospital.addressLine1 || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">City</span><span className="text-slate-700">{hospital.city || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">State</span><span className="text-slate-700">{hospital.state || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Postal</span><span className="text-slate-700">{hospital.postal || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Country</span><span className="text-slate-700">{hospital.country || '—'}</span></div>
+                {sameAsHospitalAddress && <span className="text-[9px] text-emerald-600 font-medium">Same as hospital address</span>}
+                <div><span className="text-slate-500 w-16 inline-block font-semibold">Street *</span><span className="text-slate-700">{hospital.billingAddressLine1 || '—'}</span></div>
+                {hospital.billingAddressLine2 && <div><span className="text-slate-400 w-16 inline-block">Line 2</span><span className="text-slate-700">{hospital.billingAddressLine2}</span></div>}
+                <div><span className="text-slate-500 w-16 inline-block font-semibold">City *</span><span className="text-slate-700">{hospital.billingCity || '—'}</span></div>
+                <div><span className="text-slate-500 w-16 inline-block font-semibold">State *</span><span className="text-slate-700">{displayState(hospital.billingCountry || '', hospital.billingState || '') || '—'}</span></div>
+                <div><span className="text-slate-500 w-16 inline-block font-semibold">Postal *</span><span className="text-slate-700">{hospital.billingPostal || '—'}</span></div>
+                <div><span className="text-slate-500 w-16 inline-block font-semibold">Country *</span><span className="text-slate-700">{displayCountry(hospital.billingCountry || '') || '—'}</span></div>
               </div>
             )}
           </div>
 
-          {/* Subscription Card */}
+          {/* ── Card 3: Hospital Classification ── */}
+          <div className="bg-white rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-slate-700">Hospital Classification</h3>
+              {classificationEditMode ? (
+                <div className="flex gap-1">
+                  <button onClick={() => { setHospital(originalHospital); setSelectedSpecialtyIds((originalHospital.specialties || []).map(s => s.id)); setClassificationEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                  <button onClick={saveClassification} disabled={classificationSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{classificationSaving ? '...' : 'Save'}</button>
+                </div>
+              ) : canEditSettings && (
+                <button onClick={() => setClassificationEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                  Edit
+                </button>
+              )}
+            </div>
+            {classificationEditMode ? (
+              <div className="space-y-2">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600">Hospital Type <span className="text-red-500">*</span></label>
+                  <select value={hospital.hospitalType || ''} onChange={e => setHospital({ ...hospital, hospitalType: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                    <option value="">Select Hospital Type</option>
+                    {hospitalTypeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                {specializations.length > 0 && (
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-600">Specialties <span className="text-red-500">*</span> <span className="font-normal text-slate-400">(select at least one)</span></label>
+                    <div className="max-h-[100px] overflow-auto border border-slate-200 rounded p-1.5 space-y-1 mt-1">
+                      {specializations.map(s => (
+                        <label key={s.id} className="flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded">
+                          <input type="checkbox" checked={selectedSpecialtyIds.includes(s.id)} onChange={e => { if (e.target.checked) setSelectedSpecialtyIds([...selectedSpecialtyIds, s.id]); else setSelectedSpecialtyIds(selectedSpecialtyIds.filter(id => id !== s.id)); }} className="w-3 h-3 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+                          {s.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1.5 text-[11px]">
+                <div><span className="text-slate-500 w-16 inline-block font-semibold">Type *</span><span className="text-slate-700">{hospitalTypeOptions.find(t => t.value === hospital.hospitalType)?.label || hospital.hospitalType || '—'}</span></div>
+                <div>
+                  <span className="text-slate-500 font-semibold block mb-1">Specialties *</span>
+                  {hospital.specialties && hospital.specialties.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {hospital.specialties.map(s => (
+                        <span key={s.id} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-medium rounded">{s.name}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-slate-700">—</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Card 4: Legal, Tax & Compliance (merged) ── */}
+          <div className="bg-white rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-slate-700">Legal, Tax & Compliance</h3>
+              {legalComplianceEditMode ? (
+                <div className="flex gap-1">
+                  <button onClick={() => { setHospital(originalHospital); setLegalComplianceEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                  <button onClick={saveLegalCompliance} disabled={legalComplianceSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{legalComplianceSaving ? '...' : 'Save'}</button>
+                </div>
+              ) : canEditSettings && (
+                <button onClick={() => setLegalComplianceEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                  Edit
+                </button>
+              )}
+            </div>
+            {legalComplianceEditMode ? (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500">Legal Entity Name</label>
+                    <input value={hospital.legalEntityName || ''} onChange={e => setHospital({ ...hospital, legalEntityName: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500">Billing Contact Email</label>
+                    <input type="email" value={hospital.billingContactEmail || ''} onChange={e => setHospital({ ...hospital, billingContactEmail: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-500">Tax ID Type</label>
+                    <select value={hospital.taxIdType || ''} onChange={e => setHospital({ ...hospital, taxIdType: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                      <option value="">Select Type</option>
+                      {availableTaxIdTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500">Tax ID Value</label>
+                    <input value={hospital.taxIdValue || ''} onChange={e => setHospital({ ...hospital, taxIdValue: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+                <div className="border-t border-slate-100 pt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[10px] text-slate-500">Stores PHI</label>
+                    <button type="button" onClick={() => setHospital({ ...hospital, storesPhi: !hospital.storesPhi })} className={`relative w-9 h-5 rounded-full transition-colors ${hospital.storesPhi ? 'bg-[var(--color-primary)]' : 'bg-slate-300'}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${hospital.storesPhi ? 'translate-x-4' : ''}`} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-slate-500">Patient Volume (monthly)</label>
+                      <input type="number" min="0" value={hospital.estimatedPatientVolume ?? ''} onChange={e => setHospital({ ...hospital, estimatedPatientVolume: e.target.value ? parseInt(e.target.value) : undefined })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-500">Data Retention (days)</label>
+                      <input type="number" min="1" value={hospital.dataRetentionDays ?? ''} onChange={e => setHospital({ ...hospital, dataRetentionDays: e.target.value ? parseInt(e.target.value) : undefined })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5 text-[11px]">
+                <div><span className="text-slate-400 w-20 inline-block">Entity</span><span className="text-slate-700">{hospital.legalEntityName || '—'}</span></div>
+                <div><span className="text-slate-400 w-20 inline-block">Tax ID Type</span><span className="text-slate-700">{hospital.taxIdType || '—'}</span></div>
+                <div><span className="text-slate-400 w-20 inline-block">Tax ID</span><span className="text-slate-700">{hospital.taxIdValue || '—'}</span></div>
+                <div><span className="text-slate-400 w-20 inline-block">Billing Email</span><span className="text-slate-700">{hospital.billingContactEmail || '—'}</span></div>
+                <div className="border-t border-slate-100 pt-1.5 mt-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Stores PHI</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${hospital.storesPhi ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{hospital.storesPhi ? 'Yes' : 'No'}</span>
+                  </div>
+                  <div><span className="text-slate-400 w-20 inline-block">Patient Vol.</span><span className="text-slate-700">{hospital.estimatedPatientVolume != null ? hospital.estimatedPatientVolume.toLocaleString() + '/mo' : '—'}</span></div>
+                  <div><span className="text-slate-400 w-20 inline-block">Retention</span><span className="text-slate-700">{hospital.dataRetentionDays != null ? hospital.dataRetentionDays + ' days' : '—'}</span></div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Card 5: Subscription ── */}
           <div className="bg-white rounded-lg border border-slate-200 p-3">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold text-slate-700">Subscription</h3>
@@ -553,7 +1057,7 @@ function HospitalAdministrationContent() {
             )}
           </div>
 
-          {/* License Usage Card */}
+          {/* ── Card 6: License Usage ── */}
           <div className="bg-white rounded-lg border border-slate-200 p-3">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold text-slate-700">License Usage</h3>
@@ -636,9 +1140,12 @@ function HospitalAdministrationContent() {
             </div>
             {profileEditMode ? (
               <form onSubmit={saveProfile} className="space-y-2">
-                <input value={profileForm.fullName} onChange={e => setProfileForm({ ...profileForm, fullName: e.target.value })} placeholder="Full Name" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} placeholder="First Name" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  <input value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} placeholder="Last Name" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                </div>
                 <input value={profile?.email || ''} disabled className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded bg-slate-50 text-slate-400" />
-                <input value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} placeholder="Phone" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <PhoneInput value={profileForm.phone} onChange={(value) => setProfileForm({ ...profileForm, phone: value })} placeholder="Phone number" />
               </form>
             ) : (
               <div className="space-y-1.5 text-[11px]">
@@ -683,7 +1190,7 @@ function HospitalAdministrationContent() {
               <h3 className="text-xs font-semibold text-slate-700">Staff Members</h3>
               <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{activeStaff} active</span>
             </div>
-            <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', displayName: '', phone: '' }); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-navy-600 rounded hover:bg-navy-700">+ Add</button>
+            <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' }); setStaffAssignAll(true); setStaffSelectedDoctorIds([]); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-navy-600 rounded hover:bg-navy-700">+ Add</button>
           </div>
           <div className="max-h-[200px] overflow-auto">
             {staff.length > 0 ? (
@@ -691,7 +1198,8 @@ function HospitalAdministrationContent() {
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
                     <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Email</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Title</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
                     <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
                     <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
                   </tr>
@@ -699,13 +1207,22 @@ function HospitalAdministrationContent() {
                 <tbody className="divide-y divide-slate-100">
                   {staff.map(s => (
                     <tr key={s.id} className="hover:bg-slate-50">
-                      <td className="px-3 py-1.5 font-medium text-slate-700">{s.displayName}</td>
-                      <td className="px-3 py-1.5 text-slate-500">{s.email}</td>
+                      <td className="px-3 py-1.5">
+                        <div className="font-medium text-slate-700">{s.displayName}</div>
+                        <div className="text-[10px] text-slate-400">{s.email}</div>
+                      </td>
+                      <td className="px-3 py-1.5 text-slate-500">{s.title || '—'}</td>
+                      <td className="px-3 py-1.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                          {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'All' : `${s.assignedDoctorIds.length}`}
+                        </span>
+                      </td>
                       <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${s.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
-                      <td className="px-3 py-1.5 text-right">
-                        <button onClick={() => { setEditingStaff(s); setStaffForm({ email: s.email, password: '', displayName: s.displayName, phone: s.phone || '' }); setShowStaffModal(true); }} className="text-navy-600 hover:underline mr-2">Edit</button>
-                        <button onClick={() => toggleStaffStatus(s)} className="text-amber-600 hover:underline mr-2">{s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button>
-                        <button onClick={() => deleteStaff(s.id)} className="text-red-600 hover:underline">Delete</button>
+                      <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                        <button onClick={() => { setEditingStaff(s); const nameParts = (s.displayName || '').split(' '); const firstName = nameParts[0] || ''; const lastName = nameParts.slice(1).join(' ') || ''; setStaffForm({ email: s.email, password: '', firstName, lastName, title: s.title || '', phone: s.phone || '' }); if (s.assignedDoctorIds && s.assignedDoctorIds.length > 0) { setStaffAssignAll(false); setStaffSelectedDoctorIds(s.assignedDoctorIds); } else { setStaffAssignAll(true); setStaffSelectedDoctorIds([]); } setShowStaffModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
+                        <button onClick={() => { setPasswordResetStaff(s); setResetPassword(''); setShowPasswordResetModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200 rounded hover:bg-amber-50 mr-1">Reset Pwd</button>
+                        <button onClick={() => toggleStaffStatus(s)} className={`px-2 py-0.5 text-[10px] font-medium rounded mr-1 ${s.status === 'ACTIVE' ? 'text-orange-700 border border-orange-200 hover:bg-orange-50' : 'text-emerald-700 border border-emerald-200 hover:bg-emerald-50'}`}>{s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button>
+                        <button onClick={() => deleteStaff(s.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50">Delete</button>
                       </td>
                     </tr>
                   ))}
@@ -884,20 +1401,80 @@ function HospitalAdministrationContent() {
       {/* Staff Modal */}
       {showStaffModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowStaffModal(false)}>
-          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">{editingStaff ? 'Edit Staff' : 'Add Staff'}</h2>
             <form onSubmit={saveStaff} className="space-y-3">
-              <input value={staffForm.displayName} onChange={e => setStaffForm({ ...staffForm, displayName: e.target.value })} placeholder="Display Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              <div className="grid grid-cols-2 gap-2">
+                <input value={staffForm.firstName} onChange={e => setStaffForm({ ...staffForm, firstName: e.target.value })} placeholder="First Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <input value={staffForm.lastName} onChange={e => setStaffForm({ ...staffForm, lastName: e.target.value })} placeholder="Last Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              </div>
+              <select value={staffForm.title} onChange={e => setStaffForm({ ...staffForm, title: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500">
+                <option value="">Select Title / Role</option>
+                {staffTitleOptions.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
               {!editingStaff && (
                 <>
                   <input type="email" value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} placeholder="Email *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
                   <input type="password" value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} placeholder="Password *" required minLength={8} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 </>
               )}
-              <input value={staffForm.phone} onChange={e => setStaffForm({ ...staffForm, phone: e.target.value })} placeholder="Phone" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              <PhoneInput value={staffForm.phone} onChange={(value) => setStaffForm({ ...staffForm, phone: value })} placeholder="Phone number" />
+
+              {/* Doctor Assignment */}
+              <div className="border-t pt-3">
+                <label className="block text-[11px] font-medium text-slate-700 mb-2">Doctor Assignment</label>
+                <div className="flex gap-3 mb-2">
+                  <label className="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+                    <input type="radio" checked={staffAssignAll} onChange={() => { setStaffAssignAll(true); setStaffSelectedDoctorIds([]); }} className="w-3 h-3" />
+                    All Doctors
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] text-slate-600 cursor-pointer">
+                    <input type="radio" checked={!staffAssignAll} onChange={() => setStaffAssignAll(false)} className="w-3 h-3" />
+                    Specific Doctors
+                  </label>
+                </div>
+                {!staffAssignAll && (
+                  <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">
+                    {doctors.length > 0 ? doctors.map(d => (
+                      <label key={d.userId} className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer hover:bg-slate-50 rounded px-1 py-0.5">
+                        <input
+                          type="checkbox"
+                          checked={staffSelectedDoctorIds.includes(d.userId)}
+                          onChange={e => {
+                            if (e.target.checked) setStaffSelectedDoctorIds([...staffSelectedDoctorIds, d.userId]);
+                            else setStaffSelectedDoctorIds(staffSelectedDoctorIds.filter(id => id !== d.userId));
+                          }}
+                          className="w-3 h-3"
+                        />
+                        Dr. {d.fullName || d.email}
+                      </label>
+                    )) : (
+                      <p className="text-[10px] text-slate-400">No doctors found</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowStaffModal(false)} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
                 <button type="submit" disabled={staffSaving} className="flex-1 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{staffSaving ? 'Saving...' : editingStaff ? 'Update' : 'Create'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {showPasswordResetModal && passwordResetStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowPasswordResetModal(false); setPasswordResetStaff(null); setResetPassword(''); }}>
+          <div className="w-full max-w-xs bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
+            <h2 className="text-sm font-semibold text-slate-800 mb-1">Reset Password</h2>
+            <p className="text-[11px] text-slate-500 mb-3">Set new password for {passwordResetStaff.displayName}</p>
+            <form onSubmit={handlePasswordReset} className="space-y-3">
+              <input type="password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} placeholder="New Password (min 8 chars)" required minLength={8} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setShowPasswordResetModal(false); setPasswordResetStaff(null); setResetPassword(''); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button type="submit" disabled={resettingPassword || resetPassword.length < 8} className="flex-1 py-2 text-xs font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 disabled:opacity-50">{resettingPassword ? 'Resetting...' : 'Reset'}</button>
               </div>
             </form>
           </div>
@@ -958,7 +1535,7 @@ function HospitalAdministrationContent() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <input type="email" value={patientForm.email} onChange={e => setPatientForm({ ...patientForm, email: e.target.value })} placeholder="Email" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                <input value={patientForm.phone} onChange={e => setPatientForm({ ...patientForm, phone: e.target.value })} placeholder="Phone" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <PhoneInput value={patientForm.phone} onChange={(value) => setPatientForm({ ...patientForm, phone: value })} placeholder="Phone number" />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <input type="date" value={patientForm.dateOfBirth} onChange={e => setPatientForm({ ...patientForm, dateOfBirth: e.target.value })} placeholder="Date of Birth" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />

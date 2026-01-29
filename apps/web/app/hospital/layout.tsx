@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { HospitalGuard } from '../../components/hospital/HospitalGuard';
 import { HospitalSidebar } from '../../components/hospital/HospitalSidebar';
 import { useAuth } from '../../components/AuthProvider';
@@ -18,7 +19,8 @@ function getRoleDisplayName(role?: string): string {
 }
 
 function HospitalHeader() {
-  const { profile, currentHospital, hospitals, signOut } = useAuth();
+  const { profile, currentHospital, hospitals, setCurrentHospitalId, signOut } = useAuth();
+  const headerRouter = useRouter();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -128,16 +130,19 @@ function HospitalHeader() {
               </div>
               <div className="py-1">
                 {hasMultipleHospitals && (
-                  <Link
-                    href="/select-hospital"
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                    onClick={() => setDropdownOpen(false)}
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      setCurrentHospitalId(null);
+                      headerRouter.push('/select-hospital');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors w-full text-left"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                     </svg>
                     Switch Hospital
-                  </Link>
+                  </button>
                 )}
                 {profile?.isSuperAdmin && (
                   <Link

@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
+import PhoneInput from '../../../components/PhoneInput';
 
 const DoctorQueue = dynamic(
   () => import('../../../components/hospital/DoctorQueue').then((m) => m.DoctorQueue),
@@ -827,11 +828,9 @@ export default function QueuePage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
-                    <input
-                      type="text"
+                    <PhoneInput
                       value={walkInForm.walkInPhone}
-                      onChange={(e) => setWalkInForm({ ...walkInForm, walkInPhone: e.target.value })}
-                      className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg"
+                      onChange={(value) => setWalkInForm({ ...walkInForm, walkInPhone: value })}
                       placeholder="Phone number"
                     />
                   </div>

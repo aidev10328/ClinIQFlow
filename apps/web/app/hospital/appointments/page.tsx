@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
+import PhoneInput from '../../../components/PhoneInput';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
 
 const DoctorAppointments = dynamic(
@@ -2078,7 +2079,7 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="Email" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]" />
-                <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="Phone" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]" />
+                <PhoneInput value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} placeholder="Phone number" />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <input type="date" value={form.dateOfBirth} onChange={e => setForm({ ...form, dateOfBirth: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]" />
@@ -2310,7 +2311,7 @@ function AddPatientModal({ form, setForm, adding, onAdd, onClose }: any) {
           </div>
           <div>
             <label className="block text-[11px] font-medium text-slate-700 mb-1">Phone</label>
-            <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" />
+            <PhoneInput value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} placeholder="Phone number" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

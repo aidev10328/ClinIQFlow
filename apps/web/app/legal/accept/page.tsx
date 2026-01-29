@@ -57,7 +57,7 @@ export default function LegalAcceptPage() {
   const [acceptError, setAcceptError] = useState<string | null>(null);
 
   const currentHospital = hospitals.find(h => h.id === currentHospitalId);
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
   // Fetch requirements
   const fetchRequirements = useCallback(async () => {

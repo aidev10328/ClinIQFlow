@@ -12,6 +12,7 @@ interface StaffMember {
   id: string;
   email: string;
   displayName: string;
+  title?: string | null;
   phone?: string | null;
   status: string;
   hospitalId: string;
@@ -20,14 +21,24 @@ interface StaffMember {
   createdAt: string;
 }
 
+interface Doctor {
+  id: string;
+  userId: string;
+  email: string;
+  fullName?: string;
+  role: string;
+}
+
 function StaffPageContent() {
   const searchParams = useSearchParams();
   const { currentHospital } = useAuth();
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -36,53 +47,92 @@ function StaffPageContent() {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
-    displayName: '',
+    firstName: '',
+    lastName: '',
+    title: '',
     phone: '',
   });
+
+  const staffTitleOptions = [
+    'Receptionist',
+    'Front Desk',
+    'Office Manager',
+    'Billing Coordinator',
+    'Medical Assistant',
+    'Nurse',
+    'Lab Technician',
+    'Pharmacist',
+    'Administrative Assistant',
+    'IT Support',
+    'HR Manager',
+    'Accounts',
+    'Other',
+  ];
+  const [assignAll, setAssignAll] = useState(true);
+  const [selectedDoctorIds, setSelectedDoctorIds] = useState<string[]>([]);
 
   // Delete confirmation modal
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingStaff, setDeletingStaff] = useState<StaffMember | null>(null);
 
+  // Password reset modal
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordResetStaff, setPasswordResetStaff] = useState<StaffMember | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+
   useEffect(() => {
-    fetchStaff();
+    fetchData();
     if (searchParams.get('action') === 'add') {
       setShowModal(true);
     }
   }, [searchParams]);
 
-  async function fetchStaff() {
+  async function fetchData() {
     try {
-      const res = await apiFetch('/v1/staff');
-      if (res.ok) {
-        const data = await res.json();
-        setStaff(data);
+      const [staffRes, membersRes] = await Promise.all([
+        apiFetch('/v1/staff'),
+        apiFetch('/v1/hospitals/members/compliance'),
+      ]);
+      if (staffRes.ok) setStaff(await staffRes.json());
+      if (membersRes.ok) {
+        const m = await membersRes.json();
+        setDoctors(m.filter((x: any) => x.role === 'DOCTOR'));
       }
     } catch (error) {
-      console.error('Failed to fetch staff:', error);
+      console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
     }
   }
 
   function resetForm() {
-    setFormData({
-      email: '',
-      password: '',
-      displayName: '',
-      phone: '',
-    });
+    setFormData({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' });
     setEditingStaff(null);
+    setAssignAll(true);
+    setSelectedDoctorIds([]);
   }
 
   function handleEdit(staffMember: StaffMember) {
     setEditingStaff(staffMember);
+    const nameParts = (staffMember.displayName || '').split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
     setFormData({
       email: staffMember.email,
       password: '',
-      displayName: staffMember.displayName,
+      firstName,
+      lastName,
+      title: staffMember.title || '',
       phone: staffMember.phone || '',
     });
+    if (staffMember.assignedDoctorIds && staffMember.assignedDoctorIds.length > 0) {
+      setAssignAll(false);
+      setSelectedDoctorIds(staffMember.assignedDoctorIds);
+    } else {
+      setAssignAll(true);
+      setSelectedDoctorIds([]);
+    }
     setShowModal(true);
   }
 
@@ -90,41 +140,48 @@ function StaffPageContent() {
     e.preventDefault();
     setSaving(true);
 
+    const assignedDoctorIds = assignAll ? null : selectedDoctorIds;
+    const displayName = `${formData.firstName} ${formData.lastName}`.trim();
+
     try {
       if (editingStaff) {
-        // Update existing staff
         const res = await apiFetch(`/v1/staff/${editingStaff.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
-            displayName: formData.displayName,
+            displayName,
+            title: formData.title || undefined,
             phone: formData.phone || undefined,
+            assignedDoctorIds,
           }),
         });
 
         if (res.ok) {
           setShowModal(false);
           resetForm();
-          fetchStaff();
+          fetchData();
+          setMessage({ type: 'success', text: 'Staff updated' });
         } else {
           const error = await res.json();
           alert(error.message || 'Failed to update staff');
         }
       } else {
-        // Create new staff
         const res = await apiFetch('/v1/staff', {
           method: 'POST',
           body: JSON.stringify({
             email: formData.email,
             password: formData.password,
-            displayName: formData.displayName,
+            displayName,
+            title: formData.title || undefined,
             phone: formData.phone || undefined,
+            assignedDoctorIds,
           }),
         });
 
         if (res.ok) {
           setShowModal(false);
           resetForm();
-          fetchStaff();
+          fetchData();
+          setMessage({ type: 'success', text: 'Staff created' });
         } else {
           const error = await res.json();
           alert(error.message || 'Failed to create staff account');
@@ -145,10 +202,7 @@ function StaffPageContent() {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus }),
       });
-
-      if (res.ok) {
-        fetchStaff();
-      }
+      if (res.ok) fetchData();
     } catch (error) {
       console.error('Failed to update staff:', error);
     }
@@ -156,17 +210,14 @@ function StaffPageContent() {
 
   async function handleDelete() {
     if (!deletingStaff) return;
-
     setSaving(true);
     try {
-      const res = await apiFetch(`/v1/staff/${deletingStaff.id}`, {
-        method: 'DELETE',
-      });
-
+      const res = await apiFetch(`/v1/staff/${deletingStaff.id}`, { method: 'DELETE' });
       if (res.ok) {
         setShowDeleteModal(false);
         setDeletingStaff(null);
-        fetchStaff();
+        fetchData();
+        setMessage({ type: 'success', text: 'Staff deleted' });
       } else {
         const error = await res.json();
         alert(error.message || 'Failed to delete staff');
@@ -179,11 +230,43 @@ function StaffPageContent() {
     }
   }
 
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!passwordResetStaff) return;
+    setResettingPassword(true);
+    try {
+      const res = await apiFetch(`/v1/staff/${passwordResetStaff.id}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ newPassword }),
+      });
+      if (res.ok) {
+        setShowPasswordModal(false);
+        setPasswordResetStaff(null);
+        setNewPassword('');
+        setMessage({ type: 'success', text: `Password reset for ${passwordResetStaff.displayName}` });
+      } else {
+        const error = await res.json();
+        alert(error.message || 'Failed to reset password');
+      }
+    } catch (error) {
+      console.error('Failed to reset password:', error);
+      alert('Failed to reset password');
+    } finally {
+      setResettingPassword(false);
+    }
+  }
+
+  function getDoctorAssignmentLabel(s: StaffMember): string {
+    if (!s.assignedDoctorIds || s.assignedDoctorIds.length === 0) return 'All';
+    return `${s.assignedDoctorIds.length} doctor${s.assignedDoctorIds.length > 1 ? 's' : ''}`;
+  }
+
   // Filter staff
   const filteredStaff = staff.filter(s => {
     const matchesSearch =
       s.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.email.toLowerCase().includes(searchQuery.toLowerCase());
+      s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.title || '').toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' ||
       (statusFilter === 'active' && s.status === 'ACTIVE') ||
@@ -192,21 +275,17 @@ function StaffPageContent() {
     return matchesSearch && matchesStatus;
   });
 
-  // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, statusFilter]);
 
-  // Pagination
   const totalPages = Math.ceil(filteredStaff.length / ITEMS_PER_PAGE);
   const paginatedStaff = filteredStaff.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
 
-  if (loading) {
-    return null;
-  }
+  if (loading) return null;
 
   return (
     <div className="space-y-6">
@@ -219,10 +298,7 @@ function StaffPageContent() {
           </p>
         </div>
         <button
-          onClick={() => {
-            resetForm();
-            setShowModal(true);
-          }}
+          onClick={() => { resetForm(); setShowModal(true); }}
           className="btn-primary"
         >
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,6 +307,14 @@ function StaffPageContent() {
           Add Staff
         </button>
       </div>
+
+      {/* Message */}
+      {message && (
+        <div className={`px-4 py-2 rounded-lg text-sm flex items-center gap-2 ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+          {message.text}
+          <button onClick={() => setMessage(null)} className="ml-auto hover:opacity-70">x</button>
+        </div>
+      )}
 
       {/* Info Banner */}
       <div className="bg-navy-50 border border-navy-200 rounded-lg p-4">
@@ -256,7 +340,7 @@ function StaffPageContent() {
           </svg>
           <input
             type="text"
-            placeholder="Search staff by name or email..."
+            placeholder="Search staff by name, email, or title..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="search-input"
@@ -280,8 +364,9 @@ function StaffPageContent() {
             <thead>
               <tr>
                 <th className="admin-table-th">Staff Member</th>
+                <th className="admin-table-th hidden md:table-cell">Title</th>
                 <th className="admin-table-th hidden md:table-cell">Contact</th>
-                <th className="admin-table-th hidden lg:table-cell">Created</th>
+                <th className="admin-table-th hidden lg:table-cell">Doctors</th>
                 <th className="admin-table-th">Status</th>
                 <th className="admin-table-th">Actions</th>
               </tr>
@@ -302,12 +387,19 @@ function StaffPageContent() {
                       </div>
                     </td>
                     <td className="admin-table-td hidden md:table-cell">
+                      <span className="text-sm text-gray-700">{s.title || '—'}</span>
+                    </td>
+                    <td className="admin-table-td hidden md:table-cell">
                       <p className="text-sm text-gray-900">{s.email}</p>
                       <p className="text-xs text-gray-500">{s.phone || '-'}</p>
                     </td>
                     <td className="admin-table-td hidden lg:table-cell">
-                      <span className="text-sm text-gray-500">
-                        {new Date(s.createdAt).toLocaleDateString()}
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        !s.assignedDoctorIds || s.assignedDoctorIds.length === 0
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'bg-purple-50 text-purple-700'
+                      }`}>
+                        {getDoctorAssignmentLabel(s)}
                       </span>
                     </td>
                     <td className="admin-table-td">
@@ -322,6 +414,16 @@ function StaffPageContent() {
                           className="quick-action-btn quick-action-btn-secondary"
                         >
                           Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPasswordResetStaff(s);
+                            setNewPassword('');
+                            setShowPasswordModal(true);
+                          }}
+                          className="quick-action-btn quick-action-btn-secondary"
+                        >
+                          Reset Pwd
                         </button>
                         <button
                           onClick={() => handleToggleStatus(s)}
@@ -344,7 +446,7 @@ function StaffPageContent() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="admin-table-td">
+                  <td colSpan={6} className="admin-table-td">
                     <div className="admin-empty-state py-12">
                       <div className="admin-empty-icon">
                         <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -359,13 +461,7 @@ function StaffPageContent() {
                       </p>
                       {!searchQuery && statusFilter === 'all' && (
                         <div className="admin-empty-action">
-                          <button
-                            onClick={() => {
-                              resetForm();
-                              setShowModal(true);
-                            }}
-                            className="btn-primary"
-                          >
+                          <button onClick={() => { resetForm(); setShowModal(true); }} className="btn-primary">
                             Add First Staff Member
                           </button>
                         </div>
@@ -436,10 +532,7 @@ function StaffPageContent() {
                   {editingStaff ? 'Update staff information' : 'Create a new staff account'}
                 </p>
               </div>
-              <button
-                onClick={() => setShowModal(false)}
-                className="admin-modal-close"
-              >
+              <button onClick={() => setShowModal(false)} className="admin-modal-close">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -447,16 +540,41 @@ function StaffPageContent() {
             </div>
             <form onSubmit={handleSubmit}>
               <div className="admin-modal-body space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="form-group">
+                    <label className="form-label form-label-required">First Name</label>
+                    <input
+                      type="text"
+                      value={formData.firstName}
+                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      className="form-input"
+                      placeholder="John"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label form-label-required">Last Name</label>
+                    <input
+                      type="text"
+                      value={formData.lastName}
+                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      className="form-input"
+                      placeholder="Smith"
+                      required
+                    />
+                  </div>
+                </div>
+
                 <div className="form-group">
-                  <label className="form-label form-label-required">Display Name</label>
-                  <input
-                    type="text"
-                    value={formData.displayName}
-                    onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                  <label className="form-label">Title / Role</label>
+                  <select
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     className="form-input"
-                    placeholder="John Smith"
-                    required
-                  />
+                  >
+                    <option value="">Select Title / Role</option>
+                    {staffTitleOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
 
                 {!editingStaff && (
@@ -498,13 +616,64 @@ function StaffPageContent() {
                     placeholder="Phone number"
                   />
                 </div>
+
+                {/* Doctor Assignment */}
+                <div className="form-group">
+                  <label className="form-label">Assigned Doctors</label>
+                  <div className="flex items-center gap-3 mb-2">
+                    <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="doctorAssign"
+                        checked={assignAll}
+                        onChange={() => { setAssignAll(true); setSelectedDoctorIds([]); }}
+                        className="w-3.5 h-3.5 text-[var(--color-primary)]"
+                      />
+                      All Doctors
+                    </label>
+                    <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        name="doctorAssign"
+                        checked={!assignAll}
+                        onChange={() => setAssignAll(false)}
+                        className="w-3.5 h-3.5 text-[var(--color-primary)]"
+                      />
+                      Specific Doctors
+                    </label>
+                  </div>
+                  {!assignAll && (
+                    <div className="max-h-[140px] overflow-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                      {doctors.length > 0 ? doctors.map(d => (
+                        <label key={d.userId} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                          <input
+                            type="checkbox"
+                            checked={selectedDoctorIds.includes(d.userId)}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedDoctorIds([...selectedDoctorIds, d.userId]);
+                              } else {
+                                setSelectedDoctorIds(selectedDoctorIds.filter(id => id !== d.userId));
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-[var(--color-primary)]"
+                          />
+                          Dr. {d.fullName || d.email.split('@')[0]}
+                        </label>
+                      )) : (
+                        <p className="text-xs text-gray-400 py-2 text-center">No doctors in this hospital</p>
+                      )}
+                    </div>
+                  )}
+                  <p className="form-hint mt-1">
+                    {assignAll
+                      ? 'Staff will manage appointments for all doctors'
+                      : `${selectedDoctorIds.length} doctor${selectedDoctorIds.length !== 1 ? 's' : ''} selected`}
+                  </p>
+                </div>
               </div>
               <div className="admin-modal-footer">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="btn-secondary"
-                >
+                <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">
                   Cancel
                 </button>
                 <button
@@ -513,6 +682,56 @@ function StaffPageContent() {
                   className="btn-primary"
                 >
                   {saving ? 'Saving...' : editingStaff ? 'Update' : 'Create Staff'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {showPasswordModal && passwordResetStaff && (
+        <div className="admin-modal-overlay" onClick={() => setShowPasswordModal(false)}>
+          <div className="admin-modal max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <div>
+                <h2 className="admin-modal-title">Reset Password</h2>
+                <p className="admin-modal-subtitle">
+                  Set a new password for {passwordResetStaff.displayName}
+                </p>
+              </div>
+              <button onClick={() => setShowPasswordModal(false)} className="admin-modal-close">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form onSubmit={handleResetPassword}>
+              <div className="admin-modal-body space-y-4">
+                <div className="form-group">
+                  <label className="form-label form-label-required">New Password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="form-input"
+                    placeholder="••••••••"
+                    required
+                    minLength={8}
+                  />
+                  <p className="form-hint">Minimum 8 characters. Staff will use this to log in.</p>
+                </div>
+              </div>
+              <div className="admin-modal-footer">
+                <button type="button" onClick={() => setShowPasswordModal(false)} className="btn-secondary">
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resettingPassword || newPassword.length < 8}
+                  className="btn-primary"
+                >
+                  {resettingPassword ? 'Resetting...' : 'Reset Password'}
                 </button>
               </div>
             </form>
@@ -531,10 +750,7 @@ function StaffPageContent() {
                   Are you sure you want to delete {deletingStaff.displayName}?
                 </p>
               </div>
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="admin-modal-close"
-              >
+              <button onClick={() => setShowDeleteModal(false)} className="admin-modal-close">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -556,19 +772,10 @@ function StaffPageContent() {
               </div>
             </div>
             <div className="admin-modal-footer">
-              <button
-                type="button"
-                onClick={() => setShowDeleteModal(false)}
-                className="btn-secondary"
-              >
+              <button type="button" onClick={() => setShowDeleteModal(false)} className="btn-secondary">
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={saving}
-                className="btn-danger"
-              >
+              <button type="button" onClick={handleDelete} disabled={saving} className="btn-danger">
                 {saving ? 'Deleting...' : 'Delete Staff'}
               </button>
             </div>

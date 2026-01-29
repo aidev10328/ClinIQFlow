@@ -1,6 +1,6 @@
 import { Injectable, Logger, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
-import { CreateStaffDto, UpdateStaffDto, StaffResponseDto } from './dto/staff.dto';
+import { CreateStaffDto, UpdateStaffDto, ResetPasswordDto, StaffResponseDto } from './dto/staff.dto';
 
 @Injectable()
 export class StaffService {
@@ -99,6 +99,7 @@ export class StaffService {
           user_id: userId,
           role: 'STAFF',
           status: 'ACTIVE',
+          title: dto.title || null,
           assigned_doctor_ids: dto.assignedDoctorIds || null,
         });
 
@@ -120,6 +121,7 @@ export class StaffService {
         id: userId,
         email: dto.email.toLowerCase(),
         displayName: dto.displayName,
+        title: dto.title || null,
         phone: dto.phone || null,
         status: 'ACTIVE',
         hospitalId,
@@ -149,7 +151,7 @@ export class StaffService {
     // Get all STAFF memberships for this hospital
     const { data: memberships, error } = await adminClient
       .from('hospital_memberships')
-      .select('user_id, status, assigned_doctor_ids, created_at')
+      .select('user_id, status, title, assigned_doctor_ids, created_at')
       .eq('hospital_id', hospitalId)
       .eq('role', 'STAFF')
       .order('created_at', { ascending: false });
@@ -186,6 +188,7 @@ export class StaffService {
         id: m.user_id,
         email: profile?.email || '',
         displayName: profile?.full_name || '',
+        title: m.title || null,
         phone: profile?.phone || null,
         status: m.status,
         hospitalId,
@@ -262,9 +265,10 @@ export class StaffService {
     }
 
     // Update membership if needed
-    if (dto.status !== undefined || dto.assignedDoctorIds !== undefined) {
+    if (dto.status !== undefined || dto.title !== undefined || dto.assignedDoctorIds !== undefined) {
       const membershipUpdate: Record<string, any> = {};
       if (dto.status !== undefined) membershipUpdate.status = dto.status;
+      if (dto.title !== undefined) membershipUpdate.title = dto.title || null;
       if (dto.assignedDoctorIds !== undefined) membershipUpdate.assigned_doctor_ids = dto.assignedDoctorIds;
 
       await adminClient
@@ -284,7 +288,7 @@ export class StaffService {
 
     const { data: updatedMembership } = await adminClient
       .from('hospital_memberships')
-      .select('status, assigned_doctor_ids, created_at')
+      .select('status, title, assigned_doctor_ids, created_at')
       .eq('hospital_id', hospitalId)
       .eq('user_id', staffUserId)
       .eq('role', 'STAFF')
@@ -300,6 +304,7 @@ export class StaffService {
       id: staffUserId,
       email: updatedProfile?.email || '',
       displayName: updatedProfile?.full_name || '',
+      title: updatedMembership?.title || null,
       phone: updatedProfile?.phone || null,
       status: updatedMembership?.status || 'ACTIVE',
       hospitalId,
@@ -386,6 +391,72 @@ export class StaffService {
     if (!otherMemberships || otherMemberships.length === 0) {
       await adminClient.from('profiles').delete().eq('user_id', staffUserId);
       await adminClient.auth.admin.deleteUser(staffUserId);
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Reset a staff member's password
+   */
+  async resetPassword(
+    staffUserId: string,
+    newPassword: string,
+    hospitalId: string,
+    updaterUserId: string,
+    accessToken: string,
+  ): Promise<{ success: boolean }> {
+    const supabase = this.supabaseService.getClientWithToken(accessToken);
+    const adminClient = this.supabaseService.getAdminClient();
+
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    // Verify updater is hospital manager or super admin
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_super_admin')
+      .eq('user_id', updaterUserId)
+      .single();
+
+    const isSuperAdmin = profile?.is_super_admin || false;
+
+    if (!isSuperAdmin) {
+      const { data: membership } = await supabase
+        .from('hospital_memberships')
+        .select('role')
+        .eq('hospital_id', hospitalId)
+        .eq('user_id', updaterUserId)
+        .eq('status', 'ACTIVE')
+        .single();
+
+      if (membership?.role !== 'HOSPITAL_MANAGER') {
+        throw new ForbiddenException('Only hospital managers can reset staff passwords');
+      }
+    }
+
+    // Verify the staff member exists in this hospital
+    const { data: staffMembership } = await adminClient
+      .from('hospital_memberships')
+      .select('user_id')
+      .eq('hospital_id', hospitalId)
+      .eq('user_id', staffUserId)
+      .eq('role', 'STAFF')
+      .single();
+
+    if (!staffMembership) {
+      throw new NotFoundException('Staff member not found');
+    }
+
+    // Reset password via Supabase admin API
+    const { error } = await adminClient.auth.admin.updateUserById(staffUserId, {
+      password: newPassword,
+    });
+
+    if (error) {
+      this.logger.error(`Failed to reset password: ${error.message}`);
+      throw new BadRequestException('Failed to reset password');
     }
 
     return { success: true };

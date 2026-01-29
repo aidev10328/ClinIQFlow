@@ -7,7 +7,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3005',
     credentials: true,
   });
 
@@ -17,7 +17,7 @@ async function bootstrap() {
     transform: true,
   }));
 
-  const port = process.env.API_PORT || 4000;
+  const port = process.env.API_PORT || 4005;
   await app.listen(port);
   console.log(`ClinQflow API running on http://localhost:${port}`);
 }

@@ -128,7 +128,7 @@ export default function HospitalDetailPage() {
   const [editMemberForm, setEditMemberForm] = useState<{ isPrimary: boolean }>({ isPrimary: false });
   const [updatingMember, setUpdatingMember] = useState(false);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
   const fetchHospital = useCallback(async () => {
     if (!session?.access_token) return;

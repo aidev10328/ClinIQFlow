@@ -25,7 +25,7 @@ export default function AdminSystemPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">API Server</p>
-                  <p className="text-xs text-gray-500">localhost:4000</p>
+                  <p className="text-xs text-gray-500">localhost:4005</p>
                 </div>
               </div>
               <StatusBadge status="active" label="Healthy" />
@@ -146,11 +146,11 @@ export default function AdminSystemPage() {
             </div>
             <div className="flex items-center justify-between py-2 border-b border-gray-100">
               <span className="text-sm text-gray-500">API URL</span>
-              <span className="text-sm font-medium text-gray-900 font-mono">localhost:4000</span>
+              <span className="text-sm font-medium text-gray-900 font-mono">localhost:4005</span>
             </div>
             <div className="flex items-center justify-between py-2 border-b border-gray-100">
               <span className="text-sm text-gray-500">Web URL</span>
-              <span className="text-sm font-medium text-gray-900 font-mono">localhost:3000</span>
+              <span className="text-sm font-medium text-gray-900 font-mono">localhost:3005</span>
             </div>
             <div className="flex items-center justify-between py-2">
               <span className="text-sm text-gray-500">Version</span>

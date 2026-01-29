@@ -23,11 +23,17 @@ export default function LoginPage() {
         return;
       }
 
-      // If regular user has hospitals but none selected, go to hospital selector
-      if (hospitals.length > 0 && !currentHospitalId) {
+      // Regular users go to hospital selector (handles both no hospitals and hospital selection)
+      if (!currentHospitalId) {
         router.push('/select-hospital');
       } else {
-        router.push('/dashboard');
+        // User has a hospital selected - route based on role
+        const currentHospital = hospitals.find(h => h.id === currentHospitalId);
+        if (currentHospital?.role === 'DOCTOR') {
+          router.push('/doctor/dashboard');
+        } else {
+          router.push('/hospital/dashboard');
+        }
       }
     }
   }, [user, profile?.isSuperAdmin, hospitals, currentHospitalId, router, authLoading]);

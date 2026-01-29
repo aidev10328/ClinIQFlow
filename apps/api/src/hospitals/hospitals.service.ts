@@ -45,6 +45,20 @@ export class HospitalsService {
         website: dto.website,
         logo_url: dto.logoUrl,
         picture_url: dto.pictureUrl,
+        legal_entity_name: dto.legalEntityName,
+        tax_id_type: dto.taxIdType,
+        tax_id_value: dto.taxIdValue,
+        billing_contact_email: dto.billingContactEmail,
+        billing_address_line1: dto.billingAddressLine1,
+        billing_address_line2: dto.billingAddressLine2,
+        billing_city: dto.billingCity,
+        billing_state: dto.billingState,
+        billing_postal: dto.billingPostal,
+        billing_country: dto.billingCountry,
+        stores_phi: dto.storesPhi,
+        estimated_patient_volume: dto.estimatedPatientVolume,
+        data_retention_days: dto.dataRetentionDays,
+        hospital_type: dto.hospitalType,
         status: 'ACTIVE',
       })
       .select()
@@ -53,6 +67,19 @@ export class HospitalsService {
     if (error) {
       this.logger.error(`Failed to create hospital: ${error.message}`);
       throw new BadRequestException('Failed to create hospital');
+    }
+
+    // Insert hospital specialties if provided
+    if (dto.specialtyIds && dto.specialtyIds.length > 0) {
+      const adminClient = this.supabaseService.getAdminClient();
+      if (adminClient) {
+        await adminClient
+          .from('hospital_specialties')
+          .insert(dto.specialtyIds.map(sid => ({
+            hospital_id: hospital.id,
+            specialization_id: sid,
+          })));
+      }
     }
 
     return this.mapToDto(hospital);
@@ -74,7 +101,23 @@ export class HospitalsService {
       throw new NotFoundException('Hospital not found');
     }
 
-    return this.mapToDto(hospital);
+    const dto = this.mapToDto(hospital);
+
+    // Fetch hospital specialties
+    const adminClient = this.supabaseService.getAdminClient();
+    if (adminClient) {
+      const { data: specialties } = await adminClient
+        .from('hospital_specialties')
+        .select('specialization_id, specializations(id, name)')
+        .eq('hospital_id', hospitalId);
+
+      dto.specialties = (specialties || []).map((s: any) => ({
+        id: s.specializations?.id,
+        name: s.specializations?.name,
+      })).filter((s: any) => s.id);
+    }
+
+    return dto;
   }
 
   async getAllHospitals(accessToken: string): Promise<HospitalResponseDto[]> {
@@ -141,6 +184,20 @@ export class HospitalsService {
     if (dto.website !== undefined) updateData.website = dto.website;
     if (dto.logoUrl !== undefined) updateData.logo_url = dto.logoUrl;
     if (dto.pictureUrl !== undefined) updateData.picture_url = dto.pictureUrl;
+    if (dto.legalEntityName !== undefined) updateData.legal_entity_name = dto.legalEntityName;
+    if (dto.taxIdType !== undefined) updateData.tax_id_type = dto.taxIdType;
+    if (dto.taxIdValue !== undefined) updateData.tax_id_value = dto.taxIdValue;
+    if (dto.billingContactEmail !== undefined) updateData.billing_contact_email = dto.billingContactEmail;
+    if (dto.billingAddressLine1 !== undefined) updateData.billing_address_line1 = dto.billingAddressLine1;
+    if (dto.billingAddressLine2 !== undefined) updateData.billing_address_line2 = dto.billingAddressLine2;
+    if (dto.billingCity !== undefined) updateData.billing_city = dto.billingCity;
+    if (dto.billingState !== undefined) updateData.billing_state = dto.billingState;
+    if (dto.billingPostal !== undefined) updateData.billing_postal = dto.billingPostal;
+    if (dto.billingCountry !== undefined) updateData.billing_country = dto.billingCountry;
+    if (dto.storesPhi !== undefined) updateData.stores_phi = dto.storesPhi;
+    if (dto.estimatedPatientVolume !== undefined) updateData.estimated_patient_volume = dto.estimatedPatientVolume;
+    if (dto.dataRetentionDays !== undefined) updateData.data_retention_days = dto.dataRetentionDays;
+    if (dto.hospitalType !== undefined) updateData.hospital_type = dto.hospitalType;
 
     // Use admin client for the actual update to bypass RLS
     // (we've already verified the user has permission above)
@@ -159,6 +216,25 @@ export class HospitalsService {
     if (error) {
       this.logger.error(`Failed to update hospital: ${error.message}`);
       throw new BadRequestException('Failed to update hospital');
+    }
+
+    // Sync specialties if provided
+    if (dto.specialtyIds !== undefined) {
+      // Delete existing specialties
+      await adminClient
+        .from('hospital_specialties')
+        .delete()
+        .eq('hospital_id', hospitalId);
+
+      // Insert new specialties
+      if (dto.specialtyIds.length > 0) {
+        await adminClient
+          .from('hospital_specialties')
+          .insert(dto.specialtyIds.map(sid => ({
+            hospital_id: hospitalId,
+            specialization_id: sid,
+          })));
+      }
     }
 
     return this.mapToDto(hospital);
@@ -450,6 +526,20 @@ export class HospitalsService {
       website: hospital.website,
       logoUrl: hospital.logo_url,
       pictureUrl: hospital.picture_url,
+      legalEntityName: hospital.legal_entity_name,
+      taxIdType: hospital.tax_id_type,
+      taxIdValue: hospital.tax_id_value,
+      billingContactEmail: hospital.billing_contact_email,
+      billingAddressLine1: hospital.billing_address_line1,
+      billingAddressLine2: hospital.billing_address_line2,
+      billingCity: hospital.billing_city,
+      billingState: hospital.billing_state,
+      billingPostal: hospital.billing_postal,
+      billingCountry: hospital.billing_country,
+      storesPhi: hospital.stores_phi,
+      estimatedPatientVolume: hospital.estimated_patient_volume,
+      dataRetentionDays: hospital.data_retention_days,
+      hospitalType: hospital.hospital_type,
       createdAt: hospital.created_at,
       updatedAt: hospital.updated_at,
     };

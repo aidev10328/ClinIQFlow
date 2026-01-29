@@ -46,7 +46,8 @@ function AcceptInviteContent() {
     email: '',
     password: '',
     confirmPassword: '',
-    displayName: '',
+    firstName: '',
+    lastName: '',
   });
 
   // Login form
@@ -229,7 +230,7 @@ function AcceptInviteContent() {
 
     try {
       // Use backend endpoint that creates user with admin API (auto-confirmed, no email verification)
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+      const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
       const res = await fetch(`${API_BASE}/v1/invites/signup-and-accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -237,7 +238,7 @@ function AcceptInviteContent() {
           token,
           email: signupForm.email,
           password: signupForm.password,
-          displayName: signupForm.displayName || signupForm.email.split('@')[0],
+          displayName: `${signupForm.firstName} ${signupForm.lastName}`.trim() || signupForm.email.split('@')[0],
         }),
       });
 
@@ -513,17 +514,31 @@ function AcceptInviteContent() {
               </div>
 
               <form onSubmit={handleSignup} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Your Name
-                  </label>
-                  <input
-                    type="text"
-                    value={signupForm.displayName}
-                    onChange={(e) => setSignupForm({ ...signupForm, displayName: e.target.value })}
-                    className="input-field"
-                    placeholder="Dr. John Smith"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      First Name
+                    </label>
+                    <input
+                      type="text"
+                      value={signupForm.firstName}
+                      onChange={(e) => setSignupForm({ ...signupForm, firstName: e.target.value })}
+                      className="input-field"
+                      placeholder="John"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Last Name
+                    </label>
+                    <input
+                      type="text"
+                      value={signupForm.lastName}
+                      onChange={(e) => setSignupForm({ ...signupForm, lastName: e.target.value })}
+                      className="input-field"
+                      placeholder="Smith"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>

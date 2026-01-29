@@ -13,6 +13,10 @@ export class CreateStaffDto {
 
   @IsOptional()
   @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
   phone?: string;
 
   @IsOptional()
@@ -28,6 +32,10 @@ export class UpdateStaffDto {
 
   @IsOptional()
   @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
   phone?: string;
 
   @IsOptional()
@@ -40,10 +48,17 @@ export class UpdateStaffDto {
   assignedDoctorIds?: string[];
 }
 
+export class ResetPasswordDto {
+  @IsString()
+  @MinLength(8)
+  newPassword: string;
+}
+
 export class StaffResponseDto {
   id: string;
   email: string;
   displayName: string;
+  title?: string | null;
   phone?: string | null;
   status: string;
   hospitalId: string;

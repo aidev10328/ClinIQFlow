@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { getTimezoneLabel, getCurrencySymbol, formatTimeInTimezone } from '../lib/timezone';
 
 export default function Nav() {
-  const { user, profile, hospitals, currentHospitalId, signOut, loading } = useAuth();
+  const { user, profile, hospitals, currentHospitalId, setCurrentHospitalId, signOut, loading } = useAuth();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -37,9 +37,7 @@ export default function Nav() {
 
   function handleSwitchHospital() {
     // Clear current hospital and go to selector
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('clinqflow_hospital_id');
-    }
+    setCurrentHospitalId(null);
     router.push('/select-hospital');
     setMobileMenuOpen(false);
   }

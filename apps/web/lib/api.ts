@@ -2,7 +2,7 @@
 
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
 // ── GET response cache ──────────────────────────────────────────────
 // Caches successful GET responses for 2 min so page revisits are instant.

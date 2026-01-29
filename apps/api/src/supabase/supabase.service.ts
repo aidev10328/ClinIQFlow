@@ -193,8 +193,6 @@ export class SupabaseService {
    * we only want the current user's memberships.
    */
   async getUserMemberships(accessToken: string, userId?: string) {
-    const client = this.getClientWithToken(accessToken);
-
     // Decode the token to get the user ID if not provided
     let uid = userId;
     if (!uid) {
@@ -207,6 +205,41 @@ export class SupabaseService {
       return [];
     }
 
+    // Try admin client first (bypasses RLS)
+    const adminClient = this.getAdminClient();
+    if (adminClient) {
+      const { data: memberships, error } = await adminClient
+        .from('hospital_memberships')
+        .select(`
+          id,
+          role,
+          is_primary,
+          status,
+          hospital:hospitals (
+            id,
+            name,
+            city,
+            state,
+            country,
+            region,
+            currency,
+            timezone,
+            status
+          )
+        `)
+        .eq('user_id', uid)
+        .eq('status', 'ACTIVE');
+
+      if (error) {
+        this.logger.error(`Admin client failed to fetch memberships: ${error.message}`);
+      } else {
+        this.logger.log(`Memberships fetched via admin client: ${memberships?.length || 0}`);
+        return memberships || [];
+      }
+    }
+
+    // Fallback to user token client (RLS applies)
+    const client = this.getClientWithToken(accessToken);
     const { data: memberships, error } = await client
       .from('hospital_memberships')
       .select(`

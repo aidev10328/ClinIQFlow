@@ -686,8 +686,15 @@ export class DoctorsService {
       dateOfBirth: profile.date_of_birth || '',
       gender: profile.gender || '',
       address: profile.address || '',
+      addressLine1: profile.address_line1 || '',
+      addressLine2: profile.address_line2 || '',
+      city: profile.city || '',
+      state: profile.state || '',
+      postalCode: profile.postal_code || '',
+      country: profile.country || '',
       emergencyContact: profile.emergency_contact || '',
       emergencyPhone: profile.emergency_phone || '',
+      emergencyRelation: profile.emergency_relation || '',
       specialization: profile.specialization || '',
       qualification: profile.qualification || '',
       licenseNumber: profile.license_number || '',
@@ -695,6 +702,9 @@ export class DoctorsService {
       consultationFee: profile.consultation_fee,
       education: profile.education || '',
       bio: profile.bio || '',
+      nationalId: profile.national_id || '',
+      employmentType: profile.employment_type || '',
+      department: profile.department || '',
       avatarUrl: profile.avatar_url || '',
       appointmentDurationMinutes: profile.appointment_duration_minutes || 30,
       createdAt: profile.created_at,
@@ -713,8 +723,15 @@ export class DoctorsService {
       dateOfBirth?: string;
       gender?: string;
       address?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
       emergencyContact?: string;
       emergencyPhone?: string;
+      emergencyRelation?: string;
       specialization?: string;
       qualification?: string;
       licenseNumber?: string;
@@ -722,6 +739,9 @@ export class DoctorsService {
       consultationFee?: number;
       education?: string;
       bio?: string;
+      nationalId?: string;
+      employmentType?: string;
+      department?: string;
     },
   ) {
     const adminClient = this.supabaseService.getAdminClient();
@@ -737,8 +757,15 @@ export class DoctorsService {
     if (data.dateOfBirth !== undefined) updateData.date_of_birth = data.dateOfBirth;
     if (data.gender !== undefined) updateData.gender = data.gender;
     if (data.address !== undefined) updateData.address = data.address;
+    if (data.addressLine1 !== undefined) updateData.address_line1 = data.addressLine1;
+    if (data.addressLine2 !== undefined) updateData.address_line2 = data.addressLine2;
+    if (data.city !== undefined) updateData.city = data.city;
+    if (data.state !== undefined) updateData.state = data.state;
+    if (data.postalCode !== undefined) updateData.postal_code = data.postalCode;
+    if (data.country !== undefined) updateData.country = data.country;
     if (data.emergencyContact !== undefined) updateData.emergency_contact = data.emergencyContact;
     if (data.emergencyPhone !== undefined) updateData.emergency_phone = data.emergencyPhone;
+    if (data.emergencyRelation !== undefined) updateData.emergency_relation = data.emergencyRelation;
     if (data.specialization !== undefined) updateData.specialization = data.specialization;
     if (data.qualification !== undefined) updateData.qualification = data.qualification;
     if (data.licenseNumber !== undefined) updateData.license_number = data.licenseNumber;
@@ -746,6 +773,9 @@ export class DoctorsService {
     if (data.consultationFee !== undefined) updateData.consultation_fee = data.consultationFee;
     if (data.education !== undefined) updateData.education = data.education;
     if (data.bio !== undefined) updateData.bio = data.bio;
+    if (data.nationalId !== undefined) updateData.national_id = data.nationalId;
+    if (data.employmentType !== undefined) updateData.employment_type = data.employmentType;
+    if (data.department !== undefined) updateData.department = data.department;
 
     // Update doctor_profiles table
     const { data: updated, error } = await adminClient
@@ -776,8 +806,15 @@ export class DoctorsService {
       dateOfBirth: updated.date_of_birth,
       gender: updated.gender,
       address: updated.address,
+      addressLine1: updated.address_line1,
+      addressLine2: updated.address_line2,
+      city: updated.city,
+      state: updated.state,
+      postalCode: updated.postal_code,
+      country: updated.country,
       emergencyContact: updated.emergency_contact,
       emergencyPhone: updated.emergency_phone,
+      emergencyRelation: updated.emergency_relation,
       specialization: updated.specialization,
       qualification: updated.qualification,
       licenseNumber: updated.license_number,
@@ -785,6 +822,9 @@ export class DoctorsService {
       consultationFee: updated.consultation_fee,
       education: updated.education,
       bio: updated.bio,
+      nationalId: updated.national_id,
+      employmentType: updated.employment_type,
+      department: updated.department,
       appointmentDurationMinutes: updated.appointment_duration_minutes,
     };
   }

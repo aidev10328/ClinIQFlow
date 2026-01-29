@@ -98,7 +98,7 @@ export default function AdminRbacPage() {
   // Pending changes tracking
   const [pendingChanges, setPendingChanges] = useState<Map<string, { resourceId: string; role: string; actions: string[] }>>(new Map());
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
   // Fetch resources
   const fetchResources = useCallback(async () => {

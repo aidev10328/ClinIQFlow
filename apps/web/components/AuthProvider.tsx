@@ -51,7 +51,7 @@ type AuthContextShape = {
   session: Session | null;
   loading: boolean;
   legalStatus: LegalStatus;
-  setCurrentHospitalId: (id: string) => void;
+  setCurrentHospitalId: (id: string | null) => void;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -60,7 +60,7 @@ type AuthContextShape = {
 
 const AuthContext = createContext<AuthContextShape | undefined>(undefined);
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 const AUTH_CACHE_KEY = 'clinqflow_auth_cache';
 
 function loadAuthCache(): { user: User; profile: UserProfile; hospitals: Hospital[] } | null {
@@ -87,20 +87,32 @@ function clearAuthCache() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Hydrate from cache for instant shell rendering
-  const cached = typeof window !== 'undefined' ? loadAuthCache() : null;
-
+  // Initialize all state as server-compatible (null/empty) to avoid hydration mismatch.
+  // Cache is applied in useEffect after mount.
   const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(cached?.user || null);
-  const [profile, setProfile] = useState<UserProfile | null>(cached?.profile || null);
-  const [hospitals, setHospitals] = useState<Hospital[]>(cached?.hospitals || []);
-  const [currentHospitalId, setCurrentHospitalIdState] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('clinqflow_hospital_id');
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [currentHospitalId, setCurrentHospitalIdState] = useState<string | null>(null);
   const [entitlements, setEntitlements] = useState<UserEntitlements | null>(null);
-  const [loading, setLoading] = useState(!cached);
+  const [loading, setLoading] = useState(true);
   const [legalStatus, setLegalStatus] = useState<LegalStatus>('unknown');
+  const [cacheApplied, setCacheApplied] = useState(false);
+
+  // Apply localStorage cache after mount to avoid hydration mismatch
+  useEffect(() => {
+    const cached = loadAuthCache();
+    if (cached) {
+      setUser(cached.user);
+      setProfile(cached.profile);
+      setHospitals(cached.hospitals);
+    }
+    const savedHospitalId = localStorage.getItem('clinqflow_hospital_id');
+    if (savedHospitalId) {
+      setCurrentHospitalIdState(savedHospitalId);
+    }
+    setCacheApplied(true);
+  }, []);
   // For API-based auth (non-Supabase mode)
   const [apiToken, setApiToken] = useState<string | null>(null);
 
@@ -188,10 +200,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   // Set current hospital ID and persist to localStorage
-  function setCurrentHospitalId(id: string) {
+  function setCurrentHospitalId(id: string | null) {
     setCurrentHospitalIdState(id);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('clinqflow_hospital_id', id);
+      if (id) {
+        localStorage.setItem('clinqflow_hospital_id', id);
+      } else {
+        localStorage.removeItem('clinqflow_hospital_id');
+      }
     }
   }
 
@@ -257,8 +273,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkLegalRequirements();
   }, [currentHospitalId, session?.access_token, apiToken, loading, pathname, profile?.isSuperAdmin, router]);
 
-  // Initialize auth state
+  // Initialize auth state (only after cache has been applied to avoid race conditions)
   useEffect(() => {
+    if (!cacheApplied) return;
+
     let mounted = true;
     let subscription: { unsubscribe: () => void } | null = null;
 
@@ -330,11 +348,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (isValidHospital) {
                   setCurrentHospitalIdState(savedHospitalId);
                 } else {
+                  setCurrentHospitalIdState(null);
                   localStorage.removeItem('clinqflow_hospital_id');
                 }
               }
             }
           } else {
+            // No valid session — clear all cached state to prevent stuck UI
+            setUser(null);
+            setProfile(null);
+            setHospitals([]);
+            setCurrentHospitalIdState(null);
+            setEntitlements(null);
+            clearAuthCache();
             if (typeof window !== 'undefined') {
               localStorage.removeItem('clinqflow_hospital_id');
             }
@@ -425,7 +451,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription?.unsubscribe();
     };
-  }, []);
+  }, [cacheApplied]);
 
   async function signIn(email: string, password: string) {
     if (isSupabaseConfigured && supabase) {

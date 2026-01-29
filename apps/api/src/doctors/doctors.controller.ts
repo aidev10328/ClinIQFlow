@@ -137,8 +137,15 @@ export class DoctorsController {
       dateOfBirth?: string;
       gender?: string;
       address?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
       emergencyContact?: string;
       emergencyPhone?: string;
+      emergencyRelation?: string;
       specialization?: string;
       qualification?: string;
       licenseNumber?: string;
@@ -146,6 +153,9 @@ export class DoctorsController {
       consultationFee?: number;
       education?: string;
       bio?: string;
+      nationalId?: string;
+      employmentType?: string;
+      department?: string;
     },
     @Req() req: AuthenticatedRequest,
   ) {
@@ -431,8 +441,15 @@ export class DoctorsController {
       dateOfBirth?: string;
       gender?: string;
       address?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
       emergencyContact?: string;
       emergencyPhone?: string;
+      emergencyRelation?: string;
       specialization?: string;
       qualification?: string;
       licenseNumber?: string;
@@ -440,6 +457,9 @@ export class DoctorsController {
       consultationFee?: number;
       education?: string;
       bio?: string;
+      nationalId?: string;
+      employmentType?: string;
+      department?: string;
     },
     @Req() req: AuthenticatedRequest,
   ) {

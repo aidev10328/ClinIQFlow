@@ -41,7 +41,7 @@ export default function ViewAsUserModal({ isOpen, onClose }: ViewAsUserModalProp
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
   // Fetch hospitals on open
   useEffect(() => {

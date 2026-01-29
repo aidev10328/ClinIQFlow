@@ -1,9 +1,32 @@
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsEmail, IsBoolean, IsInt, Min, IsArray, IsUUID } from 'class-validator';
 
 export enum HospitalRegion {
   US = 'US',
   UK = 'UK',
   IN = 'IN',
+}
+
+export enum HospitalType {
+  GENERAL = 'GENERAL',
+  SPECIALTY = 'SPECIALTY',
+  TEACHING = 'TEACHING',
+  RESEARCH = 'RESEARCH',
+  CLINIC = 'CLINIC',
+  URGENT_CARE = 'URGENT_CARE',
+  REHABILITATION = 'REHABILITATION',
+  PSYCHIATRIC = 'PSYCHIATRIC',
+  CHILDREN = 'CHILDREN',
+  GOVERNMENT = 'GOVERNMENT',
+}
+
+export enum TaxIdType {
+  EIN = 'EIN',
+  NPI = 'NPI',
+  GSTIN = 'GSTIN',
+  PAN = 'PAN',
+  TIN = 'TIN',
+  UTR = 'UTR',
+  CRN = 'CRN',
 }
 
 export class CreateHospitalDto {
@@ -61,6 +84,69 @@ export class CreateHospitalDto {
   @IsOptional()
   @IsString()
   pictureUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  legalEntityName?: string;
+
+  @IsOptional()
+  @IsEnum(TaxIdType)
+  taxIdType?: TaxIdType;
+
+  @IsOptional()
+  @IsString()
+  taxIdValue?: string;
+
+  @IsOptional()
+  @IsEmail()
+  billingContactEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  billingAddressLine1?: string;
+
+  @IsOptional()
+  @IsString()
+  billingAddressLine2?: string;
+
+  @IsOptional()
+  @IsString()
+  billingCity?: string;
+
+  @IsOptional()
+  @IsString()
+  billingState?: string;
+
+  @IsOptional()
+  @IsString()
+  billingPostal?: string;
+
+  @IsOptional()
+  @IsString()
+  billingCountry?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  storesPhi?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  estimatedPatientVolume?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  dataRetentionDays?: number;
+
+  @IsOptional()
+  @IsEnum(HospitalType)
+  hospitalType?: HospitalType;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  specialtyIds?: string[];
 }
 
 export class UpdateHospitalDto {
@@ -127,6 +213,69 @@ export class UpdateHospitalDto {
   @IsOptional()
   @IsString()
   pictureUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  legalEntityName?: string;
+
+  @IsOptional()
+  @IsEnum(TaxIdType)
+  taxIdType?: TaxIdType;
+
+  @IsOptional()
+  @IsString()
+  taxIdValue?: string;
+
+  @IsOptional()
+  @IsEmail()
+  billingContactEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  billingAddressLine1?: string;
+
+  @IsOptional()
+  @IsString()
+  billingAddressLine2?: string;
+
+  @IsOptional()
+  @IsString()
+  billingCity?: string;
+
+  @IsOptional()
+  @IsString()
+  billingState?: string;
+
+  @IsOptional()
+  @IsString()
+  billingPostal?: string;
+
+  @IsOptional()
+  @IsString()
+  billingCountry?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  storesPhi?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  estimatedPatientVolume?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  dataRetentionDays?: number;
+
+  @IsOptional()
+  @IsEnum(HospitalType)
+  hospitalType?: HospitalType;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  specialtyIds?: string[];
 }
 
 export class HospitalResponseDto {
@@ -147,6 +296,21 @@ export class HospitalResponseDto {
   website?: string;
   logoUrl?: string;
   pictureUrl?: string;
+  legalEntityName?: string;
+  taxIdType?: string;
+  taxIdValue?: string;
+  billingContactEmail?: string;
+  billingAddressLine1?: string;
+  billingAddressLine2?: string;
+  billingCity?: string;
+  billingState?: string;
+  billingPostal?: string;
+  billingCountry?: string;
+  storesPhi?: boolean;
+  estimatedPatientVolume?: number;
+  dataRetentionDays?: number;
+  hospitalType?: string;
+  specialties?: { id: string; name: string }[];
   createdAt: string;
   updatedAt: string;
 }

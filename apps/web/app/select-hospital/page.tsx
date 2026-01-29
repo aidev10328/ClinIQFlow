@@ -40,9 +40,14 @@ export default function SelectHospitalPage() {
     // If hospital already selected, go to appropriate dashboard
     if (!loading && currentHospitalId) {
       const hospital = hospitals.find(h => h.id === currentHospitalId);
-      if (hospital?.role === 'HOSPITAL_MANAGER' || hospital?.role === 'STAFF' || profile?.isSuperAdmin) {
+      if (!hospital) {
+        // Hospital ID is set but not found in user's hospital list — clear it
+        setCurrentHospitalId(null);
+        return;
+      }
+      if (hospital.role === 'HOSPITAL_MANAGER' || hospital.role === 'STAFF' || profile?.isSuperAdmin) {
         router.push('/hospital/dashboard');
-      } else if (hospital?.role === 'DOCTOR') {
+      } else if (hospital.role === 'DOCTOR') {
         router.push('/doctor/dashboard');
       } else {
         router.push('/dashboard');
