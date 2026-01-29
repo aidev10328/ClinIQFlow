@@ -246,7 +246,7 @@ export default function HospitalUsersPage() {
             onClick={() => setActiveTab('doctors')}
             className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'doctors'
-                ? 'border-blue-500 text-blue-600'
+                ? 'border-navy-500 text-navy-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -256,7 +256,7 @@ export default function HospitalUsersPage() {
             onClick={() => setActiveTab('staff')}
             className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'staff'
-                ? 'border-blue-500 text-blue-600'
+                ? 'border-navy-500 text-navy-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -313,7 +313,7 @@ export default function HospitalUsersPage() {
                           <button
                             onClick={() => handleResendInvite(invite.id)}
                             disabled={resendingInvite === invite.id}
-                            className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                            className="text-xs text-navy-600 hover:text-navy-800 disabled:opacity-50"
                           >
                             {resendingInvite === invite.id ? 'Sending...' : 'Resend'}
                           </button>
@@ -385,7 +385,7 @@ export default function HospitalUsersPage() {
                         <span className={`text-xs px-2 py-1 rounded ${statusInfo.color}`}>
                           {statusInfo.label}
                         </span>
-                        <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
+                        <span className="text-xs px-2 py-1 rounded bg-navy-100 text-navy-700">
                           Doctor
                         </span>
                       </div>
@@ -445,7 +445,7 @@ export default function HospitalUsersPage() {
                       {isManager && (
                         <button
                           onClick={() => handleToggleStaffStatus(s.id, s.isActive)}
-                          className="text-xs text-blue-600 hover:text-blue-800"
+                          className="text-xs text-navy-600 hover:text-navy-800"
                         >
                           {s.isActive ? 'Deactivate' : 'Activate'}
                         </button>
@@ -461,12 +461,12 @@ export default function HospitalUsersPage() {
             )}
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <p className="text-sm text-blue-800">
+          <div className="bg-navy-50 border border-navy-200 rounded-lg p-4">
+            <p className="text-sm text-navy-700">
               <strong>Staff Login URL:</strong>{' '}
-              <code className="bg-blue-100 px-2 py-0.5 rounded">/staff/login</code>
+              <code className="bg-navy-100 px-2 py-0.5 rounded">/staff/login</code>
             </p>
-            <p className="text-xs text-blue-600 mt-1">
+            <p className="text-xs text-navy-600 mt-1">
               Staff accounts use username/password authentication, separate from doctor accounts.
             </p>
           </div>

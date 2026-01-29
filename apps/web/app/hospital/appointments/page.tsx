@@ -541,7 +541,7 @@ export default function AppointmentsPage() {
                 <span className="font-medium">{slotsData.stats.total}</span>
                 <span className="text-gray-500 ml-1">Total</span>
               </span>
-              <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">
+              <span className="px-1.5 py-0.5 bg-navy-50 text-navy-700 rounded">
                 <span className="font-medium">{slotsData.stats.booked}</span>
                 <span className="ml-1">Booked</span>
               </span>
@@ -619,7 +619,7 @@ export default function AppointmentsPage() {
                     disabled={!cell.isCurrentMonth}
                     className={`
                       relative p-1 text-xs transition-colors bg-white
-                      ${!cell.isCurrentMonth ? 'text-gray-300 bg-gray-50' : 'text-gray-700 hover:bg-blue-50'}
+                      ${!cell.isCurrentMonth ? 'text-gray-300 bg-gray-50' : 'text-gray-700 hover:bg-navy-50'}
                       ${isSelected ? 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]' : ''}
                       ${isToday && !isSelected ? 'ring-2 ring-[var(--color-primary)] ring-inset font-bold' : ''}
                     `}
@@ -631,7 +631,7 @@ export default function AppointmentsPage() {
                           <span className="w-1 h-1 rounded-full bg-green-500" />
                         )}
                         {bookedCount > 0 && (
-                          <span className="w-1 h-1 rounded-full bg-blue-500" />
+                          <span className="w-1 h-1 rounded-full bg-navy-500" />
                         )}
                       </div>
                     )}
@@ -1120,7 +1120,7 @@ function SlotCard({
       className={`
         px-2 py-1.5 rounded mb-1 flex items-center justify-between text-xs
         ${isAvailable ? 'bg-white border border-gray-200 hover:border-[var(--color-primary)] cursor-pointer' : ''}
-        ${isBooked ? 'bg-blue-50 border border-blue-200' : ''}
+        ${isBooked ? 'bg-navy-50 border border-blue-200' : ''}
         ${isBlocked ? 'bg-gray-100 border border-gray-200' : ''}
       `}
       onClick={() => isAvailable && onBook()}
@@ -1135,8 +1135,8 @@ function SlotCard({
         )}
         {isBooked && (
           <>
-            <span className="w-1 h-1 rounded-full bg-blue-500" />
-            <span className="text-blue-700 font-medium truncate max-w-[80px]">{slot.patientName}</span>
+            <span className="w-1 h-1 rounded-full bg-navy-500" />
+            <span className="text-navy-700 font-medium truncate max-w-[80px]">{slot.patientName}</span>
           </>
         )}
         {isBlocked && (

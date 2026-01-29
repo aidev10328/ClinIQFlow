@@ -209,8 +209,8 @@ export function HospitalSidebar() {
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <span className="font-bold text-gray-900 text-sm block truncate">{currentHospital?.name || 'Hospital'}</span>
-            <span className="text-[9px] text-gray-500 uppercase tracking-wider font-medium">Hospital Portal</span>
+            <span className="font-bold text-slate-900 text-sm block truncate">{currentHospital?.name || 'Hospital'}</span>
+            <span className="text-[9px] text-slate-500 uppercase tracking-wider font-medium">Hospital Portal</span>
           </div>
         </Link>
       </div>
@@ -255,7 +255,7 @@ export function HospitalSidebar() {
 
       {/* ClinIQ Logo at Bottom */}
       <div className="admin-sidebar-footer">
-        <div className="px-3 py-3 border-t border-gray-100">
+        <div className="px-3 py-3 border-t border-slate-100">
           <div className="flex items-center justify-center gap-1.5">
             <div className="w-5 h-5 rounded bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-dark)] flex items-center justify-center">
               <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -263,7 +263,7 @@ export function HospitalSidebar() {
               </svg>
             </div>
             <span className="text-[10px] font-semibold text-[var(--color-primary)]">ClinIQ</span>
-            <span className="text-[9px] text-gray-400">v1.0</span>
+            <span className="text-[9px] text-slate-400">v1.0</span>
           </div>
         </div>
       </div>
@@ -276,7 +276,7 @@ export function HospitalSidebar() {
       <div className="admin-mobile-header lg:hidden">
         <button
           onClick={() => setMobileOpen(true)}
-          className="p-2 rounded-md hover:bg-gray-100"
+          className="p-2 rounded-md hover:bg-slate-100"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -288,7 +288,7 @@ export function HospitalSidebar() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
           </div>
-          <span className="font-semibold text-gray-900 text-sm truncate max-w-[150px]">
+          <span className="font-semibold text-slate-900 text-sm truncate max-w-[150px]">
             {currentHospital?.name || 'Hospital'}
           </span>
         </Link>
@@ -308,7 +308,7 @@ export function HospitalSidebar() {
         {/* Mobile close button */}
         <button
           onClick={() => setMobileOpen(false)}
-          className="absolute top-4 right-4 p-1 rounded hover:bg-gray-100 lg:hidden"
+          className="absolute top-4 right-4 p-1 rounded hover:bg-slate-100 lg:hidden"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

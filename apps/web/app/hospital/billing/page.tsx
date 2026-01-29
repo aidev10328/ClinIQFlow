@@ -190,7 +190,7 @@ export default function HospitalBillingPage() {
       case 'ACTIVE':
         return 'bg-green-100 text-green-700';
       case 'TRIAL':
-        return 'bg-blue-100 text-blue-700';
+        return 'bg-navy-100 text-navy-700';
       case 'PAST_DUE':
         return 'bg-yellow-100 text-yellow-700';
       case 'REVOKED':
@@ -243,8 +243,8 @@ export default function HospitalBillingPage() {
         {subscription ? (
           <>
             {subscription.status === 'TRIAL' && subscription.trialEndsAt && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                <p className="text-sm text-blue-800">
+              <div className="bg-navy-50 border border-navy-200 rounded-lg p-3 mb-4">
+                <p className="text-sm text-navy-700">
                   Your trial ends on {new Date(subscription.trialEndsAt).toLocaleDateString()}.
                   Contact support to activate your subscription.
                 </p>
@@ -318,7 +318,7 @@ export default function HospitalBillingPage() {
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
-                    className="bg-blue-600 h-2 rounded-full"
+                    className="bg-navy-600 h-2 rounded-full"
                     style={{
                       width: `${product.totalLicenses > 0 ? (product.usedLicenses / product.totalLicenses) * 100 : 0}%`,
                     }}

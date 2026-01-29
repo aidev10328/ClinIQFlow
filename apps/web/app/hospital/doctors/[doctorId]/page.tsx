@@ -15,27 +15,19 @@ interface DoctorProfile {
   displayName?: string;
   fullName?: string;
   phone?: string;
-  // Personal
   dateOfBirth?: string;
   gender?: string;
   address?: string;
   emergencyContact?: string;
   emergencyPhone?: string;
-  // Professional
   specialization?: string;
   qualification?: string;
   licenseNumber?: string;
   yearsOfExperience?: number;
   consultationFee?: number;
   education?: string;
-  certifications?: string[];
   bio?: string;
-  // Schedule defaults
-  workingDays?: string[];
-  defaultShiftStart?: string;
-  defaultShiftEnd?: string;
   appointmentDurationMinutes?: number;
-  // Status
   complianceStatus?: 'compliant' | 'pending_signatures' | 'not_logged_in';
   documentsRequired?: number;
   documentsSigned?: number;
@@ -61,17 +53,12 @@ interface TimeOff {
 interface Specialization {
   id: string;
   name: string;
-  description?: string;
 }
-
-const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 interface ShiftTiming {
   label: string;
   start: string;
   end: string;
-  color: string;
 }
 
 interface ShiftTimings {
@@ -80,10 +67,13 @@ interface ShiftTimings {
   night: ShiftTiming;
 }
 
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 const DEFAULT_SHIFTS: ShiftTimings = {
-  morning: { label: 'Morning', start: '06:00', end: '14:00', color: 'bg-amber-100 text-amber-700 border-amber-200' },
-  evening: { label: 'Evening', start: '14:00', end: '22:00', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  night: { label: 'Night', start: '22:00', end: '06:00', color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  morning: { label: 'Morning', start: '06:00', end: '14:00' },
+  evening: { label: 'Evening', start: '14:00', end: '22:00' },
+  night: { label: 'Night', start: '22:00', end: '06:00' },
 };
 
 function formatTime(time24: string): string {
@@ -93,33 +83,46 @@ function formatTime(time24: string): string {
   return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
 }
 
+function StatusDot({ status }: { status?: string }) {
+  if (!status || status === 'compliant') {
+    return <span className="w-2 h-2 rounded-full bg-emerald-500" />;
+  }
+  if (status === 'not_logged_in') {
+    return <span className="w-2 h-2 rounded-full bg-slate-400" />;
+  }
+  return <span className="w-2 h-2 rounded-full bg-amber-500" />;
+}
+
+function getStatusLabel(status?: string) {
+  if (!status || status === 'compliant') return 'Active';
+  if (status === 'not_logged_in') return 'Not Logged In';
+  return 'Pending Signatures';
+}
+
 export default function DoctorDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { currentHospital, user, profile } = useAuth();
-  const { timezone, timezoneLabel, formatShortDate, isToday: isTodayInTz, getCurrentTime } = useHospitalTimezone();
+  const { timezoneLabel, getCurrentTime } = useHospitalTimezone();
 
-  // Handle "me" route for doctors viewing their own profile
   const paramDoctorId = params.doctorId as string;
   const doctorId = paramDoctorId === 'me' ? user?.id || '' : paramDoctorId;
   const isOwnProfile = paramDoctorId === 'me' || doctorId === user?.id;
 
-  // Get user role
   const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');
   const isManager = userRole === 'SUPER_ADMIN' || userRole === 'HOSPITAL_MANAGER';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'personal' | 'professional' | 'schedule'>('personal');
+  const [activeTab, setActiveTab] = useState<'overview' | 'schedule'>('overview');
   const [doctor, setDoctor] = useState<DoctorProfile | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState<Partial<DoctorProfile>>({});
 
-  // Schedule state
   const [schedule, setSchedule] = useState<DoctorSchedule[]>(
     DAYS_OF_WEEK.map((_, idx) => ({
       dayOfWeek: idx,
-      isWorking: idx >= 1 && idx <= 5, // Mon-Fri default
+      isWorking: idx >= 1 && idx <= 5,
       morningShift: idx >= 1 && idx <= 5,
       eveningShift: false,
       nightShift: false,
@@ -129,19 +132,12 @@ export default function DoctorDetailPage() {
   const [showTimeOffModal, setShowTimeOffModal] = useState(false);
   const [newTimeOff, setNewTimeOff] = useState({ startDate: '', endDate: '', reason: '' });
 
-  // Calendar state
   const [calendarDate, setCalendarDate] = useState(new Date());
-
-  // Shift timings state
   const [shiftTimings, setShiftTimings] = useState<ShiftTimings>(DEFAULT_SHIFTS);
   const [showShiftTimingsModal, setShowShiftTimingsModal] = useState(false);
   const [editingShiftTimings, setEditingShiftTimings] = useState<ShiftTimings>(DEFAULT_SHIFTS);
-
-  // Appointment duration state
   const [appointmentDuration, setAppointmentDuration] = useState(30);
   const [savingDuration, setSavingDuration] = useState(false);
-
-  // Specializations
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
 
   useEffect(() => {
@@ -154,10 +150,7 @@ export default function DoctorDetailPage() {
   async function fetchSpecializations() {
     try {
       const res = await apiFetch('/v1/specializations');
-      if (res.ok) {
-        const data = await res.json();
-        setSpecializations(data);
-      }
+      if (res.ok) setSpecializations(await res.json());
     } catch (error) {
       console.error('Failed to fetch specializations:', error);
     }
@@ -165,7 +158,6 @@ export default function DoctorDetailPage() {
 
   async function fetchDoctorProfile() {
     try {
-      // Fetch member info with compliance
       const membersRes = await apiFetch('/v1/hospitals/members/compliance');
       let doctorMember: any = null;
       if (membersRes.ok) {
@@ -173,12 +165,9 @@ export default function DoctorDetailPage() {
         doctorMember = members.find((m: any) => m.userId === doctorId && m.role === 'DOCTOR');
       }
 
-      // Also fetch the doctor profile data
       const profileRes = await apiFetch(`/v1/doctors/${doctorId}/profile`);
       let profileData: any = null;
-      if (profileRes.ok) {
-        profileData = await profileRes.json();
-      }
+      if (profileRes.ok) profileData = await profileRes.json();
 
       if (doctorMember || profileData) {
         const doctorData: DoctorProfile = {
@@ -208,9 +197,7 @@ export default function DoctorDetailPage() {
         };
         setDoctor(doctorData);
         setFormData(doctorData);
-        if (profileData?.appointmentDurationMinutes) {
-          setAppointmentDuration(profileData.appointmentDurationMinutes);
-        }
+        if (profileData?.appointmentDurationMinutes) setAppointmentDuration(profileData.appointmentDurationMinutes);
       }
     } catch (error) {
       console.error('Failed to fetch doctor profile:', error);
@@ -224,7 +211,6 @@ export default function DoctorDetailPage() {
       const res = await apiFetch(`/v1/doctors/${doctorId}/time-off`);
       if (res.ok) {
         const data = await res.json();
-        // Map the database format to our frontend format
         setTimeOff(data.map((item: any) => ({
           id: item.id,
           startDate: item.start_date,
@@ -244,34 +230,20 @@ export default function DoctorDetailPage() {
       if (res.ok) {
         const data = await res.json();
         if (data && data.length > 0) {
-          // Convert database format to frontend format
           const newSchedule = DAYS_OF_WEEK.map((_, idx) => {
             const dbSchedule = data.find((s: any) => s.day_of_week === idx);
             if (dbSchedule && dbSchedule.is_working) {
-              // Determine which shifts are active based on shift_start and shift_end
               const startHour = parseInt(dbSchedule.shift_start?.split(':')[0] || '0');
               const endHour = parseInt(dbSchedule.shift_end?.split(':')[0] || '0');
-
-              // Check if shift covers morning (6-14), evening (14-22), night (22-6)
-              const morningShift = startHour < 14 && endHour > 6;
-              const eveningShift = startHour < 22 && endHour > 14;
-              const nightShift = endHour <= 6 || startHour >= 22;
-
               return {
                 dayOfWeek: idx,
                 isWorking: true,
-                morningShift: morningShift,
-                eveningShift: eveningShift,
-                nightShift: nightShift,
+                morningShift: startHour < 14 && endHour > 6,
+                eveningShift: startHour < 22 && endHour > 14,
+                nightShift: endHour <= 6 || startHour >= 22,
               };
             }
-            return {
-              dayOfWeek: idx,
-              isWorking: false,
-              morningShift: false,
-              eveningShift: false,
-              nightShift: false,
-            };
+            return { dayOfWeek: idx, isWorking: false, morningShift: false, eveningShift: false, nightShift: false };
           });
           setSchedule(newSchedule);
         }
@@ -285,7 +257,6 @@ export default function DoctorDetailPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      // Save to doctor_profiles table via API
       const res = await apiFetch(`/v1/doctors/${doctorId}/profile`, {
         method: 'PATCH',
         body: JSON.stringify({
@@ -309,7 +280,6 @@ export default function DoctorDetailPage() {
       if (res.ok) {
         setDoctor({ ...doctor!, ...formData });
         setEditMode(false);
-        alert('Profile saved successfully!');
       } else {
         const errorData = await res.json().catch(() => ({}));
         alert(errorData.message || 'Failed to save profile');
@@ -332,7 +302,6 @@ export default function DoctorDetailPage() {
       setAppointmentDuration(newDuration);
     } catch (error) {
       console.error('Failed to save appointment duration:', error);
-      alert('Failed to save appointment duration');
     } finally {
       setSavingDuration(false);
     }
@@ -342,50 +311,32 @@ export default function DoctorDetailPage() {
     setSchedule(prev => prev.map((day, idx) => {
       if (idx !== dayIndex) return day;
       if (field === 'isWorking') {
-        // When toggling off, clear all shifts
-        if (!value) {
-          return { ...day, isWorking: false, morningShift: false, eveningShift: false, nightShift: false };
-        }
+        if (!value) return { ...day, isWorking: false, morningShift: false, eveningShift: false, nightShift: false };
         return { ...day, isWorking: value };
       }
       if (field === 'morningShift' || field === 'eveningShift' || field === 'nightShift') {
         const updated = { ...day, [field]: value };
-        // Auto-enable isWorking if any shift is selected
         if (value) updated.isWorking = true;
-        // Auto-disable isWorking if no shifts selected
-        if (!updated.morningShift && !updated.eveningShift && !updated.nightShift) {
-          updated.isWorking = false;
-        }
+        if (!updated.morningShift && !updated.eveningShift && !updated.nightShift) updated.isWorking = false;
         return updated;
       }
       return day;
     }));
   }
 
-  // Calendar helpers
   function getCalendarDays(date: Date) {
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
     const startDayOfWeek = firstDay.getDay();
-
     const days: (number | null)[] = [];
-    // Add empty slots for days before the first day of the month
-    for (let i = 0; i < startDayOfWeek; i++) {
-      days.push(null);
-    }
-    // Add the days of the month
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(i);
-    }
+    for (let i = 0; i < startDayOfWeek; i++) days.push(null);
+    for (let i = 1; i <= lastDay.getDate(); i++) days.push(i);
     return days;
   }
 
-  // Parse date string (YYYY-MM-DD) to Date object in a timezone-safe way
   function parseDateString(dateStr: string): Date {
-    // Split the date string and create date using components to avoid UTC conversion
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day);
   }
@@ -399,99 +350,32 @@ export default function DoctorDetailPage() {
     });
   }
 
-  function getTimeOffForDate(day: number) {
-    const date = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day);
-    return timeOff.find(t => {
-      const start = parseDateString(t.startDate);
-      const end = parseDateString(t.endDate);
-      return date >= start && date <= end;
-    });
-  }
-
   function navigateMonth(direction: 'prev' | 'next') {
     setCalendarDate(prev => {
       const newDate = new Date(prev);
-      if (direction === 'prev') {
-        newDate.setMonth(newDate.getMonth() - 1);
-      } else {
-        newDate.setMonth(newDate.getMonth() + 1);
-      }
+      newDate.setMonth(newDate.getMonth() + (direction === 'prev' ? -1 : 1));
       return newDate;
     });
   }
 
-  function formatMonthYear(date: Date) {
-    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  }
-
   function isToday(day: number) {
-    // Use hospital timezone to determine if a day is "today"
     const today = getCurrentTime();
-    return (
-      day === today.getDate() &&
-      calendarDate.getMonth() === today.getMonth() &&
-      calendarDate.getFullYear() === today.getFullYear()
-    );
-  }
-
-  function openShiftTimingsModal() {
-    setEditingShiftTimings({ ...shiftTimings });
-    setShowShiftTimingsModal(true);
-  }
-
-  function handleShiftTimingChange(shift: keyof ShiftTimings, field: 'start' | 'end', value: string) {
-    setEditingShiftTimings(prev => ({
-      ...prev,
-      [shift]: { ...prev[shift], [field]: value }
-    }));
-  }
-
-  function saveShiftTimings() {
-    setShiftTimings(editingShiftTimings);
-    setShowShiftTimingsModal(false);
+    return day === today.getDate() && calendarDate.getMonth() === today.getMonth() && calendarDate.getFullYear() === today.getFullYear();
   }
 
   async function handleSaveSchedule() {
     setSaving(true);
     try {
-      // Convert frontend schedule (shift flags) to database format (start/end times)
       const schedulesToSave = schedule.map((day) => {
         if (!day.isWorking || (!day.morningShift && !day.eveningShift && !day.nightShift)) {
-          return {
-            dayOfWeek: day.dayOfWeek,
-            isWorking: false,
-            shiftStart: null,
-            shiftEnd: null,
-          };
+          return { dayOfWeek: day.dayOfWeek, isWorking: false, shiftStart: null, shiftEnd: null };
         }
-
-        // Determine earliest start and latest end based on selected shifts
         let shiftStart: string | null = null;
         let shiftEnd: string | null = null;
-
-        if (day.morningShift) {
-          shiftStart = shiftTimings.morning.start + ':00';
-          shiftEnd = shiftTimings.morning.end + ':00';
-        }
-        if (day.eveningShift) {
-          if (!shiftStart) {
-            shiftStart = shiftTimings.evening.start + ':00';
-          }
-          shiftEnd = shiftTimings.evening.end + ':00';
-        }
-        if (day.nightShift) {
-          if (!shiftStart) {
-            shiftStart = shiftTimings.night.start + ':00';
-          }
-          shiftEnd = shiftTimings.night.end + ':00';
-        }
-
-        return {
-          dayOfWeek: day.dayOfWeek,
-          isWorking: true,
-          shiftStart,
-          shiftEnd,
-        };
+        if (day.morningShift) { shiftStart = shiftTimings.morning.start + ':00'; shiftEnd = shiftTimings.morning.end + ':00'; }
+        if (day.eveningShift) { if (!shiftStart) shiftStart = shiftTimings.evening.start + ':00'; shiftEnd = shiftTimings.evening.end + ':00'; }
+        if (day.nightShift) { if (!shiftStart) shiftStart = shiftTimings.night.start + ':00'; shiftEnd = shiftTimings.night.end + ':00'; }
+        return { dayOfWeek: day.dayOfWeek, isWorking: true, shiftStart, shiftEnd };
       });
 
       const res = await apiFetch(`/v1/doctors/${doctorId}/schedules`, {
@@ -499,15 +383,12 @@ export default function DoctorDetailPage() {
         body: JSON.stringify({ schedules: schedulesToSave }),
       });
 
-      if (res.ok) {
-        alert('Schedule saved successfully!');
-      } else {
+      if (!res.ok) {
         const error = await res.json();
         alert(error.message || 'Failed to save schedule');
       }
     } catch (error) {
       console.error('Failed to save schedule:', error);
-      alert('Failed to save schedule');
     } finally {
       setSaving(false);
     }
@@ -519,22 +400,12 @@ export default function DoctorDetailPage() {
     try {
       const res = await apiFetch(`/v1/doctors/${doctorId}/time-off`, {
         method: 'POST',
-        body: JSON.stringify({
-          startDate: newTimeOff.startDate,
-          endDate: newTimeOff.endDate,
-          reason: newTimeOff.reason || undefined,
-        }),
+        body: JSON.stringify({ startDate: newTimeOff.startDate, endDate: newTimeOff.endDate, reason: newTimeOff.reason || undefined }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        setTimeOff(prev => [...prev, {
-          id: data.id,
-          startDate: data.start_date,
-          endDate: data.end_date,
-          reason: data.reason,
-          status: data.status,
-        }]);
+        setTimeOff(prev => [...prev, { id: data.id, startDate: data.start_date, endDate: data.end_date, reason: data.reason, status: data.status }]);
         setNewTimeOff({ startDate: '', endDate: '', reason: '' });
         setShowTimeOffModal(false);
       } else {
@@ -543,7 +414,6 @@ export default function DoctorDetailPage() {
       }
     } catch (error) {
       console.error('Failed to add time-off:', error);
-      alert('Failed to add time off');
     } finally {
       setSaving(false);
     }
@@ -551,664 +421,435 @@ export default function DoctorDetailPage() {
 
   async function handleRemoveTimeOff(id: string) {
     try {
-      const res = await apiFetch(`/v1/doctors/${doctorId}/time-off/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (res.ok) {
-        setTimeOff(prev => prev.filter(t => t.id !== id));
-      } else {
-        const error = await res.json();
-        alert(error.message || 'Failed to remove time off');
-      }
+      const res = await apiFetch(`/v1/doctors/${doctorId}/time-off/${id}`, { method: 'DELETE' });
+      if (res.ok) setTimeOff(prev => prev.filter(t => t.id !== id));
     } catch (error) {
       console.error('Failed to remove time-off:', error);
-      alert('Failed to remove time off');
     }
   }
 
-  function getStatusBadge() {
-    if (!doctor?.complianceStatus || doctor.complianceStatus === 'compliant') {
-      return <span className="status-pill status-pill-active">Active</span>;
-    }
-    if (doctor.complianceStatus === 'not_logged_in') {
-      return <span className="status-pill status-pill-pending">Not Logged In</span>;
-    }
-    return <span className="status-pill status-pill-warning">Pending Signatures</span>;
+  function handleShiftTimingChange(shift: keyof ShiftTimings, field: 'start' | 'end', value: string) {
+    setEditingShiftTimings(prev => ({ ...prev, [shift]: { ...prev[shift], [field]: value } }));
   }
 
   if (loading) {
-    return null;
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="w-8 h-8 border-2 border-navy-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   if (!doctor) {
     return (
-      <div className="admin-empty-state">
-        <p className="admin-empty-title">Doctor not found</p>
-        <Link href="/hospital/doctors" className="btn-primary mt-4">
+      <div className="flex flex-col items-center justify-center min-h-[400px]">
+        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+          <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+        </div>
+        <p className="text-sm font-medium text-slate-700">Doctor not found</p>
+        <Link href="/hospital/doctors" className="mt-4 px-4 py-2 text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 transition-colors">
           Back to Doctors
         </Link>
       </div>
     );
   }
 
+  const workingDays = schedule.filter(d => d.isWorking).length;
+
   return (
-    <div className="space-y-3">
-      {/* Compact Header */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.back()}
-            className="p-1 rounded-md hover:bg-gray-100 transition-colors text-gray-500"
-          >
+    <div className="space-y-4">
+      {/* Header Card */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="flex items-start gap-4">
+          <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-400 mt-1">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
 
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--color-primary)] to-[#5a8ac7] flex items-center justify-center text-base font-bold text-white">
+          <div className="w-14 h-14 rounded-xl bg-navy-100 flex items-center justify-center text-xl font-semibold text-navy-600 flex-shrink-0">
             {doctor.fullName?.charAt(0) || doctor.email.charAt(0).toUpperCase()}
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-semibold text-gray-900 truncate">
-                Dr. {doctor.fullName || doctor.email}
-              </h1>
-              {getStatusBadge()}
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-semibold text-slate-900">Dr. {doctor.fullName || doctor.email.split('@')[0]}</h1>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
+                <StatusDot status={doctor.complianceStatus} />
+                <span className="text-xs font-medium text-slate-600">{getStatusLabel(doctor.complianceStatus)}</span>
+              </div>
             </div>
-            <p className="text-xs text-gray-500 truncate">{doctor.email}</p>
+            <p className="text-sm text-slate-500 mt-0.5">{doctor.email}</p>
+            <div className="flex flex-wrap items-center gap-3 mt-2">
+              {doctor.specialization && (
+                <span className="text-xs font-medium text-navy-600 bg-navy-50 px-2.5 py-1 rounded-lg">{doctor.specialization}</span>
+              )}
+              {doctor.qualification && (
+                <span className="text-xs text-slate-500">{doctor.qualification}</span>
+              )}
+              {doctor.yearsOfExperience && (
+                <span className="text-xs text-slate-500">{doctor.yearsOfExperience} yrs exp</span>
+              )}
+              {doctor.consultationFee && (
+                <span className="text-xs font-medium text-emerald-600">${doctor.consultationFee}</span>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {doctor.specialization && (
-              <span className="hidden sm:inline-flex px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-medium rounded">
-                {doctor.specialization}
-              </span>
-            )}
-            {isManager && doctor.complianceStatus === 'compliant' && (
-              <Link
-                href={`/hospital/licenses?doctor=${doctor.userId}`}
-                className="inline-flex items-center gap-1 bg-[var(--color-primary)] text-white px-2.5 py-1 rounded-md font-medium text-xs hover:bg-[var(--color-primary-dark)] transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-                License
-              </Link>
-            )}
-            {isManager && doctor.complianceStatus && doctor.complianceStatus !== 'compliant' && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-medium rounded">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-                {doctor.complianceStatus === 'not_logged_in' ? 'Not logged in' : `${doctor.documentsSigned || 0}/${doctor.documentsRequired || 0} docs`}
-              </span>
-            )}
-          </div>
+          {isManager && doctor.complianceStatus === 'compliant' && (
+            <Link
+              href={`/hospital/billing?doctor=${doctor.userId}`}
+              className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              Assign License
+            </Link>
+          )}
         </div>
       </div>
 
-      {/* Compact Tabs */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-1">
-        <div className="flex gap-1">
-          <button
-            onClick={() => setActiveTab('personal')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md font-medium text-xs transition-all ${
-              activeTab === 'personal'
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-            Personal
-          </button>
-          <button
-            onClick={() => setActiveTab('professional')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md font-medium text-xs transition-all ${
-              activeTab === 'professional'
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-            Professional
-          </button>
-          <button
-            onClick={() => setActiveTab('schedule')}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md font-medium text-xs transition-all ${
-              activeTab === 'schedule'
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            Schedule
-          </button>
-        </div>
+      {/* Tabs */}
+      <div className="flex items-center gap-1 border-b border-slate-200">
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'overview' ? 'border-navy-600 text-navy-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setActiveTab('schedule')}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${
+            activeTab === 'schedule' ? 'border-navy-600 text-navy-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Schedule
+          <span className="px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded-md">{workingDays} days</span>
+        </button>
       </div>
 
-      {/* Personal Tab */}
-      {activeTab === 'personal' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Contact Information</span>
-            {!editMode && (isManager || isOwnProfile) && (
-              <button
-                onClick={() => setEditMode(true)}
-                className="text-xs font-medium text-[var(--color-primary)] hover:underline"
-              >
-                Edit
-              </button>
-            )}
-          </div>
-          <div className="p-4">
-            {editMode ? (
-              <form onSubmit={handleSaveProfile} className="space-y-3">
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-500">Full Name</label>
-                    <input
-                      type="text"
-                      value={formData.fullName || ''}
-                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Email</label>
-                    <input
-                      type="email"
-                      value={formData.email || ''}
-                      disabled
-                      className="form-input text-sm py-1.5 bg-gray-50"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Phone</label>
-                    <PhoneInput
-                      value={formData.phone || ''}
-                      onChange={(value) => setFormData({ ...formData, phone: value })}
-                      placeholder="Phone number"
-                      className="text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Date of Birth</label>
-                    <input
-                      type="date"
-                      value={formData.dateOfBirth || ''}
-                      onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Gender</label>
-                    <select
-                      value={formData.gender || ''}
-                      onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                    >
-                      <option value="">Select</option>
-                      <option value="male">Male</option>
-                      <option value="female">Female</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Address</label>
-                    <input
-                      type="text"
-                      value={formData.address || ''}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                    />
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-gray-100">
-                  <p className="text-xs font-medium text-red-600 mb-2">Emergency Contact</p>
-                  <div className="grid grid-cols-2 gap-3">
+      {/* Overview Tab */}
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Personal Information */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-700">Personal Information</h3>
+              {!editMode && (isManager || isOwnProfile) && (
+                <button onClick={() => setEditMode(true)} className="text-sm font-medium text-navy-600 hover:text-navy-700">Edit</button>
+              )}
+            </div>
+            <div className="p-4">
+              {editMode ? (
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-xs text-gray-500">Contact Name</label>
-                      <input
-                        type="text"
-                        value={formData.emergencyContact || ''}
-                        onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
-                        className="form-input text-sm py-1.5"
-                      />
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Full Name</label>
+                      <input type="text" value={formData.fullName || ''} onChange={(e) => setFormData({ ...formData, fullName: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                     </div>
                     <div>
-                      <label className="text-xs text-gray-500">Contact Phone</label>
-                      <PhoneInput
-                        value={formData.emergencyPhone || ''}
-                        onChange={(value) => setFormData({ ...formData, emergencyPhone: value })}
-                        placeholder="Phone number"
-                        className="text-sm"
-                      />
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>
+                      <PhoneInput value={formData.phone || ''} onChange={(value) => setFormData({ ...formData, phone: value })} placeholder="Phone number" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Date of Birth</label>
+                      <input type="date" value={formData.dateOfBirth || ''} onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Gender</label>
+                      <select value={formData.gender || ''} onChange={(e) => setFormData({ ...formData, gender: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500 bg-white">
+                        <option value="">Select</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                      </select>
                     </div>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Address</label>
+                    <input type="text" value={formData.address || ''} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                  </div>
+                  <div className="pt-4 border-t border-slate-100">
+                    <p className="text-sm font-medium text-red-600 mb-3">Emergency Contact</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <input type="text" placeholder="Contact Name" value={formData.emergencyContact || ''} onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                      <PhoneInput value={formData.emergencyPhone || ''} onChange={(value) => setFormData({ ...formData, emergencyPhone: value })} placeholder="Contact Phone" />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button type="button" onClick={() => setEditMode(false)} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50 transition-colors">
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Email</p>
+                      <p className="text-sm text-slate-900">{doctor.email}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Phone</p>
+                      <p className="text-sm text-slate-900">{doctor.phone || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Date of Birth</p>
+                      <p className="text-sm text-slate-900">{doctor.dateOfBirth ? new Date(doctor.dateOfBirth).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Gender</p>
+                      <p className="text-sm text-slate-900 capitalize">{doctor.gender || '—'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-500 mb-1">Address</p>
+                    <p className="text-sm text-slate-900">{doctor.address || '—'}</p>
+                  </div>
+                  {(doctor.emergencyContact || doctor.emergencyPhone) && (
+                    <div className="flex items-center gap-2 pt-4 border-t border-slate-100">
+                      <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <span className="text-sm font-medium text-red-600">Emergency:</span>
+                      <span className="text-sm text-slate-700">{doctor.emergencyContact || '—'}</span>
+                      <span className="text-sm text-slate-500">{doctor.emergencyPhone}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditMode(false)}
-                    className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="px-3 py-1.5 text-xs font-medium text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] rounded-md disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase">Name</p>
-                    <p className="text-sm font-medium text-gray-900 truncate">{doctor.fullName || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase">Email</p>
-                    <p className="text-sm font-medium text-gray-900 truncate">{doctor.email}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase">Phone</p>
-                    <p className="text-sm font-medium text-gray-900">{doctor.phone || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase">DOB</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {doctor.dateOfBirth ? new Date(doctor.dateOfBirth).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase">Gender</p>
-                    <p className="text-sm font-medium text-gray-900 capitalize">{doctor.gender || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase">Address</p>
-                    <p className="text-sm font-medium text-gray-900 truncate">{doctor.address || '—'}</p>
-                  </div>
-                </div>
-                {/* Emergency Contact - Inline */}
-                <div className="flex items-center gap-4 pt-2 border-t border-gray-100">
-                  <div className="flex items-center gap-1.5">
-                    <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <span className="text-xs font-medium text-red-600">Emergency:</span>
-                  </div>
-                  <span className="text-sm text-gray-700">{doctor.emergencyContact || '—'}</span>
-                  <span className="text-sm text-gray-500">{doctor.emergencyPhone || '—'}</span>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* Professional Tab */}
-      {activeTab === 'professional' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">Professional Credentials</span>
-            {!editMode && (isManager || isOwnProfile) && (
-              <button
-                onClick={() => setEditMode(true)}
-                className="text-xs font-medium text-[var(--color-primary)] hover:underline"
-              >
-                Edit
-              </button>
-            )}
-          </div>
-          <div className="p-4">
-            {editMode ? (
-              <form onSubmit={handleSaveProfile} className="space-y-3">
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-500">Specialization</label>
-                    <select
-                      value={formData.specialization || ''}
-                      onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                    >
-                      <option value="">Select specialization</option>
-                      {specializations.map((spec) => (
-                        <option key={spec.id} value={spec.name}>{spec.name}</option>
-                      ))}
-                    </select>
+          {/* Professional Information */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-700">Professional Details</h3>
+              {!editMode && (isManager || isOwnProfile) && (
+                <button onClick={() => setEditMode(true)} className="text-sm font-medium text-navy-600 hover:text-navy-700">Edit</button>
+              )}
+            </div>
+            <div className="p-4">
+              {editMode ? (
+                <form onSubmit={handleSaveProfile} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Specialization</label>
+                      <select value={formData.specialization || ''} onChange={(e) => setFormData({ ...formData, specialization: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500 bg-white">
+                        <option value="">Select</option>
+                        {specializations.map((spec) => (<option key={spec.id} value={spec.name}>{spec.name}</option>))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Qualification</label>
+                      <input type="text" value={formData.qualification || ''} onChange={(e) => setFormData({ ...formData, qualification: e.target.value })} placeholder="e.g., MBBS, MD" className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">License Number</label>
+                      <input type="text" value={formData.licenseNumber || ''} onChange={(e) => setFormData({ ...formData, licenseNumber: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Experience (years)</label>
+                      <input type="number" min="0" value={formData.yearsOfExperience || ''} onChange={(e) => setFormData({ ...formData, yearsOfExperience: parseInt(e.target.value) })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Consultation Fee ($)</label>
+                      <input type="number" min="0" value={formData.consultationFee || ''} onChange={(e) => setFormData({ ...formData, consultationFee: parseFloat(e.target.value) })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Education</label>
+                      <input type="text" value={formData.education || ''} onChange={(e) => setFormData({ ...formData, education: e.target.value })} placeholder="e.g., MD Stanford" className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                    </div>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500">Qualification</label>
-                    <input
-                      type="text"
-                      value={formData.qualification || ''}
-                      onChange={(e) => setFormData({ ...formData, qualification: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                      placeholder="e.g., MBBS, MD"
-                    />
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Bio</label>
+                    <textarea value={formData.bio || ''} onChange={(e) => setFormData({ ...formData, bio: e.target.value })} rows={2} placeholder="Brief professional biography..." className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500 resize-none" />
                   </div>
-                  <div>
-                    <label className="text-xs text-gray-500">License Number</label>
-                    <input
-                      type="text"
-                      value={formData.licenseNumber || ''}
-                      onChange={(e) => setFormData({ ...formData, licenseNumber: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                    />
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button type="button" onClick={() => setEditMode(false)} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50 transition-colors">
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
                   </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Years of Experience</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.yearsOfExperience || ''}
-                      onChange={(e) => setFormData({ ...formData, yearsOfExperience: parseInt(e.target.value) })}
-                      className="form-input text-sm py-1.5"
-                    />
+                </form>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Specialization</p>
+                      <p className="text-sm text-slate-900">{doctor.specialization || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Qualification</p>
+                      <p className="text-sm text-slate-900">{doctor.qualification || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">License Number</p>
+                      <p className="text-sm text-slate-900">{doctor.licenseNumber || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Experience</p>
+                      <p className="text-sm text-slate-900">{doctor.yearsOfExperience ? `${doctor.yearsOfExperience} years` : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Consultation Fee</p>
+                      <p className="text-sm text-slate-900">{doctor.consultationFee ? `$${doctor.consultationFee}` : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-500 mb-1">Education</p>
+                      <p className="text-sm text-slate-900">{doctor.education || '—'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Consultation Fee</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.consultationFee || ''}
-                      onChange={(e) => setFormData({ ...formData, consultationFee: parseFloat(e.target.value) })}
-                      className="form-input text-sm py-1.5"
-                      placeholder="e.g., 500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-500">Education</label>
-                    <input
-                      type="text"
-                      value={formData.education || ''}
-                      onChange={(e) => setFormData({ ...formData, education: e.target.value })}
-                      className="form-input text-sm py-1.5"
-                      placeholder="e.g., MD Stanford"
-                    />
-                  </div>
+                  {doctor.bio && (
+                    <div className="pt-4 border-t border-slate-100">
+                      <p className="text-sm font-medium text-slate-500 mb-1">Bio</p>
+                      <p className="text-sm text-slate-600">{doctor.bio}</p>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label className="text-xs text-gray-500">Bio</label>
-                  <textarea
-                    value={formData.bio || ''}
-                    onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-                    className="form-input text-sm py-1.5"
-                    rows={2}
-                    placeholder="Brief professional biography..."
-                  />
-                </div>
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditMode(false)}
-                    className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="px-3 py-1.5 text-xs font-medium text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] rounded-md disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="space-y-3">
-                {/* Compact Stats Row */}
-                <div className="flex flex-wrap gap-3">
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 rounded-lg border border-indigo-100">
-                    <span className="text-[10px] text-indigo-500 uppercase">Specialization</span>
-                    <span className="text-sm font-semibold text-indigo-700">{doctor.specialization || '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-cyan-50 rounded-lg border border-cyan-100">
-                    <span className="text-[10px] text-cyan-500 uppercase">Qualification</span>
-                    <span className="text-sm font-semibold text-cyan-700">{doctor.qualification || '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-lg border border-emerald-100">
-                    <span className="text-[10px] text-emerald-500 uppercase">Experience</span>
-                    <span className="text-sm font-semibold text-emerald-700">{doctor.yearsOfExperience ? `${doctor.yearsOfExperience} yrs` : '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 rounded-lg border border-amber-100">
-                    <span className="text-[10px] text-amber-500 uppercase">License</span>
-                    <span className="text-sm font-semibold text-amber-700">{doctor.licenseNumber || '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 rounded-lg border border-green-100">
-                    <span className="text-[10px] text-green-500 uppercase">Fee</span>
-                    <span className="text-sm font-semibold text-green-700">{doctor.consultationFee ? `$${doctor.consultationFee}` : '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-100">
-                    <span className="text-[10px] text-gray-500 uppercase">Education</span>
-                    <span className="text-sm font-semibold text-gray-700">{doctor.education || '—'}</span>
-                  </div>
-                </div>
-                {/* Bio - Inline */}
-                <div className="pt-2 border-t border-gray-100">
-                  <p className="text-[10px] text-gray-400 uppercase mb-1">Bio</p>
-                  <p className="text-sm text-gray-600 line-clamp-2">
-                    {doctor.bio || 'No professional biography added.'}
-                  </p>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {/* Schedule Tab */}
       {activeTab === 'schedule' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {/* Left Column: Shifts + Weekly Schedule */}
-          <div className="space-y-3">
-            {/* Shift Timings - Compact */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-              <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Shift Timings</span>
-                <button onClick={openShiftTimingsModal} className="text-xs font-medium text-[var(--color-primary)] hover:underline">
-                  Edit
-                </button>
-              </div>
-              <div className="p-3">
-                <div className="flex gap-2">
-                  <div className="flex-1 px-2.5 py-2 bg-amber-50 rounded-lg border border-amber-100 text-center">
-                    <p className="text-[10px] text-amber-600 uppercase font-medium">Morning</p>
-                    <p className="text-xs font-bold text-amber-800">{formatTime(shiftTimings.morning.start)} - {formatTime(shiftTimings.morning.end)}</p>
-                  </div>
-                  <div className="flex-1 px-2.5 py-2 bg-blue-50 rounded-lg border border-blue-100 text-center">
-                    <p className="text-[10px] text-blue-600 uppercase font-medium">Evening</p>
-                    <p className="text-xs font-bold text-blue-800">{formatTime(shiftTimings.evening.start)} - {formatTime(shiftTimings.evening.end)}</p>
-                  </div>
-                  <div className="flex-1 px-2.5 py-2 bg-purple-50 rounded-lg border border-purple-100 text-center">
-                    <p className="text-[10px] text-purple-600 uppercase font-medium">Night</p>
-                    <p className="text-xs font-bold text-purple-800">{formatTime(shiftTimings.night.start)} - {formatTime(shiftTimings.night.end)}</p>
-                  </div>
-                </div>
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          {/* Header with save button */}
+          <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-medium text-slate-700">Weekly Schedule</h3>
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">AM</span>
+                <span className="text-slate-400">{formatTime(shiftTimings.morning.start)}-{formatTime(shiftTimings.morning.end)}</span>
+                <span className="px-1.5 py-0.5 rounded bg-navy-100 text-navy-700 font-semibold">PM</span>
+                <span className="text-slate-400">{formatTime(shiftTimings.evening.start)}-{formatTime(shiftTimings.evening.end)}</span>
+                <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold">NT</span>
+                <span className="text-slate-400">{formatTime(shiftTimings.night.start)}-{formatTime(shiftTimings.night.end)}</span>
+                <button onClick={() => { setEditingShiftTimings(shiftTimings); setShowShiftTimingsModal(true); }} className="text-navy-600 hover:underline ml-1">Edit</button>
               </div>
             </div>
-
-            {/* Weekly Schedule - Compact */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-              <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Weekly Schedule</span>
-                <button
-                  onClick={handleSaveSchedule}
-                  disabled={saving}
-                  className="px-2.5 py-1 text-xs font-medium text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] rounded-md disabled:opacity-50"
-                >
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-              <div className="p-2">
-                <div className="space-y-1">
-                  {schedule.map((day, idx) => (
-                    <div
-                      key={idx}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded-md ${day.isWorking ? 'bg-green-50' : 'bg-gray-50'}`}
-                    >
-                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${day.isWorking ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                      <span className={`text-xs font-medium w-12 ${day.isWorking ? 'text-gray-900' : 'text-gray-400'}`}>
-                        {DAYS_SHORT[idx]}
-                      </span>
-                      <div className="flex gap-1 flex-1">
-                        <label className={`px-2 py-0.5 rounded text-[10px] font-medium cursor-pointer transition-all ${
-                          day.morningShift ? 'bg-amber-200 text-amber-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                        }`}>
-                          <input type="checkbox" checked={day.morningShift} onChange={(e) => handleScheduleChange(idx, 'morningShift', e.target.checked)} className="sr-only" />
-                          AM
-                        </label>
-                        <label className={`px-2 py-0.5 rounded text-[10px] font-medium cursor-pointer transition-all ${
-                          day.eveningShift ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                        }`}>
-                          <input type="checkbox" checked={day.eveningShift} onChange={(e) => handleScheduleChange(idx, 'eveningShift', e.target.checked)} className="sr-only" />
-                          PM
-                        </label>
-                        <label className={`px-2 py-0.5 rounded text-[10px] font-medium cursor-pointer transition-all ${
-                          day.nightShift ? 'bg-purple-200 text-purple-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                        }`}>
-                          <input type="checkbox" checked={day.nightShift} onChange={(e) => handleScheduleChange(idx, 'nightShift', e.target.checked)} className="sr-only" />
-                          NT
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Appointment Duration Setting */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-              <div className="px-3 py-2 border-b border-gray-100">
-                <span className="text-sm font-medium text-gray-700">Appointment Duration</span>
-              </div>
-              <div className="p-3">
-                <div className="flex items-center gap-3">
-                  <select
-                    value={appointmentDuration}
-                    onChange={(e) => handleSaveAppointmentDuration(parseInt(e.target.value))}
-                    disabled={savingDuration}
-                    className="form-input text-sm py-1.5 w-36"
-                  >
-                    <option value={15}>15 minutes</option>
-                    <option value={20}>20 minutes</option>
-                    <option value={30}>30 minutes</option>
-                    <option value={45}>45 minutes</option>
-                    <option value={60}>60 minutes</option>
-                  </select>
-                  {savingDuration && (
-                    <span className="text-xs text-gray-500">Saving...</span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  Duration for each appointment slot when generating schedules
-                </p>
-              </div>
-            </div>
-
-            {/* Time Off List - Compact */}
-            {timeOff.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-                <div className="px-3 py-2 border-b border-gray-100">
-                  <span className="text-sm font-medium text-gray-700">Time Off ({timeOff.length})</span>
-                </div>
-                <div className="p-2 space-y-1">
-                  {timeOff.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between px-2 py-1.5 bg-red-50 rounded-md">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                        <span className="text-xs text-gray-700">
-                          {parseDateString(item.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          {item.startDate !== item.endDate && ` - ${parseDateString(item.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-                        </span>
-                        {item.reason && <span className="text-[10px] text-gray-500">({item.reason})</span>}
-                      </div>
-                      <button onClick={() => handleRemoveTimeOff(item.id)} className="text-gray-400 hover:text-red-500">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <button onClick={handleSaveSchedule} disabled={saving} className="px-3 py-1.5 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50 transition-colors">
+              {saving ? 'Saving...' : 'Save Schedule'}
+            </button>
           </div>
 
-          {/* Right Column: Calendar */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button onClick={() => navigateMonth('prev')} className="p-1 rounded hover:bg-gray-100">
-                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                </button>
-                <span className="text-sm font-medium text-gray-700">{formatMonthYear(calendarDate)}</span>
-                <button onClick={() => navigateMonth('next')} className="p-1 rounded hover:bg-gray-100">
-                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              </div>
-              <button
-                onClick={() => setShowTimeOffModal(true)}
-                className="px-2 py-1 text-xs font-medium text-white bg-rose-500 hover:bg-rose-600 rounded-md"
-              >
-                + Time Off
-              </button>
-            </div>
-            <div className="p-2">
-              <div className="grid grid-cols-7 gap-px bg-gray-200 rounded overflow-hidden">
-                {DAYS_SHORT.map((day) => (
-                  <div key={day} className="bg-gray-50 py-1.5 text-center text-[10px] font-semibold text-gray-500 uppercase">
-                    {day.charAt(0)}
+          <div className="flex">
+            {/* Left: Compact Schedule Grid */}
+            <div className="flex-1 p-3 border-r border-slate-200">
+              <div className="grid grid-cols-7 gap-1.5">
+                {schedule.map((day, idx) => (
+                  <div key={idx} className={`rounded-lg p-2 text-center transition-all ${day.isWorking ? 'bg-gradient-to-b from-emerald-50 to-green-50 border border-emerald-200' : 'bg-slate-50 border border-slate-200'}`}>
+                    <p className={`text-[11px] font-bold ${day.isWorking ? 'text-emerald-700' : 'text-slate-400'}`}>{DAYS_SHORT[idx]}</p>
+                    <div className="mt-1.5 flex flex-col gap-1">
+                      {['morning', 'evening', 'night'].map((shift) => {
+                        const isActive = day[`${shift}Shift` as keyof DoctorSchedule] as boolean;
+                        const shiftConfig = {
+                          morning: { label: 'AM', active: 'bg-amber-100 text-amber-700 border-amber-200', inactive: 'bg-white text-slate-300 border-slate-200' },
+                          evening: { label: 'PM', active: 'bg-navy-100 text-navy-700 border-blue-200', inactive: 'bg-white text-slate-300 border-slate-200' },
+                          night: { label: 'NT', active: 'bg-purple-100 text-purple-700 border-purple-200', inactive: 'bg-white text-slate-300 border-slate-200' },
+                        };
+                        const cfg = shiftConfig[shift as keyof typeof shiftConfig];
+                        return (
+                          <label key={shift} className={`px-1.5 py-1 rounded text-[10px] font-bold cursor-pointer transition-all border ${isActive ? cfg.active : cfg.inactive} hover:opacity-80`}>
+                            <input type="checkbox" checked={isActive} onChange={(e) => handleScheduleChange(idx, `${shift}Shift`, e.target.checked)} className="sr-only" />
+                            {cfg.label}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
+                ))}
+              </div>
+
+              {/* Appointment Duration - Inline */}
+              <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <span className="text-xs font-medium text-slate-600">Appointment Duration</span>
+                </div>
+                <select value={appointmentDuration} onChange={(e) => handleSaveAppointmentDuration(parseInt(e.target.value))} disabled={savingDuration} className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500">
+                  <option value={15}>15 min</option>
+                  <option value={20}>20 min</option>
+                  <option value={30}>30 min</option>
+                  <option value={45}>45 min</option>
+                  <option value={60}>60 min</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Right: Compact Calendar + Time Off */}
+            <div className="w-64 p-3 flex flex-col">
+              {/* Mini Calendar Header */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1">
+                  <button onClick={() => navigateMonth('prev')} className="p-0.5 rounded hover:bg-slate-100 transition-colors">
+                    <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                  <span className="text-xs font-semibold text-slate-700">{calendarDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                  <button onClick={() => navigateMonth('next')} className="p-0.5 rounded hover:bg-slate-100 transition-colors">
+                    <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                </div>
+                <button onClick={() => setShowTimeOffModal(true)} className="px-2 py-0.5 text-[10px] font-medium text-white bg-rose-500 rounded hover:bg-rose-600 transition-colors">+ Leave</button>
+              </div>
+
+              {/* Compact Calendar Grid */}
+              <div className="grid grid-cols-7 gap-0.5">
+                {DAYS_SHORT.map((day) => (
+                  <div key={day} className="text-center text-[9px] font-medium text-slate-400 py-0.5">{day.charAt(0)}</div>
                 ))}
                 {getCalendarDays(calendarDate).map((day, index) => {
                   const isTimeOffDay = day ? isDateInTimeOff(day) : false;
                   const isTodayDay = day ? isToday(day) : false;
                   return (
-                    <div
-                      key={index}
-                      className={`p-1 min-h-[36px] text-center ${!day ? 'bg-gray-50' : 'bg-white'} ${isTimeOffDay ? 'bg-red-50' : ''}`}
-                    >
+                    <div key={index} className={`aspect-square flex items-center justify-center text-[10px] ${!day ? '' : isTimeOffDay ? 'bg-red-50 rounded' : ''}`}>
                       {day && (
-                        <span className={`text-xs inline-flex items-center justify-center w-6 h-6 rounded-full ${
-                          isTodayDay ? 'bg-[var(--color-primary)] text-white font-bold ring-2 ring-[var(--color-primary-light)]' : isTimeOffDay ? 'text-red-600 font-medium' : 'text-gray-700'
-                        }`}>
-                          {day}
-                        </span>
+                        <span className={`w-5 h-5 flex items-center justify-center rounded-full ${
+                          isTodayDay ? 'bg-navy-600 text-white font-bold' : isTimeOffDay ? 'text-red-500 font-semibold' : 'text-slate-600'
+                        }`}>{day}</span>
                       )}
                     </div>
                   );
                 })}
               </div>
-              <div className="flex items-center justify-between mt-2">
-                <div className="flex items-center gap-3 text-[10px] text-gray-500">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-[var(--color-primary)]"></div>
-                    <span>Today</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded bg-red-100 border border-red-200"></div>
-                    <span>Time Off</span>
+
+              {/* Legend */}
+              <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100 text-[9px] text-slate-500">
+                <div className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-navy-600" />Today</div>
+                <div className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded bg-red-300" />Leave</div>
+                <span className="ml-auto text-slate-400">{timezoneLabel}</span>
+              </div>
+
+              {/* Time Off List - Compact */}
+              {timeOff.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-slate-100 flex-1">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1.5">Scheduled Leave ({timeOff.length})</p>
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {timeOff.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between px-2 py-1 bg-red-50/70 rounded text-[10px]">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="w-1 h-1 bg-red-500 rounded-full flex-shrink-0" />
+                          <span className="text-slate-700 truncate">
+                            {parseDateString(item.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            {item.startDate !== item.endDate && ` - ${parseDateString(item.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                          </span>
+                        </div>
+                        <button onClick={() => handleRemoveTimeOff(item.id)} className="p-0.5 text-slate-400 hover:text-red-500 transition-colors">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <span className="text-[10px] text-gray-400 font-medium">{timezoneLabel}</span>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -1216,78 +857,41 @@ export default function DoctorDetailPage() {
 
       {/* Time Off Modal */}
       {showTimeOffModal && (
-        <div className="admin-modal-overlay" onClick={() => setShowTimeOffModal(false)}>
-          <div className="admin-modal max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="admin-modal-header">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowTimeOffModal(false)}>
+          <div className="w-full max-w-md bg-white rounded-xl shadow-xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div>
-                <h2 className="admin-modal-title">Add Time Off</h2>
-                <p className="admin-modal-subtitle">Schedule unavailable dates</p>
+                <h2 className="text-base font-semibold text-slate-900">Add Time Off</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Schedule unavailable dates</p>
               </div>
-              <button
-                onClick={() => setShowTimeOffModal(false)}
-                className="admin-modal-close"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <button onClick={() => setShowTimeOffModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"><svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
-            <form onSubmit={handleAddTimeOff}>
-              <div className="admin-modal-body space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="form-group">
-                    <label className="form-label form-label-required">Start Date</label>
-                    <input
-                      type="date"
-                      value={newTimeOff.startDate}
-                      onChange={(e) => setNewTimeOff({ ...newTimeOff, startDate: e.target.value })}
-                      className="form-input"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label form-label-required">End Date</label>
-                    <input
-                      type="date"
-                      value={newTimeOff.endDate}
-                      onChange={(e) => setNewTimeOff({ ...newTimeOff, endDate: e.target.value })}
-                      className="form-input"
-                      min={newTimeOff.startDate}
-                      required
-                    />
-                  </div>
+            <form onSubmit={handleAddTimeOff} className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Start Date <span className="text-red-500">*</span></label>
+                  <input type="date" value={newTimeOff.startDate} onChange={(e) => setNewTimeOff({ ...newTimeOff, startDate: e.target.value })} required className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Reason</label>
-                  <select
-                    value={newTimeOff.reason}
-                    onChange={(e) => setNewTimeOff({ ...newTimeOff, reason: e.target.value })}
-                    className="form-input"
-                  >
-                    <option value="">Select a reason</option>
-                    <option value="Vacation">Vacation</option>
-                    <option value="Sick Leave">Sick Leave</option>
-                    <option value="Personal">Personal</option>
-                    <option value="Conference">Conference</option>
-                    <option value="Training">Training</option>
-                    <option value="Family Emergency">Family Emergency</option>
-                    <option value="Medical Leave">Medical Leave</option>
-                    <option value="Public Holiday">Public Holiday</option>
-                    <option value="Other">Other</option>
-                  </select>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">End Date <span className="text-red-500">*</span></label>
+                  <input type="date" value={newTimeOff.endDate} onChange={(e) => setNewTimeOff({ ...newTimeOff, endDate: e.target.value })} min={newTimeOff.startDate} required className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                 </div>
               </div>
-              <div className="admin-modal-footer">
-                <button
-                  type="button"
-                  onClick={() => setShowTimeOffModal(false)}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary">
-                  Add Time Off
-                </button>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">Reason</label>
+                <select value={newTimeOff.reason} onChange={(e) => setNewTimeOff({ ...newTimeOff, reason: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500">
+                  <option value="">Select reason</option>
+                  <option value="Vacation">Vacation</option>
+                  <option value="Sick Leave">Sick Leave</option>
+                  <option value="Personal">Personal</option>
+                  <option value="Conference">Conference</option>
+                  <option value="Training">Training</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowTimeOffModal(false)} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
+                <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium text-white bg-rose-500 rounded-lg hover:bg-rose-600 disabled:opacity-50 transition-colors">{saving ? 'Adding...' : 'Add Time Off'}</button>
               </div>
             </form>
           </div>
@@ -1296,131 +900,39 @@ export default function DoctorDetailPage() {
 
       {/* Shift Timings Modal */}
       {showShiftTimingsModal && (
-        <div className="admin-modal-overlay" onClick={() => setShowShiftTimingsModal(false)}>
-          <div className="admin-modal max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="admin-modal-header">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowShiftTimingsModal(false)}>
+          <div className="w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div>
-                <h2 className="admin-modal-title">Edit Shift Timings</h2>
-                <p className="admin-modal-subtitle">Customize the start and end times for each shift</p>
+                <h2 className="text-base font-semibold text-slate-900">Edit Shift Timings</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Customize start and end times</p>
               </div>
-              <button
-                onClick={() => setShowShiftTimingsModal(false)}
-                className="admin-modal-close"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <button onClick={() => setShowShiftTimingsModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"><svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
-            <div className="admin-modal-body space-y-6">
-              {/* Morning Shift */}
-              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                  <span className="font-semibold text-amber-800">Morning Shift</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="form-group">
-                    <label className="form-label text-amber-700">Start Time</label>
-                    <input
-                      type="time"
-                      value={editingShiftTimings.morning.start}
-                      onChange={(e) => handleShiftTimingChange('morning', 'start', e.target.value)}
-                      className="form-input"
-                    />
+            <div className="p-5 space-y-4">
+              {(['morning', 'evening', 'night'] as const).map((shift) => {
+                const colors = { morning: { bg: 'bg-amber-50', border: 'border-amber-100', text: 'text-amber-700' }, evening: { bg: 'bg-navy-50', border: 'border-navy-100', text: 'text-navy-700' }, night: { bg: 'bg-purple-50', border: 'border-purple-100', text: 'text-purple-700' } };
+                const c = colors[shift];
+                return (
+                  <div key={shift} className={`p-4 rounded-lg ${c.bg} border ${c.border}`}>
+                    <p className={`text-sm font-semibold ${c.text} capitalize mb-3`}>{shift} Shift</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs text-slate-600 mb-1">Start Time</label>
+                        <input type="time" value={editingShiftTimings[shift].start} onChange={(e) => handleShiftTimingChange(shift, 'start', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-600 mb-1">End Time</label>
+                        <input type="time" value={editingShiftTimings[shift].end} onChange={(e) => handleShiftTimingChange(shift, 'end', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
+                      </div>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label text-amber-700">End Time</label>
-                    <input
-                      type="time"
-                      value={editingShiftTimings.morning.end}
-                      onChange={(e) => handleShiftTimingChange('morning', 'end', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Evening Shift */}
-              <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                  <span className="font-semibold text-blue-800">Evening Shift</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="form-group">
-                    <label className="form-label text-blue-700">Start Time</label>
-                    <input
-                      type="time"
-                      value={editingShiftTimings.evening.start}
-                      onChange={(e) => handleShiftTimingChange('evening', 'start', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label text-blue-700">End Time</label>
-                    <input
-                      type="time"
-                      value={editingShiftTimings.evening.end}
-                      onChange={(e) => handleShiftTimingChange('evening', 'end', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Night Shift */}
-              <div className="p-4 rounded-lg bg-purple-50 border border-purple-200">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                  </svg>
-                  <span className="font-semibold text-purple-800">Night Shift</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="form-group">
-                    <label className="form-label text-purple-700">Start Time</label>
-                    <input
-                      type="time"
-                      value={editingShiftTimings.night.start}
-                      onChange={(e) => handleShiftTimingChange('night', 'start', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label text-purple-700">End Time</label>
-                    <input
-                      type="time"
-                      value={editingShiftTimings.night.end}
-                      onChange={(e) => handleShiftTimingChange('night', 'end', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                </div>
-                <p className="text-xs text-purple-600 mt-2">
-                  Note: Night shift can span across midnight (e.g., 10:00 PM to 6:00 AM)
-                </p>
-              </div>
+                );
+              })}
             </div>
-            <div className="admin-modal-footer">
-              <button
-                type="button"
-                onClick={() => setShowShiftTimingsModal(false)}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveShiftTimings}
-                className="btn-primary"
-              >
-                Save Timings
-              </button>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+              <button onClick={() => setShowShiftTimingsModal(false)} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
+              <button onClick={() => { setShiftTimings(editingShiftTimings); setShowShiftTimingsModal(false); }} className="px-4 py-2 text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 transition-colors">Save Timings</button>
             </div>
           </div>
         </div>

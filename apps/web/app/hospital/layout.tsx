@@ -63,74 +63,74 @@ function HospitalHeader() {
   return (
     <header className="admin-header">
       <div className="admin-header-left">
-        {/* Hospital Name Display */}
+        {/* Hospital Icon and Name */}
         {currentHospital && (
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-gray-900">{currentHospital.name}</h1>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#1e3a5f' }}>
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            </div>
+            <h1 className="text-base font-semibold text-slate-900">{currentHospital.name}</h1>
           </div>
         )}
       </div>
       <div className="admin-header-right">
         {/* Date, Time & Location */}
         {currentHospital && (
-          <div className="hidden md:flex items-center gap-3 mr-2 text-xs text-gray-500">
+          <div className="hidden md:flex items-center gap-3 mr-2 text-xs text-slate-500">
             <div className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <span className="text-gray-600 font-medium">{currentDate}</span>
+              <span className="text-slate-600 font-medium">{currentDate}</span>
             </div>
-            <span className="text-gray-300">|</span>
+            <span className="text-slate-300">|</span>
             <div className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className="text-gray-700 font-semibold">{currentTime}</span>
-              <span className="text-gray-400 text-[10px]">({timezoneLabel})</span>
+              <span className="text-slate-700 font-semibold">{currentTime}</span>
+              <span className="text-slate-400 text-[10px]">({timezoneLabel})</span>
             </div>
-            <span className="text-gray-300">|</span>
+            <span className="text-slate-300">|</span>
             <div className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              <span className="text-gray-600">{currentHospital.city}{currentHospital.state ? `, ${currentHospital.state}` : ''}</span>
-            </div>
-            <span className="text-gray-300">|</span>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-green-600 font-medium">Healthy</span>
+              <span className="text-slate-600">{currentHospital.city}{currentHospital.state ? `, ${currentHospital.state}` : ''}</span>
             </div>
           </div>
         )}
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="admin-user-button"
+            className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors"
           >
-            <div className="admin-user-avatar">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold text-sm" style={{ backgroundColor: '#1e3a5f' }}>
               {profile?.fullName?.charAt(0) || profile?.email?.charAt(0) || 'M'}
             </div>
-            <div className="admin-user-info">
-              <span className="admin-user-name">{profile?.fullName || 'User'}</span>
-              <span className="admin-user-role">{roleDisplayName}</span>
+            <div className="hidden sm:flex flex-col items-start">
+              <span className="text-sm font-medium text-slate-900">{profile?.fullName || 'User'}</span>
+              <span className="text-xs text-slate-500">{roleDisplayName}</span>
             </div>
-            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
 
           {dropdownOpen && (
-            <div className="admin-user-dropdown">
-              <div className="px-3 py-2.5 border-b border-gray-100">
-                <p className="text-sm font-medium text-gray-900">{profile?.fullName || 'User'}</p>
-                <p className="text-xs text-gray-500 truncate">{profile?.email}</p>
+            <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
+              <div className="px-3 py-2.5 border-b border-slate-100">
+                <p className="text-sm font-medium text-slate-900">{profile?.fullName || 'User'}</p>
+                <p className="text-xs text-slate-500 truncate">{profile?.email}</p>
               </div>
               <div className="py-1">
                 {hasMultipleHospitals && (
                   <Link
                     href="/select-hospital"
-                    className="admin-dropdown-item"
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                     onClick={() => setDropdownOpen(false)}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -142,7 +142,7 @@ function HospitalHeader() {
                 {profile?.isSuperAdmin && (
                   <Link
                     href="/admin/dashboard"
-                    className="admin-dropdown-item"
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                     onClick={() => setDropdownOpen(false)}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -156,7 +156,7 @@ function HospitalHeader() {
                     setDropdownOpen(false);
                     signOut();
                   }}
-                  className="admin-dropdown-item w-full text-left text-red-600"
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors w-full text-left"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

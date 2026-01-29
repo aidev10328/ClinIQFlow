@@ -233,14 +233,14 @@ function StaffPageContent() {
       </div>
 
       {/* Info Banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-navy-50 border border-navy-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-navy-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <p className="text-sm font-medium text-blue-800">Staff Login</p>
-            <p className="text-xs text-blue-700 mt-1">
+            <p className="text-sm font-medium text-navy-700">Staff Login</p>
+            <p className="text-xs text-navy-600 mt-1">
               Staff members can log in using their email and password at the main login page.
               They have access to view hospital and doctor information, and can manage patients.
             </p>

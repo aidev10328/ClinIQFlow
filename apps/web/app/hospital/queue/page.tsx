@@ -416,7 +416,7 @@ export default function QueuePage() {
         </div>
         <div className="flex items-center gap-1.5 text-xs">
           <span className="px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded">{queueData?.stats.totalWaiting || 0} waiting</span>
-          <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{queueData?.stats.totalQueue || 0} queue</span>
+          <span className="px-1.5 py-0.5 bg-navy-50 text-navy-600 rounded">{queueData?.stats.totalQueue || 0} queue</span>
           <span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded">{queueData?.stats.totalScheduled || 0} scheduled</span>
           <span className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded">{queueData?.stats.totalCompleted || 0} completed</span>
         </div>
@@ -427,12 +427,12 @@ export default function QueuePage() {
         {/* Left Column */}
         <div className="w-[520px] flex flex-col gap-1.5 flex-shrink-0 min-h-0">
           {/* With Doctor */}
-          <div className="h-[90px] bg-blue-50 rounded border border-blue-200 shadow-sm flex flex-col">
-            <div className="flex-shrink-0 px-2 py-1 border-b border-blue-200 flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="h-[90px] bg-navy-50 rounded border border-navy-200 shadow-sm flex flex-col">
+            <div className="flex-shrink-0 px-2 py-1 border-b border-navy-200 flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-navy-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
-              <span className="text-sm font-medium text-blue-800">With Doctor</span>
+              <span className="text-sm font-medium text-navy-700">With Doctor</span>
             </div>
             <div className="flex-1 px-2 py-1 flex items-center">
               {!isCheckedIn ? (
@@ -441,9 +441,9 @@ export default function QueuePage() {
                   Doctor not arrived
                 </p>
               ) : queueData?.withDoctor ? (
-                <div className="w-full bg-white rounded p-1.5 border border-blue-200 flex items-center justify-between">
+                <div className="w-full bg-white rounded p-1.5 border border-navy-200 flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                    <span className="w-6 h-6 bg-navy-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
                       {queueData.withDoctor.queueNumber}
                     </span>
                     <div>
@@ -507,7 +507,7 @@ export default function QueuePage() {
                   <button
                     onClick={() => handleUpdateStatus(entry.id, 'WITH_DOCTOR')}
                     disabled={!isCheckedIn || queueData?.withDoctor !== null}
-                    className="text-xs px-1.5 py-0.5 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-40"
+                    className="text-xs px-1.5 py-0.5 bg-navy-500 text-white rounded hover:bg-navy-600 disabled:opacity-40"
                   >
                     Send
                   </button>
@@ -575,7 +575,7 @@ export default function QueuePage() {
                     <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white ${
                       entry.priority === 'EMERGENCY' ? 'bg-red-500' :
                       entry.priority === 'URGENT' ? 'bg-orange-500' :
-                      'bg-blue-500'
+                      'bg-navy-500'
                     }`}>
                       {entry.queueNumber}
                     </span>
