@@ -32,6 +32,7 @@ interface DoctorScheduleRaw {
   is_working: boolean;
   shift_start: string | null;
   shift_end: string | null;
+  shift_type?: string;
 }
 
 interface DoctorSchedule {
@@ -39,6 +40,7 @@ interface DoctorSchedule {
   isWorking: boolean;
   shiftStart: string | null;
   shiftEnd: string | null;
+  shiftType: string | null;
 }
 
 interface DoctorCheckin {
@@ -53,10 +55,11 @@ function normalizeSchedule(raw: any): DoctorSchedule {
     isWorking: raw.is_working ?? raw.isWorking ?? false,
     shiftStart: raw.shift_start ?? raw.shiftStart ?? null,
     shiftEnd: raw.shift_end ?? raw.shiftEnd ?? null,
+    shiftType: raw.shift_type ?? raw.shiftType ?? null,
   };
 }
 
-type TimeFilter = 'week' | 'month';
+type TimeFilter = 'day' | 'week' | 'month' | 'year';
 
 // ─── Design Tokens (Navy Blue Only Palette) ──────────────────────────────────
 const colors = {
@@ -76,13 +79,14 @@ const colors = {
   slate200: '#E2E8F0',
 };
 
-// Chart colors - navy palette only
+// Chart colors - navy blue palette only
 const chartColors = {
-  primary: '#1e3a5f',   // navy-600
-  secondary: '#3d7ab8', // navy-400
-  tertiary: '#2b5a8a',  // navy-500
-  light: '#5a9ad4',     // navy-300
-  muted: '#94A3B8',     // slate-400
+  primary: '#1e3a5f',   // navy-600 - dark navy
+  secondary: '#2b5a8a', // navy-500
+  tertiary: '#3d7ab8',  // navy-400
+  accent: '#5a9ad4',    // navy-300 - sky navy
+  light: '#a3cbef',     // navy-200
+  muted: '#d1e5f7',     // navy-100
 };
 
 const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -109,9 +113,14 @@ function ChartTooltip({ active, payload, label }: any) {
 function FilterPills({ value, onChange }: { value: TimeFilter; onChange: (v: TimeFilter) => void }) {
   return (
     <div className="flex gap-0.5 bg-slate-100 rounded p-0.5">
-      {[{ value: 'week' as TimeFilter, label: 'Week' }, { value: 'month' as TimeFilter, label: 'Month' }].map((f) => (
+      {[
+        { value: 'day' as TimeFilter, label: 'Day' },
+        { value: 'week' as TimeFilter, label: 'Week' },
+        { value: 'month' as TimeFilter, label: 'Month' },
+        { value: 'year' as TimeFilter, label: 'Year' },
+      ].map((f) => (
         <button key={f.value} onClick={() => onChange(f.value)}
-          className={`px-2 py-0.5 text-[10px] rounded font-medium transition-all ${
+          className={`px-2 py-0.5 text-[9px] rounded font-medium transition-all ${
             value === f.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
           }`}>
           {f.label}
@@ -125,18 +134,36 @@ function FilterPills({ value, onChange }: { value: TimeFilter; onChange: (v: Tim
 function getDateRange(filter: TimeFilter) {
   const now = new Date();
   switch (filter) {
-    case 'week': { const s = new Date(now); s.setDate(s.getDate() - 6); s.setHours(0, 0, 0, 0); return { start: s, count: 7 }; }
-    case 'month': { const s = new Date(now); s.setDate(s.getDate() - 29); s.setHours(0, 0, 0, 0); return { start: s, count: 30 }; }
+    case 'day': { const s = new Date(now); s.setHours(0, 0, 0, 0); return { start: s, count: 1, type: 'hours' as const }; }
+    case 'week': { const s = new Date(now); s.setDate(s.getDate() - 6); s.setHours(0, 0, 0, 0); return { start: s, count: 7, type: 'days' as const }; }
+    case 'month': { const s = new Date(now); s.setDate(s.getDate() - 29); s.setHours(0, 0, 0, 0); return { start: s, count: 30, type: 'days' as const }; }
+    case 'year': { const s = new Date(now); s.setMonth(s.getMonth() - 11); s.setDate(1); s.setHours(0, 0, 0, 0); return { start: s, count: 12, type: 'months' as const }; }
   }
 }
 
 function buildBuckets(filter: TimeFilter) {
-  const { start, count } = getDateRange(filter);
+  const { start, count, type } = getDateRange(filter);
   const out: { key: string; label: string }[] = [];
-  for (let i = 0; i < count; i++) {
-    const d = new Date(start);
-    d.setDate(d.getDate() + i);
-    out.push({ key: d.toISOString().split('T')[0], label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
+
+  if (type === 'hours') {
+    // 24 hour buckets for today
+    for (let i = 0; i < 24; i += 2) {
+      const h = i.toString().padStart(2, '0');
+      out.push({ key: `${start.toISOString().split('T')[0]}-${h}`, label: `${i % 12 || 12}${i < 12 ? 'a' : 'p'}` });
+    }
+  } else if (type === 'months') {
+    for (let i = 0; i < count; i++) {
+      const d = new Date(start);
+      d.setMonth(d.getMonth() + i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      out.push({ key, label: d.toLocaleDateString('en-US', { month: 'short' }) });
+    }
+  } else {
+    for (let i = 0; i < count; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      out.push({ key: d.toISOString().split('T')[0], label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
+    }
   }
   return out;
 }
@@ -176,6 +203,7 @@ export default function HospitalDashboardPage() {
 
   const [patientFilter, setPatientFilter] = useState<TimeFilter>('month');
   const [apptFilter, setApptFilter] = useState<TimeFilter>('month');
+  const [chartDoctorFilter, setChartDoctorFilter] = useState<string | null>(null); // null = All Hospital
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState(() => getCurrentTime().getMonth());
   const [calYear, setCalYear] = useState(() => getCurrentTime().getFullYear());
@@ -259,30 +287,100 @@ export default function HospitalDashboardPage() {
 
   // ─── Chart data ──────────────────────────────────────────────────────────
   const patientChartData = useMemo(() => {
-    const { start } = getDateRange(patientFilter);
+    const { start, type } = getDateRange(patientFilter);
     const buckets = buildBuckets(patientFilter);
-    const sorted = [...patients].sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    const before = sorted.filter((p: any) => new Date(p.createdAt) < start).length;
-    const nMap: Record<string, number> = {};
-    buckets.forEach((b) => (nMap[b.key] = 0));
-    sorted.forEach((p: any) => { const d = new Date(p.createdAt); if (d >= start) { const k = bKey(d); if (nMap[k] !== undefined) nMap[k]++; } });
-    let tot = before;
-    return buckets.map((b) => { const n = nMap[b.key] || 0; tot += n; return { label: b.label, 'New': n, 'Total': tot }; });
-  }, [patients, patientFilter]);
+
+    // Filter patients by doctor if selected
+    let filteredPatients = patients;
+    if (chartDoctorFilter) {
+      // Filter patients who have appointments with this doctor
+      const doctorPatientIds = new Set(
+        appointments
+          .filter((a: any) => a.doctorProfileId === chartDoctorFilter || a.doctorId === chartDoctorFilter)
+          .map((a: any) => a.patientId)
+      );
+      filteredPatients = patients.filter((p: any) => doctorPatientIds.has(p.id));
+    }
+
+    const sorted = [...filteredPatients].sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    // Track first visit dates to determine new vs returning
+    const patientFirstVisit: Record<string, Date> = {};
+    sorted.forEach((p: any) => {
+      patientFirstVisit[p.id] = new Date(p.createdAt);
+    });
+
+    const newMap: Record<string, number> = {};
+    const returningMap: Record<string, number> = {};
+    buckets.forEach((b) => { newMap[b.key] = 0; returningMap[b.key] = 0; });
+
+    // Count appointments per bucket
+    const relevantAppts = chartDoctorFilter
+      ? appointments.filter((a: any) => a.doctorProfileId === chartDoctorFilter || a.doctorId === chartDoctorFilter)
+      : appointments;
+
+    relevantAppts.forEach((a: any) => {
+      const d = new Date(a.appointmentDate || a.createdAt);
+      if (d < start) return;
+
+      let k: string;
+      if (type === 'hours') {
+        const h = Math.floor(d.getHours() / 2) * 2;
+        k = `${d.toISOString().split('T')[0]}-${h.toString().padStart(2, '0')}`;
+      } else if (type === 'months') {
+        k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      } else {
+        k = bKey(d);
+      }
+
+      if (newMap[k] === undefined) return;
+
+      const patientId = a.patientId;
+      const firstVisit = patientFirstVisit[patientId];
+      if (firstVisit && d.getTime() - firstVisit.getTime() < 7 * 24 * 60 * 60 * 1000) {
+        // Within 7 days of first visit = new patient
+        newMap[k]++;
+      } else {
+        returningMap[k]++;
+      }
+    });
+
+    return buckets.map((b) => ({
+      label: b.label,
+      'New Patients': newMap[b.key] || 0,
+      'Returning': returningMap[b.key] || 0,
+    }));
+  }, [patients, appointments, patientFilter, chartDoctorFilter]);
 
   const apptChartData = useMemo(() => {
-    const { start } = getDateRange(apptFilter);
+    const { start, type } = getDateRange(apptFilter);
     const buckets = buildBuckets(apptFilter);
     const tM: Record<string, number> = {}, cM: Record<string, number> = {};
     buckets.forEach((b) => { tM[b.key] = 0; cM[b.key] = 0; });
-    appointments.forEach((a: any) => {
+
+    // Filter by doctor if selected
+    const relevantAppts = chartDoctorFilter
+      ? appointments.filter((a: any) => a.doctorProfileId === chartDoctorFilter || a.doctorId === chartDoctorFilter)
+      : appointments;
+
+    relevantAppts.forEach((a: any) => {
       const d = new Date(a.appointmentDate || a.createdAt);
       if (d < start) return;
-      const k = bKey(d);
+
+      let k: string;
+      if (type === 'hours') {
+        const h = Math.floor(d.getHours() / 2) * 2;
+        k = `${d.toISOString().split('T')[0]}-${h.toString().padStart(2, '0')}`;
+      } else if (type === 'months') {
+        k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      } else {
+        k = bKey(d);
+      }
+
       if (tM[k] !== undefined) { tM[k]++; if (a.status === 'COMPLETED') cM[k]++; }
     });
     return buckets.map((b) => ({ label: b.label, Booked: tM[b.key], Completed: cM[b.key] }));
-  }, [appointments, apptFilter]);
+  }, [appointments, apptFilter, chartDoctorFilter]);
 
   const licenseDonutData = useMemo(() => {
     const products = licenseStats?.products;
@@ -337,8 +435,40 @@ export default function HospitalDashboardPage() {
     return { completed, cancelled, uniquePatients, completionRate, thisWeek };
   }, [appointments, actualDoctorProfileId]);
 
-  const scheduleByDay = useMemo(() => { const m: Record<number, DoctorSchedule> = {}; doctorSchedule.forEach((s) => { m[s.dayOfWeek] = s; }); return m; }, [doctorSchedule]);
-  const workingDaysSet = useMemo(() => { const set = new Set<number>(); doctorSchedule.filter(s => s.isWorking).forEach(s => set.add(s.dayOfWeek)); return set; }, [doctorSchedule]);
+  // Derive shift types (AM/PM/NT) from the time range
+  const scheduleByDay = useMemo(() => {
+    const m: Record<number, { shiftType: string; shiftStart: string; shiftEnd: string }[]> = {};
+
+    doctorSchedule.forEach((s) => {
+      if (!s.isWorking) return;
+      if (!m[s.dayOfWeek]) m[s.dayOfWeek] = [];
+
+      const startHour = parseInt(s.shiftStart?.split(':')[0] || '0');
+      const endHour = parseInt(s.shiftEnd?.split(':')[0] || '0');
+
+      // Derive which shifts are active based on time range overlap
+      const hasMorning = startHour < 14 && endHour > 6;
+      const hasEvening = startHour < 22 && endHour > 14;
+      const hasNight = endHour <= 6 || startHour >= 22;
+
+      // Add individual shift entries with their standard times
+      if (hasMorning) {
+        m[s.dayOfWeek].push({ shiftType: 'AM', shiftStart: '06:00', shiftEnd: '14:00' });
+      }
+      if (hasEvening) {
+        m[s.dayOfWeek].push({ shiftType: 'PM', shiftStart: '14:00', shiftEnd: '22:00' });
+      }
+      if (hasNight) {
+        m[s.dayOfWeek].push({ shiftType: 'NT', shiftStart: '22:00', shiftEnd: '06:00' });
+      }
+    });
+    return m;
+  }, [doctorSchedule]);
+  const workingDaysSet = useMemo(() => {
+    const set = new Set<number>();
+    doctorSchedule.filter(s => s.isWorking).forEach(s => set.add(s.dayOfWeek));
+    return set;
+  }, [doctorSchedule]);
   const calendarCells = useMemo(() => buildCalendarMonth(calYear, calMonth), [calYear, calMonth]);
   const calWorkDates = useMemo(() => {
     const working = new Set<number>();
@@ -366,7 +496,7 @@ export default function HospitalDashboardPage() {
   }, [doctorTimeOff, calMonth, calYear]);
 
   const licensePct = stats.licensesTotal > 0 ? Math.round((stats.licensesUsed / stats.licensesTotal) * 100) : 0;
-  const workDayCount = doctorSchedule.filter(s => s.isWorking).length;
+  const workDayCount = workingDaysSet.size;
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[400px]">
@@ -501,37 +631,67 @@ export default function HospitalDashboardPage() {
           {/* Patient Growth Chart */}
           <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
-              <h3 className="text-xs font-semibold text-slate-900">Patient Growth</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-semibold text-slate-900">Patient Activity</h3>
+                <select
+                  value={chartDoctorFilter || ''}
+                  onChange={(e) => setChartDoctorFilter(e.target.value || null)}
+                  className="text-[9px] border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-600 cursor-pointer hover:border-navy-300 focus:outline-none focus:ring-1 focus:ring-navy-200 min-w-[90px] appearance-none"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundPosition: 'right 4px center', backgroundSize: '12px', backgroundRepeat: 'no-repeat', paddingRight: '20px' }}
+                >
+                  <option value="">All Hospital</option>
+                  {doctorList.map((d: any) => (
+                    <option key={d.userId} value={d.doctorProfileId || d.userId}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
               <FilterPills value={patientFilter} onChange={setPatientFilter} />
             </div>
             <div className="flex-1 min-h-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={patientChartData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="patientFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.15} />
+                    <linearGradient id="newPatientFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.2} />
                       <stop offset="95%" stopColor={chartColors.primary} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="returningFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={chartColors.accent} stopOpacity={0.2} />
+                      <stop offset="95%" stopColor={chartColors.accent} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={{ stroke: '#E2E8F0' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="Total" stroke={chartColors.primary} strokeWidth={2} fill="url(#patientFill)" dot={false} />
-                  <Area type="monotone" dataKey="New" stroke={chartColors.secondary} strokeWidth={1.5} fill="none" dot={false} strokeDasharray="4 2" />
+                  <Area type="monotone" dataKey="New Patients" stroke={chartColors.primary} strokeWidth={2} fill="url(#newPatientFill)" dot={false} />
+                  <Area type="monotone" dataKey="Returning" stroke={chartColors.accent} strokeWidth={2} fill="url(#returningFill)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-3 mt-1 flex-shrink-0">
-              <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2.5 h-0.5 rounded" style={{ background: chartColors.primary }} />Total</span>
-              <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2.5 h-0.5 rounded" style={{ background: chartColors.secondary, borderStyle: 'dashed' }} />New</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.primary }} />New Patients</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Returning</span>
             </div>
           </div>
 
           {/* Appointments Chart */}
           <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
-              <h3 className="text-xs font-semibold text-slate-900">Appointments</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-semibold text-slate-900">Appointments</h3>
+                <select
+                  value={chartDoctorFilter || ''}
+                  onChange={(e) => setChartDoctorFilter(e.target.value || null)}
+                  className="text-[9px] border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-600 cursor-pointer hover:border-navy-300 focus:outline-none focus:ring-1 focus:ring-navy-200 min-w-[90px] appearance-none"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundPosition: 'right 4px center', backgroundSize: '12px', backgroundRepeat: 'no-repeat', paddingRight: '20px' }}
+                >
+                  <option value="">All Hospital</option>
+                  {doctorList.map((d: any) => (
+                    <option key={d.userId} value={d.doctorProfileId || d.userId}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
               <FilterPills value={apptFilter} onChange={setApptFilter} />
             </div>
             <div className="flex-1 min-h-0">
@@ -542,13 +702,13 @@ export default function HospitalDashboardPage() {
                   <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip content={<ChartTooltip />} />
                   <Line type="monotone" dataKey="Booked" stroke={chartColors.primary} strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="Completed" stroke={chartColors.light} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Completed" stroke={chartColors.accent} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-3 mt-1 flex-shrink-0">
-              <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2.5 h-0.5 rounded" style={{ background: chartColors.primary }} />Booked</span>
-              <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2.5 h-0.5 rounded" style={{ background: chartColors.light }} />Completed</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.primary }} />Booked</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Completed</span>
             </div>
           </div>
         </div>
@@ -556,27 +716,30 @@ export default function HospitalDashboardPage() {
         {/* Right Column - Doctor Schedule & Calendar */}
         <div className="w-1/2 bg-white rounded-lg border border-slate-200 flex flex-col min-h-0 overflow-hidden">
           {/* Header */}
-          <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-2">
+          <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-3">
               <h3 className="text-xs font-semibold text-slate-900">Doctor Schedule</h3>
               <select
                 value={selectedDoctorId || ''}
                 onChange={(e) => setSelectedDoctorId(e.target.value || null)}
-                className="text-[10px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 max-w-[120px] truncate"
+                className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 font-medium min-w-[140px] cursor-pointer hover:border-navy-300 focus:border-navy-400 focus:ring-2 focus:ring-navy-100 focus:outline-none transition-all appearance-none"
+                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '32px' }}
               >
-                <option value="" disabled>Select...</option>
+                <option value="" disabled>Select Doctor...</option>
                 {doctorList.map((d: any) => (
                   <option key={d.userId} value={d.userId}>{d.name}</option>
                 ))}
               </select>
             </div>
             {selectedDocProfile && (
-              <div className="flex items-center gap-2">
-                <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                  doctorCheckin.status === 'CHECKED_IN' ? 'bg-navy-50 text-navy-600' : 'bg-slate-100 text-slate-500'
+              <div className="flex items-center">
+                <span className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${
+                  doctorCheckin.status === 'CHECKED_IN'
+                    ? 'bg-lime-100 text-lime-700 border border-lime-300'
+                    : 'bg-amber-100 text-amber-700 border border-amber-300'
                 }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${doctorCheckin.status === 'CHECKED_IN' ? 'bg-navy-500' : 'bg-slate-400'}`} />
-                  {doctorCheckin.status === 'CHECKED_IN' ? 'Online' : 'Offline'}
+                  <span className={`w-2 h-2 rounded-full ${doctorCheckin.status === 'CHECKED_IN' ? 'bg-lime-500 animate-pulse' : 'bg-amber-500'}`} />
+                  {doctorCheckin.status === 'CHECKED_IN' ? 'ONLINE' : 'OFFLINE'}
                 </span>
               </div>
             )}
@@ -588,104 +751,147 @@ export default function HospitalDashboardPage() {
             </div>
           ) : (
             <div className="flex-1 flex flex-col overflow-hidden p-3 gap-3">
-              {/* Calendar Section */}
-              <div className="flex-shrink-0">
-                <div className="flex items-center justify-between mb-3">
-                  <button onClick={prevMonth} className="p-1 rounded-md hover:bg-slate-100 text-slate-500 transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                  </button>
-                  <h4 className="text-sm font-semibold text-slate-800">{MONTH_NAMES[calMonth]} {calYear}</h4>
-                  <button onClick={nextMonth} className="p-1 rounded-md hover:bg-slate-100 text-slate-500 transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                  </button>
+              {/* Top Row: Calendar + Weekly Shifts */}
+              <div className="flex gap-4 flex-shrink-0">
+                {/* Compact Square Calendar */}
+                <div className="w-44 flex-shrink-0">
+                  <div className="flex items-center justify-between mb-2">
+                    <button onClick={prevMonth} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <span className="text-[11px] font-semibold text-slate-700">{MONTH_SHORT[calMonth]} {calYear}</span>
+                    <button onClick={nextMonth} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 transition-colors">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                  </div>
+
+                  {/* Day headers */}
+                  <div className="grid grid-cols-7 gap-px mb-px">
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                      <div key={i} className="text-center text-[8px] font-semibold text-slate-400 py-0.5">{d}</div>
+                    ))}
+                  </div>
+
+                  {/* Calendar grid - compact */}
+                  <div className="grid grid-cols-7 gap-px bg-slate-100 border border-slate-200 rounded overflow-hidden">
+                    {calendarCells.map((day, i) => {
+                      if (day === null) return <div key={i} className="w-full aspect-square bg-white" />;
+                      const isToday = day === hospitalNow.getDate() && calMonth === hospitalNow.getMonth() && calYear === hospitalNow.getFullYear();
+                      const isTimeOff = timeOffDates.has(day);
+                      const isWork = calWorkDates.has(day) && !isTimeOff;
+                      return (
+                        <div key={i} className={`w-full aspect-square flex items-center justify-center text-[10px] font-medium ${
+                          isToday ? 'bg-navy-600 text-white'
+                            : isTimeOff ? 'bg-navy-400 text-white'
+                            : isWork ? 'bg-navy-50 text-navy-700'
+                            : 'bg-white text-slate-300'
+                        }`}>
+                          {day}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Legend - compact */}
+                  <div className="mt-1.5 flex items-center justify-center gap-2 text-[8px]">
+                    <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-50 border border-navy-200" />Work</span>
+                    <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-400" />Leave</span>
+                    <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-600" />Today</span>
+                  </div>
                 </div>
 
-                {/* Day headers */}
-                <div className="grid grid-cols-7 gap-1 mb-1">
-                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
-                    <div key={i} className="text-center text-[10px] font-semibold text-slate-400 py-1">{d}</div>
-                  ))}
-                </div>
-
-                {/* Calendar grid */}
-                <div className="grid grid-cols-7 gap-1">
-                  {calendarCells.map((day, i) => {
-                    if (day === null) return <div key={i} className="aspect-square" />;
-                    const isToday = day === hospitalNow.getDate() && calMonth === hospitalNow.getMonth() && calYear === hospitalNow.getFullYear();
-                    const isTimeOff = timeOffDates.has(day);
-                    const isWork = calWorkDates.has(day) && !isTimeOff;
-                    return (
-                      <div key={i} className={`aspect-square flex items-center justify-center rounded-md text-xs font-medium transition-colors ${
-                        isToday ? 'bg-navy-600 text-white shadow-sm'
-                          : isTimeOff ? 'bg-navy-100 text-navy-500'
-                          : isWork ? 'bg-navy-50 text-navy-700 border border-navy-100'
-                          : 'text-slate-300'
-                      }`}>
-                        {day}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Legend */}
-                <div className="mt-2 flex items-center justify-center gap-4 text-[10px]">
-                  <span className="flex items-center gap-1.5 text-slate-500">
-                    <span className="w-3 h-3 rounded bg-navy-50 border border-navy-100" />Working
-                  </span>
-                  <span className="flex items-center gap-1.5 text-slate-500">
-                    <span className="w-3 h-3 rounded bg-navy-100" />Leave
-                  </span>
-                  <span className="flex items-center gap-1.5 text-slate-500">
-                    <span className="w-3 h-3 rounded bg-navy-600" />Today
-                  </span>
+                {/* Weekly Shifts - Right Side */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Weekly Shifts</p>
+                  <div className="space-y-1">
+                    {DAY_NAMES_SHORT.map((day, idx) => {
+                      const shifts = scheduleByDay[idx] || [];
+                      const on = shifts.length > 0;
+                      const formatTime = (t: string | null) => {
+                        if (!t) return '--';
+                        const [h, m] = t.split(':').map(Number);
+                        const ampm = h >= 12 ? 'PM' : 'AM';
+                        const h12 = h % 12 || 12;
+                        return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+                      };
+                      const getShiftColor = (type: string, isCurrentDay: boolean) => {
+                        if (isCurrentDay) return 'bg-white/20 text-white';
+                        if (type === 'AM') return 'bg-lime-100 text-lime-700';
+                        if (type === 'PM') return 'bg-amber-100 text-amber-700';
+                        if (type === 'NT') return 'bg-purple-100 text-purple-700';
+                        return 'bg-navy-100 text-navy-700';
+                      };
+                      const isCurrentDay = idx === hospitalNow.getDay();
+                      return (
+                        <div key={day} className={`flex items-center gap-2 py-1 px-2 rounded-md transition-all ${
+                          isCurrentDay ? 'bg-navy-600 text-white' : on ? 'bg-white border border-navy-200' : 'bg-slate-50'
+                        }`}>
+                          <span className={`text-[10px] font-bold w-8 flex-shrink-0 ${isCurrentDay ? 'text-white' : on ? 'text-navy-700' : 'text-slate-400'}`}>{day}</span>
+                          {on ? (
+                            <div className="flex items-center gap-1.5 flex-wrap flex-1">
+                              {shifts.map((shift, i) => (
+                                <div key={i} className="flex items-center gap-1">
+                                  <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${getShiftColor(shift.shiftType, isCurrentDay)}`}>
+                                    {shift.shiftType}
+                                  </span>
+                                  <span className={`text-[9px] font-medium ${isCurrentDay ? 'text-white/90' : 'text-navy-600'}`}>
+                                    {formatTime(shift.shiftStart)}-{formatTime(shift.shiftEnd)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className={`text-[10px] italic ${isCurrentDay ? 'text-navy-200' : 'text-slate-400'}`}>Off</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
-              {/* Weekly Schedule with Times */}
-              <div className="flex-shrink-0 border-t border-slate-100 pt-3">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Weekly Hours</p>
-                <div className="space-y-1">
-                  {DAY_NAMES_SHORT.map((day, idx) => {
-                    const s = scheduleByDay[idx];
-                    const on = s?.isWorking;
-                    const formatTime = (t: string | null) => {
-                      if (!t) return '--';
-                      const [h, m] = t.split(':').map(Number);
-                      const ampm = h >= 12 ? 'PM' : 'AM';
-                      const h12 = h % 12 || 12;
-                      return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
-                    };
-                    return (
-                      <div key={day} className={`flex items-center justify-between py-1.5 px-2 rounded-md ${
-                        on ? 'bg-navy-50' : 'bg-slate-50'
-                      }`}>
-                        <span className={`text-xs font-medium w-10 ${on ? 'text-navy-700' : 'text-slate-400'}`}>{day}</span>
-                        {on ? (
-                          <span className="text-xs font-semibold text-navy-600">
-                            {formatTime(s.shiftStart)} — {formatTime(s.shiftEnd)}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-400 italic">Day Off</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              {/* Upcoming Leaves Section - Compact 2-column */}
+              <div className="flex-shrink-0 border-t border-slate-100 pt-2">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Upcoming Time Off</p>
+                {doctorTimeOff.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-1.5 overflow-y-auto max-h-[92px]">
+                    {doctorTimeOff.slice(0, 6).map((leave: any, i: number) => {
+                      const startDate = new Date(leave.start_date + 'T00:00:00');
+                      const daysDiff = Math.ceil((new Date(leave.end_date + 'T00:00:00').getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                      return (
+                        <div key={leave.id || i} className="flex items-center gap-1.5 px-1.5 py-1 bg-navy-50 rounded border-l-2 border-navy-400">
+                          <div className="w-7 h-7 bg-navy-400 rounded flex flex-col items-center justify-center flex-shrink-0">
+                            <span className="text-[10px] font-bold text-white leading-none">{startDate.getDate()}</span>
+                            <span className="text-[6px] text-navy-100 uppercase leading-none">{startDate.toLocaleDateString('en-US', { month: 'short' })}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[9px] font-semibold text-slate-700 truncate">{leave.reason || `${daysDiff}d leave`}</p>
+                            <p className="text-[8px] text-slate-400">{leave.status === 'APPROVED' ? '✓' : '○'} {daysDiff}d</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[9px] text-slate-400 text-center py-2">No upcoming leaves</p>
+                )}
               </div>
 
-              {/* Compact Metrics */}
+              {/* Appointment Metrics Row */}
               {docMetrics && (
-                <div className="flex-shrink-0 border-t border-slate-100 pt-2">
-                  <div className="flex items-center justify-between gap-2">
+                <div className="flex-shrink-0 border-t border-slate-100 pt-3">
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Appointment Metrics</p>
+                  <div className="grid grid-cols-4 gap-2">
                     {[
-                      { label: 'Week', value: docMetrics.thisWeek },
-                      { label: 'Today', value: selectedDocAppts.today },
-                      { label: 'Done', value: `${docMetrics.completionRate}%` },
-                      { label: 'Patients', value: docMetrics.uniquePatients },
+                      { label: 'This Week', value: docMetrics.thisWeek, sublabel: 'appointments' },
+                      { label: 'Today', value: selectedDocAppts.today, sublabel: 'scheduled' },
+                      { label: 'Completion', value: `${docMetrics.completionRate}%`, sublabel: 'rate' },
+                      { label: 'Patients', value: docMetrics.uniquePatients, sublabel: 'unique' },
                     ].map((m, i) => (
-                      <div key={i} className="flex-1 text-center py-1.5 bg-slate-50 rounded border border-slate-100">
-                        <p className="text-sm font-bold text-navy-600">{m.value}</p>
-                        <p className="text-[8px] text-slate-400 uppercase">{m.label}</p>
+                      <div key={i} className="text-center py-2 px-2 bg-gradient-to-b from-slate-50 to-white rounded-lg border border-slate-200 shadow-sm">
+                        <p className="text-lg font-bold text-navy-600">{m.value}</p>
+                        <p className="text-[9px] font-semibold text-slate-600 uppercase">{m.label}</p>
+                        <p className="text-[7px] text-slate-400">{m.sublabel}</p>
                       </div>
                     ))}
                   </div>

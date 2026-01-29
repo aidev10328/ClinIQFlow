@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useAuth } from '../AuthProvider';
 import { useOptimisticPathname } from '../../lib/hooks/useOptimisticPathname';
 import { usePrefetchRoute } from '../../lib/hooks/usePrefetchRoute';
@@ -251,10 +252,23 @@ export function HospitalSidebar() {
         ))}
       </nav>
 
-      <div className="mt-auto"></div>
+      {/* Spacer to push content to bottom */}
+      <div className="flex-1 min-h-4"></div>
+
+      {/* Decorative Plant Image */}
+      <div className="px-4 flex justify-center flex-shrink-0">
+        <Image
+          src="/images/sidebar/plant.webp"
+          alt=""
+          width={140}
+          height={140}
+          className="object-contain opacity-90"
+          priority={false}
+        />
+      </div>
 
       {/* ClinIQ Logo at Bottom */}
-      <div className="admin-sidebar-footer">
+      <div className="admin-sidebar-footer flex-shrink-0">
         <div className="px-3 py-3 border-t border-slate-100">
           <div className="flex items-center justify-center gap-1.5">
             <div className="w-5 h-5 rounded bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-primary-dark)] flex items-center justify-center">

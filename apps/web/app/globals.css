@@ -503,7 +503,9 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .admin-sidebar-nav {
-  @apply flex-1 px-4 py-1 overflow-y-auto;
+  @apply px-4 py-1 overflow-y-auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .admin-sidebar-footer {
