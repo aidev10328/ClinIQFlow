@@ -578,13 +578,7 @@ export default function AppointmentsPage() {
   }
 
   return (
-    <div className="space-y-3">
-      {/* Header */}
-      <div>
-        <h1 className="text-base font-semibold text-slate-800">ClinIQ Flow</h1>
-        <p className="text-[11px] text-slate-400">Manage schedules, appointments, calendar, and daily queue</p>
-      </div>
-
+    <div className="space-y-2">
       {/* Tabs - Full Width */}
       <div className="flex border-b border-slate-200">
         {[
@@ -1609,7 +1603,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 220px)' }}>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 140px)' }}>
       {/* Header */}
       <div className="flex-shrink-0 px-3 py-1.5 bg-white rounded-lg border border-slate-200 mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -1694,7 +1688,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
           </div>
 
           {/* SCHEDULED APPOINTMENTS (Bottom Left) */}
-          <div className="h-[42%] min-h-[180px] bg-blue-50/30 rounded-lg border border-blue-200/50 flex flex-col">
+          <div className="h-[45%] min-h-[220px] bg-blue-50/30 rounded-lg border border-blue-200/50 flex flex-col">
             <div className="flex-shrink-0 px-3 py-1.5 bg-blue-100/40 border-b border-blue-200/40 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-700">Today's Scheduled</span>
@@ -1744,7 +1738,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
         {/* RIGHT COLUMN */}
         <div className="flex flex-col min-h-0 relative">
           {/* WAITING (Top Right) */}
-          <div className="h-[30%] min-h-[110px] bg-amber-50/50 rounded-lg border border-amber-200/60 flex flex-col">
+          <div className="h-[32%] min-h-[140px] bg-amber-50/50 rounded-lg border border-amber-200/60 flex flex-col">
             <div className="flex-shrink-0 px-3 py-1.5 bg-amber-100/50 border-b border-amber-200/50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-700">Waiting</span>
@@ -1778,7 +1772,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
           </div>
 
           {/* WITH DOCTOR (Middle Right) */}
-          <div className="h-[30%] min-h-[110px] bg-slate-100/60 rounded-lg border border-slate-300/60 flex flex-col">
+          <div className="h-[32%] min-h-[140px] bg-slate-100/60 rounded-lg border border-slate-300/60 flex flex-col">
             <div className="flex-shrink-0 px-3 py-1.5 bg-slate-200/50 border-b border-slate-300/50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-700">With Doctor</span>

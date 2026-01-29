@@ -83,6 +83,16 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
     </svg>
   ),
+  medicalReport: (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  payments: (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+    </svg>
+  ),
 };
 
 export function HospitalSidebar() {
@@ -152,12 +162,26 @@ export function HospitalSidebar() {
       sections.push({ title: 'ClinIQ Flow', items: cliniqItems });
     }
 
+    // ClinIQ Brief section - Medical Reports
+    const cliniqBriefItems: NavItem[] = [
+      { label: 'Medical Reports', href: '/hospital/medical-reports', icon: icons.medicalReport },
+    ];
+    sections.push({ title: 'ClinIQ Brief', items: cliniqBriefItems });
+
+    // ClinIQPay section - Payments
+    const cliniqPayItems: NavItem[] = [
+      { label: 'Payments', href: '/hospital/payments', icon: icons.payments },
+    ];
+    sections.push({ title: 'ClinIQPay', items: cliniqPayItems });
+
     return sections;
   }, [isManager, isDoctor, isStaff, hasAppointments]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'Management': true,
     'ClinIQ Flow': true,
+    'ClinIQ Brief': true,
+    'ClinIQPay': true,
   });
   const isActive = (href: string) => {
     if (href === '/hospital/dashboard') {
