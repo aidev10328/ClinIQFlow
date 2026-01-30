@@ -15,6 +15,9 @@ export function HospitalGuard({ children }: HospitalGuardProps) {
   React.useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
+    } else if (!loading && user && !profile) {
+      // User exists (from stale cache) but profile fetch failed — session is expired
+      router.push('/login');
     } else if (!loading && profile && profile.isSuperAdmin && !currentHospitalId) {
       // Super admin without hospital context should go to admin
       router.push('/admin/dashboard');

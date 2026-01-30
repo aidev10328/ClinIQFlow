@@ -581,7 +581,7 @@ export default function AppointmentsPage() {
   return (
     <div className="space-y-2">
       {/* Tabs - Full Width */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-slate-200 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
         {[
           { id: 'schedule' as TabType, label: 'Doctor Schedule' },
           { id: 'scheduler' as TabType, label: 'Appointments' },
@@ -592,7 +592,7 @@ export default function AppointmentsPage() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 py-2 text-[11px] font-medium border-b-2 transition-colors ${
+            className={`flex-1 min-w-fit py-2 px-2 sm:px-0 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
               activeTab === tab.id
                 ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -806,7 +806,7 @@ function DoctorScheduleTab({
                 setScheduleDoctor(doc || null);
                 setScheduleEditMode(false);
               }}
-              className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg bg-white min-w-[220px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
+              className="text-xs px-3 py-2 sm:py-1.5 border border-slate-200 rounded-lg bg-white w-full sm:w-auto sm:min-w-[220px] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
             >
               {doctors.map((doc: Doctor) => (
                 <option key={doc.id} value={doc.id}>
@@ -864,8 +864,8 @@ function DoctorScheduleTab({
               </div>
             )}
           </div>
-          <div className="p-3">
-            <table className="w-full text-[11px]">
+          <div className="p-3 overflow-x-auto">
+            <table className="w-full text-[11px] min-w-[400px]">
               <thead>
                 <tr className="text-left text-slate-400 text-[10px] uppercase tracking-wide">
                   <th className="pb-2 font-medium">Day</th>
@@ -889,7 +889,7 @@ function DoctorScheduleTab({
                           <input type="checkbox" checked={schedule.isWorking} onChange={(e) => {
                             const updated = scheduleForm.map((s: DoctorSchedule) => s.dayOfWeek === idx ? { ...s, isWorking: e.target.checked } : s);
                             setScheduleForm(updated);
-                          }} className="w-3.5 h-3.5 rounded border-slate-300 text-[var(--color-primary)]" />
+                          }} className="w-4 h-4 sm:w-3.5 sm:h-3.5 rounded border-slate-300 text-[var(--color-primary)]" />
                         ) : (
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${schedule.isWorking ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
                             {schedule.isWorking ? `Working (${shifts})` : 'Off'}
@@ -901,7 +901,7 @@ function DoctorScheduleTab({
                           <input type="checkbox" checked={schedule.morningShift} disabled={!schedule.isWorking} onChange={(e) => {
                             const updated = scheduleForm.map((s: DoctorSchedule) => s.dayOfWeek === idx ? { ...s, morningShift: e.target.checked } : s);
                             setScheduleForm(updated);
-                          }} className="w-3.5 h-3.5 rounded border-slate-300 text-[var(--color-primary)] disabled:opacity-30" />
+                          }} className="w-4 h-4 sm:w-3.5 sm:h-3.5 rounded border-slate-300 text-[var(--color-primary)] disabled:opacity-30" />
                         ) : (
                           <span className={schedule.morningShift && schedule.isWorking ? 'text-amber-600 font-medium' : 'text-slate-300'}>
                             {schedule.morningShift && schedule.isWorking ? '6a-12p' : '—'}
@@ -913,7 +913,7 @@ function DoctorScheduleTab({
                           <input type="checkbox" checked={schedule.eveningShift} disabled={!schedule.isWorking} onChange={(e) => {
                             const updated = scheduleForm.map((s: DoctorSchedule) => s.dayOfWeek === idx ? { ...s, eveningShift: e.target.checked } : s);
                             setScheduleForm(updated);
-                          }} className="w-3.5 h-3.5 rounded border-slate-300 text-[var(--color-primary)] disabled:opacity-30" />
+                          }} className="w-4 h-4 sm:w-3.5 sm:h-3.5 rounded border-slate-300 text-[var(--color-primary)] disabled:opacity-30" />
                         ) : (
                           <span className={schedule.eveningShift && schedule.isWorking ? 'text-orange-600 font-medium' : 'text-slate-300'}>
                             {schedule.eveningShift && schedule.isWorking ? '12p-6p' : '—'}
@@ -925,7 +925,7 @@ function DoctorScheduleTab({
                           <input type="checkbox" checked={schedule.nightShift} disabled={!schedule.isWorking} onChange={(e) => {
                             const updated = scheduleForm.map((s: DoctorSchedule) => s.dayOfWeek === idx ? { ...s, nightShift: e.target.checked } : s);
                             setScheduleForm(updated);
-                          }} className="w-3.5 h-3.5 rounded border-slate-300 text-[var(--color-primary)] disabled:opacity-30" />
+                          }} className="w-4 h-4 sm:w-3.5 sm:h-3.5 rounded border-slate-300 text-[var(--color-primary)] disabled:opacity-30" />
                         ) : (
                           <span className={schedule.nightShift && schedule.isWorking ? 'text-indigo-600 font-medium' : 'text-slate-300'}>
                             {schedule.nightShift && schedule.isWorking ? '6p-10p' : '—'}
@@ -950,7 +950,7 @@ function DoctorScheduleTab({
             {/* Add Time Off Form */}
             <div className="p-2 bg-slate-50 rounded-lg space-y-2">
               <p className="text-[10px] font-medium text-slate-600">Add New</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="date" value={timeOffForm.startDate} onChange={(e) => setTimeOffForm({ ...timeOffForm, startDate: e.target.value })} min={formatDateString(getHospitalToday())} className="w-full text-[10px] px-2 py-1.5 border border-slate-200 rounded bg-white" />
                 <input type="date" value={timeOffForm.endDate} onChange={(e) => setTimeOffForm({ ...timeOffForm, endDate: e.target.value })} min={timeOffForm.startDate || formatDateString(getHospitalToday())} className="w-full text-[10px] px-2 py-1.5 border border-slate-200 rounded bg-white" />
               </div>
@@ -1025,9 +1025,9 @@ function SchedulerTab({
   setShowGenerateModal,
 }: any) {
   return (
-    <div className="flex gap-3" style={{ height: 'calc(100vh - 220px)' }}>
+    <div className="flex flex-col lg:flex-row gap-3" style={{ height: 'calc(100vh - 220px)' }}>
       {/* Left: Calendar */}
-      <div className="w-[280px] flex-shrink-0 flex flex-col">
+      <div className="w-full lg:w-[280px] flex-shrink-0 flex flex-col">
         <div className="bg-white rounded-lg border border-slate-200 p-2 flex flex-col">
           {/* Doctor Selector */}
           <div className="mb-2 pb-2 border-b border-slate-100">
@@ -1178,7 +1178,7 @@ function SchedulerTab({
               </div>
             </div>
           ) : (
-            <div className="flex-1 grid grid-cols-3 gap-2 p-2 min-h-0 overflow-hidden">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 p-2 min-h-0 overflow-auto">
               {/* Morning */}
               <div className="flex flex-col min-h-0 bg-amber-50 rounded border border-amber-100 overflow-hidden">
                 <div className="flex-shrink-0 px-2 py-1.5 bg-amber-100/50 border-b border-amber-100 flex items-center gap-1">
@@ -1636,7 +1636,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
       </div>
 
       {/* Main Content - Circular Flow Layout */}
-      <div className="flex-1 grid grid-cols-2 gap-4 min-h-0 overflow-hidden relative">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0 overflow-auto lg:overflow-hidden relative">
         {/* LEFT COLUMN */}
         <div className="flex flex-col min-h-0 relative">
           {/* DAILY QUEUE (Top Left) */}
@@ -2016,13 +2016,14 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
       </div>
       <div className="max-h-[calc(100vh-280px)] overflow-auto">
         {filtered.length > 0 ? (
-          <table className="w-full text-[11px]">
+          <div className="overflow-x-auto">
+          <table className="w-full text-[11px] min-w-[500px]">
             <thead className="bg-slate-50 sticky top-0">
               <tr>
                 <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide">Patient</th>
-                <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contact</th>
-                <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide">DOB</th>
-                <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide">Gender</th>
+                <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide hidden sm:table-cell">Contact</th>
+                <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide hidden sm:table-cell">DOB</th>
+                <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide hidden sm:table-cell">Gender</th>
                 <th className="px-3 py-2 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wide">Status</th>
                 <th className="px-3 py-2 text-right text-[10px] font-medium text-slate-500 uppercase tracking-wide">Actions</th>
               </tr>
@@ -2038,12 +2039,12 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
                       <span className="font-medium text-slate-700">{p.firstName} {p.lastName}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-slate-500">
+                  <td className="px-3 py-2 text-slate-500 hidden sm:table-cell">
                     <div>{p.phone || '—'}</div>
                     <div className="text-[9px] text-slate-400 truncate max-w-[140px]">{p.email || '—'}</div>
                   </td>
-                  <td className="px-3 py-2 text-slate-500">{p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '—'}</td>
-                  <td className="px-3 py-2 text-slate-500 capitalize">{p.gender || '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 hidden sm:table-cell">{p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 capitalize hidden sm:table-cell">{p.gender || '—'}</td>
                   <td className="px-3 py-2">
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${(p as any).status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                       {(p as any).status || 'active'}
@@ -2059,6 +2060,7 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
               ))}
             </tbody>
           </table>
+          </div>
         ) : (
           <div className="py-12 text-center">
             <svg className="w-10 h-10 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -2073,15 +2075,15 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
           <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">{editing ? 'Edit Patient' : 'Add Patient'}</h2>
             <form onSubmit={handleSave} className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} placeholder="First Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]" />
                 <input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} placeholder="Last Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="Email" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]" />
                 <PhoneInput value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} placeholder="Phone number" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="date" value={form.dateOfBirth} onChange={e => setForm({ ...form, dateOfBirth: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]" />
                 <select value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] bg-white">
                   <option value="">Gender</option>
@@ -2173,7 +2175,7 @@ function GenerateSlotsModal({ selectedDoctor, generateStartDate, setGenerateStar
             <input type="text" value={selectedDoctor ? `Dr. ${selectedDoctor.name}` : ''} disabled className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded bg-slate-50 text-slate-500" />
             <p className="text-[10px] text-slate-500 mt-0.5">Slot duration: {selectedDoctor?.appointmentDurationMinutes || 30} minutes</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-medium text-slate-700 mb-1">Start Date</label>
               <input type="date" value={generateStartDate} onChange={(e) => setGenerateStartDate(e.target.value)} min={formatDateString(getHospitalToday())} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" />
@@ -2295,7 +2297,7 @@ function AddPatientModal({ form, setForm, adding, onAdd, onClose }: any) {
           </button>
         </div>
         <div className="p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-medium text-slate-700 mb-1">First Name *</label>
               <input type="text" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" />
@@ -2313,7 +2315,7 @@ function AddPatientModal({ form, setForm, adding, onAdd, onClose }: any) {
             <label className="block text-[11px] font-medium text-slate-700 mb-1">Phone</label>
             <PhoneInput value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} placeholder="Phone number" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-medium text-slate-700 mb-1">Date of Birth</label>
               <input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" />

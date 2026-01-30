@@ -648,12 +648,12 @@ function HospitalAdministrationContent() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200">
+      <div className="flex border-b border-slate-200 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
-            className={`flex-1 py-2 text-[11px] font-medium border-b-2 transition-colors ${
+            className={`flex-1 min-w-fit py-2 px-2 sm:px-0 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
               activeTab === t.id
                 ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
                 : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
@@ -669,7 +669,7 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL DETAILS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'details' && (
-        <div className="grid grid-cols-2 gap-3" style={{ gridAutoRows: 'min-content' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ gridAutoRows: 'min-content' }}>
 
           {/* ── Card 1: General Information (merged General + Address + Images) ── */}
           <div className="bg-white rounded-lg border border-slate-200 p-3 row-span-2">
@@ -690,7 +690,7 @@ function HospitalAdministrationContent() {
             {generalEditMode ? (
               <div className="space-y-2">
                 {/* Images */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500 mb-1 block">Logo</label>
                     <div onClick={() => logoInputRef.current?.click()} className="h-16 border-2 border-dashed border-slate-200 rounded cursor-pointer flex items-center justify-center hover:border-slate-400 transition-colors overflow-hidden">
@@ -726,7 +726,7 @@ function HospitalAdministrationContent() {
                   <label className="text-[10px] font-bold text-slate-600">Hospital Name <span className="text-red-500">*</span></label>
                   <input value={hospital.name || ''} onChange={e => setHospital({ ...hospital, name: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500">Phone</label>
                     <PhoneInput value={hospital.phone || ''} onChange={(value) => setHospital({ ...hospital, phone: value })} placeholder="Phone number" />
@@ -753,7 +753,7 @@ function HospitalAdministrationContent() {
                       <label className="text-[10px] text-slate-500">Address Line 2</label>
                       <input value={hospital.addressLine2 || ''} onChange={e => setHospital({ ...hospital, addressLine2: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">Country <span className="text-red-500">*</span></label>
                         <select value={hospital.country || ''} onChange={e => setHospital({ ...hospital, country: e.target.value, state: '' })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
@@ -773,7 +773,7 @@ function HospitalAdministrationContent() {
                         )}
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">City <span className="text-red-500">*</span></label>
                         <input value={hospital.city || ''} onChange={e => setHospital({ ...hospital, city: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
@@ -848,7 +848,7 @@ function HospitalAdministrationContent() {
                       <label className="text-[10px] text-slate-500">Address Line 2</label>
                       <input value={hospital.billingAddressLine2 || ''} onChange={e => setHospital({ ...hospital, billingAddressLine2: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">Country <span className="text-red-500">*</span></label>
                         <select value={hospital.billingCountry || ''} onChange={e => setHospital({ ...hospital, billingCountry: e.target.value, billingState: '' })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
@@ -868,7 +868,7 @@ function HospitalAdministrationContent() {
                         )}
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">City <span className="text-red-500">*</span></label>
                         <input value={hospital.billingCity || ''} onChange={e => setHospital({ ...hospital, billingCity: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
@@ -970,7 +970,7 @@ function HospitalAdministrationContent() {
             </div>
             {legalComplianceEditMode ? (
               <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500">Legal Entity Name</label>
                     <input value={hospital.legalEntityName || ''} onChange={e => setHospital({ ...hospital, legalEntityName: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
@@ -980,7 +980,7 @@ function HospitalAdministrationContent() {
                     <input type="email" value={hospital.billingContactEmail || ''} onChange={e => setHospital({ ...hospital, billingContactEmail: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500">Tax ID Type</label>
                     <select value={hospital.taxIdType || ''} onChange={e => setHospital({ ...hospital, taxIdType: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
@@ -1000,7 +1000,7 @@ function HospitalAdministrationContent() {
                       <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${hospital.storesPhi ? 'translate-x-4' : ''}`} />
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="text-[10px] text-slate-500">Patient Volume (monthly)</label>
                       <input type="number" min="0" value={hospital.estimatedPatientVolume ?? ''} onChange={e => setHospital({ ...hospital, estimatedPatientVolume: e.target.value ? parseInt(e.target.value) : undefined })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
@@ -1121,7 +1121,7 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL MANAGER TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'manager' && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Profile Card */}
           <div className="bg-white rounded-lg border border-slate-200 p-3">
             <div className="flex items-center justify-between mb-2">
@@ -1140,7 +1140,7 @@ function HospitalAdministrationContent() {
             </div>
             {profileEditMode ? (
               <form onSubmit={saveProfile} className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} placeholder="First Name" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                   <input value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} placeholder="Last Name" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 </div>
@@ -1194,7 +1194,8 @@ function HospitalAdministrationContent() {
           </div>
           <div className="max-h-[200px] overflow-auto">
             {staff.length > 0 ? (
-              <table className="w-full text-[11px]">
+              <div className="overflow-x-auto">
+              <table className="w-full text-[11px] min-w-[500px]">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
                     <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
@@ -1228,6 +1229,7 @@ function HospitalAdministrationContent() {
                   ))}
                 </tbody>
               </table>
+              </div>
             ) : (
               <div className="py-6 text-center text-slate-400 text-xs">No staff members yet</div>
             )}
@@ -1251,7 +1253,7 @@ function HospitalAdministrationContent() {
 
           {/* Doctor Cards Grid */}
           {doctors.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-auto">
               {doctors.map(d => (
                 <div key={d.id} className="bg-white rounded-lg border border-slate-200 p-3 hover:border-slate-300 transition-colors">
                   <div className="flex items-start justify-between mb-2">
@@ -1343,13 +1345,14 @@ function HospitalAdministrationContent() {
           </div>
           <div className="max-h-[220px] overflow-auto">
             {filteredPatients.length > 0 ? (
-              <table className="w-full text-[11px]">
+              <div className="overflow-x-auto">
+              <table className="w-full text-[11px] min-w-[500px]">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
                     <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Patient</th>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Contact</th>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">DOB</th>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Gender</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">Contact</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">DOB</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">Gender</th>
                     <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
                     <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
                   </tr>
@@ -1365,12 +1368,12 @@ function HospitalAdministrationContent() {
                           <span className="font-medium text-slate-700">{p.firstName} {p.lastName}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-1.5 text-slate-500">
+                      <td className="px-3 py-1.5 text-slate-500 hidden sm:table-cell">
                         <div>{p.phone || '—'}</div>
                         <div className="text-[9px] text-slate-400 truncate max-w-[120px]">{p.email || '—'}</div>
                       </td>
-                      <td className="px-3 py-1.5 text-slate-500">{p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '—'}</td>
-                      <td className="px-3 py-1.5 text-slate-500 capitalize">{p.gender || '—'}</td>
+                      <td className="px-3 py-1.5 text-slate-500 hidden sm:table-cell">{p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '—'}</td>
+                      <td className="px-3 py-1.5 text-slate-500 capitalize hidden sm:table-cell">{p.gender || '—'}</td>
                       <td className="px-3 py-1.5">
                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{p.status}</span>
                       </td>
@@ -1383,6 +1386,7 @@ function HospitalAdministrationContent() {
                   ))}
                 </tbody>
               </table>
+              </div>
             ) : (
               <div className="py-8 text-center">
                 <svg className="w-10 h-10 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -1404,7 +1408,7 @@ function HospitalAdministrationContent() {
           <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">{editingStaff ? 'Edit Staff' : 'Add Staff'}</h2>
             <form onSubmit={saveStaff} className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input value={staffForm.firstName} onChange={e => setStaffForm({ ...staffForm, firstName: e.target.value })} placeholder="First Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 <input value={staffForm.lastName} onChange={e => setStaffForm({ ...staffForm, lastName: e.target.value })} placeholder="Last Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
               </div>
@@ -1529,15 +1533,15 @@ function HospitalAdministrationContent() {
           <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">{editingPatient ? 'Edit Patient' : 'Add Patient'}</h2>
             <form onSubmit={savePatient} className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input value={patientForm.firstName} onChange={e => setPatientForm({ ...patientForm, firstName: e.target.value })} placeholder="First Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 <input value={patientForm.lastName} onChange={e => setPatientForm({ ...patientForm, lastName: e.target.value })} placeholder="Last Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="email" value={patientForm.email} onChange={e => setPatientForm({ ...patientForm, email: e.target.value })} placeholder="Email" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 <PhoneInput value={patientForm.phone} onChange={(value) => setPatientForm({ ...patientForm, phone: value })} placeholder="Phone number" />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="date" value={patientForm.dateOfBirth} onChange={e => setPatientForm({ ...patientForm, dateOfBirth: e.target.value })} placeholder="Date of Birth" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 <select value={patientForm.gender} onChange={e => setPatientForm({ ...patientForm, gender: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
                   <option value="">Gender</option>

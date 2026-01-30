@@ -214,12 +214,12 @@ function PatientsPageContent() {
   return (
     <div className="h-full flex flex-col">
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Patients</h1>
-          <p className="text-sm text-slate-500">Manage patient records at {currentHospital?.name}</p>
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-xl font-semibold text-slate-900">Patients</h1>
+          <p className="text-xs sm:text-sm text-slate-500 truncate">Manage patient records at {currentHospital?.name}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           {/* Stats badges */}
           <div className="hidden md:flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-medium text-slate-600">
@@ -234,20 +234,21 @@ function PatientsPageContent() {
           </div>
           <button
             onClick={() => { resetForm(); setShowModal(true); }}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 transition-colors"
+            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Add Patient
+            <span className="hidden sm:inline">Add Patient</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
       </div>
 
-      {/* Main Content - 60/40 Split */}
-      <div className="flex-1 flex gap-4 min-h-0">
+      {/* Main Content - Responsive Split */}
+      <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
         {/* Left Panel - Patient List */}
-        <div className="w-[60%] flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className={`w-full lg:w-[60%] flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden ${selectedPatient ? 'hidden lg:flex' : 'flex'}`}>
           {/* Search */}
           <div className="px-4 py-3 border-b border-slate-200">
             <div className="relative">
@@ -265,14 +266,14 @@ function PatientsPageContent() {
           </div>
 
           {/* Table Header */}
-          <div className="grid grid-cols-12 gap-2 px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-500 uppercase tracking-wide">
-            <div className="col-span-3">Patient</div>
-            <div className="col-span-2">Phone</div>
-            <div className="col-span-3">Email</div>
-            <div className="col-span-1 text-center">Age</div>
-            <div className="col-span-1 text-center">Gender</div>
-            <div className="col-span-1 text-center">Appts</div>
-            <div className="col-span-1 text-center">Reports</div>
+          <div className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_1fr_auto_auto] lg:grid-cols-12 gap-2 px-3 sm:px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-500 uppercase tracking-wide">
+            <div className="lg:col-span-3">Patient</div>
+            <div className="hidden sm:block lg:col-span-2">Phone</div>
+            <div className="hidden lg:block lg:col-span-3">Email</div>
+            <div className="hidden lg:block lg:col-span-1 text-center">Age</div>
+            <div className="hidden lg:block lg:col-span-1 text-center">Gender</div>
+            <div className="lg:col-span-1 text-center">Appts</div>
+            <div className="lg:col-span-1 text-center">Reports</div>
           </div>
 
           {/* Table Body */}
@@ -282,13 +283,13 @@ function PatientsPageContent() {
                 {paginatedPatients.map((patient) => (
                   <div
                     key={patient.id}
-                    className={`grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-slate-50/50 transition-colors ${
+                    className={`grid grid-cols-[1fr_auto_auto] sm:grid-cols-[1fr_1fr_auto_auto] lg:grid-cols-12 gap-2 px-3 sm:px-4 py-3 items-center hover:bg-slate-50/50 transition-colors cursor-pointer ${
                       selectedPatient?.id === patient.id ? 'bg-navy-50/50 border-l-2 border-l-navy-600' : ''
                     }`}
                   >
                     {/* Patient Name */}
-                    <div className="col-span-3 flex items-center gap-2.5 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-navy-600 text-sm font-semibold flex-shrink-0">
+                    <div className="lg:col-span-3 flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-blue-100 flex items-center justify-center text-navy-600 text-xs sm:text-sm font-semibold flex-shrink-0">
                         {patient.firstName.charAt(0)}{patient.lastName.charAt(0)}
                       </div>
                       <div className="min-w-0">
@@ -302,27 +303,27 @@ function PatientsPageContent() {
                     </div>
 
                     {/* Phone */}
-                    <div className="col-span-2">
+                    <div className="hidden sm:block lg:col-span-2">
                       <p className="text-sm text-slate-600 truncate">{patient.phone || '—'}</p>
                     </div>
 
                     {/* Email */}
-                    <div className="col-span-3">
+                    <div className="hidden lg:block lg:col-span-3">
                       <p className="text-sm text-slate-600 truncate">{patient.email || '—'}</p>
                     </div>
 
                     {/* Age */}
-                    <div className="col-span-1 text-center">
+                    <div className="hidden lg:block lg:col-span-1 text-center">
                       <span className="text-sm text-slate-700">{calculateAge(patient.dateOfBirth)}</span>
                     </div>
 
                     {/* Gender */}
-                    <div className="col-span-1 text-center">
+                    <div className="hidden lg:block lg:col-span-1 text-center">
                       <span className="text-sm text-slate-600 capitalize">{patient.gender?.charAt(0) || '—'}</span>
                     </div>
 
                     {/* Appointments */}
-                    <div className="col-span-1 text-center">
+                    <div className="lg:col-span-1 text-center">
                       <button
                         onClick={() => handleAppointmentsClick(patient)}
                         className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-medium transition-all ${
@@ -336,7 +337,7 @@ function PatientsPageContent() {
                     </div>
 
                     {/* Reports */}
-                    <div className="col-span-1 text-center">
+                    <div className="lg:col-span-1 text-center">
                       <button
                         onClick={() => handleReportsClick(patient)}
                         className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-medium transition-all ${
@@ -396,10 +397,10 @@ function PatientsPageContent() {
         </div>
 
         {/* Right Panel - Details */}
-        <div className="w-[40%] flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className={`w-full lg:w-[40%] flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden ${!selectedPatient ? 'hidden lg:flex' : 'flex'}`}>
           {rightPanelMode === 'default' || !selectedPatient ? (
             /* Default View - Guide */
-            <div className="flex-1 flex flex-col items-center justify-center p-6">
+            <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6">
               <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                 <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -619,7 +620,7 @@ function PatientsPageContent() {
               {/* Basic Information */}
               <div>
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Basic Information</h4>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">First Name <span className="text-red-500">*</span></label>
                     <input type="text" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
@@ -655,7 +656,7 @@ function PatientsPageContent() {
               {/* Address */}
               <div>
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Address</h4>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="col-span-2">
                     <input type="text" placeholder="Street Address" value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                   </div>
@@ -666,7 +667,7 @@ function PatientsPageContent() {
               </div>
 
               {/* Insurance & Emergency */}
-              <div className="grid grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
                   <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Insurance</h4>
                   <div className="space-y-3">

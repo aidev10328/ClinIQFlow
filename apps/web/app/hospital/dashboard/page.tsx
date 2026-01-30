@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import Link from 'next/link';
+
 import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
 import { useApiQuery } from '../../../lib/hooks/useApiQuery';
@@ -587,7 +587,8 @@ export default function HospitalDashboardPage() {
     const now = new Date();
     const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
     const thisWeek = docAppts.filter((a: any) => new Date(a.appointmentDate || a.createdAt) >= weekStart).length;
-    return { completed, cancelled, uniquePatients, completionRate, thisWeek };
+    const totalPatients = docAppts.length;
+    return { completed, cancelled, uniquePatients, completionRate, thisWeek, totalPatients };
   }, [appointments, actualDoctorProfileId]);
 
   // Derive shift types (AM/PM/NT) from the time range
@@ -624,31 +625,37 @@ export default function HospitalDashboardPage() {
     doctorSchedule.filter(s => s.isWorking).forEach(s => set.add(s.dayOfWeek));
     return set;
   }, [doctorSchedule]);
-  const calendarCells = useMemo(() => buildCalendarMonth(calYear, calMonth), [calYear, calMonth]);
-  const calWorkDates = useMemo(() => {
-    const working = new Set<number>();
-    calendarCells.forEach((day, idx) => { if (day !== null && workingDaysSet.has(idx % 7)) working.add(day); });
-    return working;
-  }, [calendarCells, workingDaysSet]);
-
-  const timeOffDates = useMemo(() => {
-    const offDates = new Set<number>();
-    doctorTimeOff.forEach((t: any) => {
-      const startParts = (t.start_date || '').split('-').map(Number);
-      const endParts = (t.end_date || '').split('-').map(Number);
-      if (startParts.length < 3 || endParts.length < 3) return;
-      const start = new Date(startParts[0], startParts[1] - 1, startParts[2]);
-      const end = new Date(endParts[0], endParts[1] - 1, endParts[2]);
-      const cur = new Date(start);
-      while (cur <= end) {
-        if (cur.getMonth() === calMonth && cur.getFullYear() === calYear) {
-          offDates.add(cur.getDate());
+  const threeMonthCalendar = useMemo(() => {
+    const months: { month: number; year: number; cells: (number | null)[]; workDates: Set<number>; offDates: Set<number>; leaveDetails: Map<number, { reason?: string; start_date: string; end_date: string; status: string }>; isCurrent: boolean }[] = [];
+    for (let offset = -1; offset <= 1; offset++) {
+      let m = calMonth + offset;
+      let y = calYear;
+      if (m < 0) { m = 11; y--; }
+      if (m > 11) { m = 0; y++; }
+      const cells = buildCalendarMonth(y, m);
+      const workDates = new Set<number>();
+      cells.forEach((day, idx) => { if (day !== null && workingDaysSet.has(idx % 7)) workDates.add(day); });
+      const offDates = new Set<number>();
+      const leaveDetails = new Map<number, { reason?: string; start_date: string; end_date: string; status: string }>();
+      doctorTimeOff.forEach((t: any) => {
+        const sp = (t.start_date || '').split('-').map(Number);
+        const ep = (t.end_date || '').split('-').map(Number);
+        if (sp.length < 3 || ep.length < 3) return;
+        const s = new Date(sp[0], sp[1] - 1, sp[2]);
+        const e = new Date(ep[0], ep[1] - 1, ep[2]);
+        const c = new Date(s);
+        while (c <= e) {
+          if (c.getMonth() === m && c.getFullYear() === y) {
+            offDates.add(c.getDate());
+            leaveDetails.set(c.getDate(), { reason: t.reason, start_date: t.start_date, end_date: t.end_date, status: t.status });
+          }
+          c.setDate(c.getDate() + 1);
         }
-        cur.setDate(cur.getDate() + 1);
-      }
-    });
-    return offDates;
-  }, [doctorTimeOff, calMonth, calYear]);
+      });
+      months.push({ month: m, year: y, cells, workDates, offDates, leaveDetails, isCurrent: offset === 0 });
+    }
+    return months;
+  }, [calMonth, calYear, workingDaysSet, doctorTimeOff]);
 
   const licensePct = stats.licensesTotal > 0 ? Math.round((stats.licensesUsed / stats.licensesTotal) * 100) : 0;
   const workDayCount = workingDaysSet.size;
@@ -663,43 +670,43 @@ export default function HospitalDashboardPage() {
   const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); };
 
   return (
-    <div className="page-fullheight flex flex-col gap-2 p-2 overflow-hidden">
+    <div className="page-fullheight flex flex-col gap-1.5 p-2 overflow-y-auto lg:overflow-hidden">
       {/* Compact Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <h1 className="text-base font-semibold text-slate-900">Dashboard</h1>
       </div>
 
-      {/* KPI Cards - Compact Row with Clear Headers */}
-      <div className="grid grid-cols-6 gap-2 flex-shrink-0">
+      {/* KPI Cards - Responsive Grid */}
+      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2 flex-shrink-0">
         {[
-          { label: 'Doctors', value: stats.activeDoctors, sub: stats.pendingDoctors > 0 ? `+${stats.pendingDoctors} pending` : 'active', href: '/hospital/doctors' },
-          { label: 'Patients', value: stats.totalPatients, sub: todayPatients > 0 ? `+${todayPatients} today` : 'total', href: '/hospital/patients' },
-          { label: 'Staff', value: stats.activeStaff, sub: 'active', href: '/hospital/staff' },
-          { label: 'Appointments', value: todayAppts, sub: 'today', href: '/hospital/appointments' },
-          { label: 'Licenses', value: `${stats.licensesUsed}/${stats.licensesTotal}`, sub: `${licensePct}%`, href: '/hospital/billing' },
-          { label: 'Invites', value: stats.pendingInvites, sub: 'pending', href: '/hospital/doctors?action=invite' },
+          { label: 'Doctors', value: stats.activeDoctors, sub: stats.pendingDoctors > 0 ? `+${stats.pendingDoctors} pending` : 'active' },
+          { label: 'Patients', value: stats.totalPatients, sub: todayPatients > 0 ? `+${todayPatients} today` : 'total' },
+          { label: 'Staff', value: stats.activeStaff, sub: 'active' },
+          { label: 'Appointments', value: todayAppts, sub: 'today' },
+          { label: 'Licenses', value: `${stats.licensesUsed}/${stats.licensesTotal}`, sub: `${licensePct}%` },
+          { label: 'Invites', value: stats.pendingInvites, sub: 'pending' },
         ].map((kpi) => (
-          <Link key={kpi.label} href={kpi.href} className="bg-white rounded-lg border border-slate-200 p-2.5 hover:border-navy-300 transition-all">
-            <p className="text-[10px] font-semibold text-slate-900 uppercase tracking-wide mb-1">{kpi.label}</p>
+          <div key={kpi.label} className="bg-white rounded-lg border border-slate-200 p-1.5 sm:p-2.5">
+            <p className="text-[8px] sm:text-[10px] font-semibold text-slate-900 uppercase tracking-wide mb-0.5 sm:mb-1">{kpi.label}</p>
             <div className="flex items-center justify-between">
-              <span className="text-xl font-bold text-slate-900">{kpi.value}</span>
-              <span className="text-[9px] text-navy-600 bg-navy-50 px-1.5 py-0.5 rounded font-medium">{kpi.sub}</span>
+              <span className="text-sm sm:text-xl font-bold text-slate-900">{kpi.value}</span>
+              <span className="text-[7px] sm:text-[9px] text-navy-600 bg-navy-50 px-1 sm:px-1.5 py-px sm:py-0.5 rounded font-medium">{kpi.sub}</span>
             </div>
-          </Link>
+          </div>
         ))}
       </div>
 
-      {/* Main Content - Two Column Layout */}
-      <div className="flex-1 flex gap-2 min-h-0 overflow-hidden">
+      {/* Main Content - Two Column Layout (stacks on mobile) */}
+      <div className="lg:flex-1 flex flex-col lg:flex-row gap-1.5 lg:min-h-0 lg:overflow-hidden">
         {/* Left Column - Charts Stacked */}
-        <div className="w-1/2 flex flex-col gap-2 min-h-0">
+        <div className="w-full lg:w-1/2 flex flex-col gap-1.5 lg:min-h-0">
           {/* Donut Charts Row - 2 donuts side by side */}
-          <div className="h-36 flex gap-2 flex-shrink-0">
+          <div className="flex flex-row gap-1.5 sm:gap-2 flex-shrink-0 sm:h-32">
             {/* License Usage Donut */}
-            <div className="w-2/5 bg-white rounded-lg border border-slate-200 p-3 flex flex-col">
-              <h3 className="text-xs font-semibold text-slate-900 mb-1.5 uppercase tracking-wide">LICENSES</h3>
-              <div className="flex items-center gap-3 flex-1">
-                <div className="relative flex-shrink-0" style={{ width: '80px', height: '80px' }}>
+            <div className="w-2/5 bg-white rounded-lg border border-slate-200 p-2 sm:p-3 flex flex-col">
+              <h3 className="text-[9px] sm:text-xs font-semibold text-slate-900 mb-1 sm:mb-1.5 uppercase tracking-wide">LICENSES</h3>
+              <div className="flex items-center gap-2 sm:gap-3 flex-1">
+                <div className="relative flex-shrink-0 w-[55px] h-[55px] sm:w-[80px] sm:h-[80px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={licenseDonutData} cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none">
@@ -708,14 +715,14 @@ export default function HospitalDashboardPage() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-base font-bold text-slate-900">{stats.licensesUsed}</span>
-                    <span className="text-[10px] text-slate-700 font-semibold">/{stats.licensesTotal}</span>
+                    <span className="text-[9px] sm:text-base font-bold text-slate-900">{stats.licensesUsed}</span>
+                    <span className="text-[6px] sm:text-[10px] text-slate-700 font-semibold">/{stats.licensesTotal}</span>
                   </div>
                 </div>
-                <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex-1 min-w-0 space-y-0.5 sm:space-y-1">
                   {licenseDonutData.slice(0, 2).map((d: any, i: number) => (
-                    <span key={i} className="flex items-center gap-1.5 text-xs text-slate-700 font-medium">
-                      <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+                    <span key={i} className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-xs text-slate-700 font-medium">
+                      <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
                       <span className="truncate">{d.name}: {d.value}</span>
                     </span>
                   ))}
@@ -724,13 +731,13 @@ export default function HospitalDashboardPage() {
             </div>
 
             {/* Patient Donut (New vs Existing) */}
-            <div className="w-3/5 bg-white rounded-lg border border-slate-200 p-3 flex flex-col">
-              <div className="flex items-center justify-between mb-1.5">
-                <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">PATIENTS</h3>
+            <div className="w-3/5 bg-white rounded-lg border border-slate-200 p-2 sm:p-3 flex flex-col">
+              <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+                <h3 className="text-[9px] sm:text-xs font-semibold text-slate-900 uppercase tracking-wide">PATIENTS</h3>
                 <FilterPills value={patientBarFilter} onChange={setPatientBarFilter} />
               </div>
-              <div className="flex items-center gap-3 flex-1">
-                <div className="relative flex-shrink-0" style={{ width: '80px', height: '80px' }}>
+              <div className="flex items-center gap-2 sm:gap-3 flex-1">
+                <div className="relative flex-shrink-0 w-[55px] h-[55px] sm:w-[80px] sm:h-[80px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -746,17 +753,17 @@ export default function HospitalDashboardPage() {
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span className="text-base font-bold text-slate-900">{patientBarData.newPatients + patientBarData.existingPatients}</span>
-                    <span className="text-[10px] text-slate-700 font-semibold">total</span>
+                    <span className="text-[9px] sm:text-base font-bold text-slate-900">{patientBarData.newPatients + patientBarData.existingPatients}</span>
+                    <span className="text-[6px] sm:text-[10px] text-slate-700 font-semibold">total</span>
                   </div>
                 </div>
-                <div className="flex-1 min-w-0 flex items-center gap-4">
-                  <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium">
-                    <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: chartColors.accent }} />
+                <div className="flex-1 min-w-0 flex items-center gap-2 sm:gap-4">
+                  <span className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-xs text-slate-700 font-medium">
+                    <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm flex-shrink-0" style={{ background: chartColors.accent }} />
                     New: <span className="font-bold text-slate-900">{patientBarData.newPatients}</span>
                   </span>
-                  <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium">
-                    <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: chartColors.primary }} />
+                  <span className="flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-xs text-slate-700 font-medium">
+                    <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-sm flex-shrink-0" style={{ background: chartColors.primary }} />
                     Returning: <span className="font-bold text-slate-900">{patientBarData.existingPatients}</span>
                   </span>
                 </div>
@@ -765,9 +772,9 @@ export default function HospitalDashboardPage() {
           </div>
 
           {/* Appointments Trends Chart */}
-          <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
-            <div className="flex items-center justify-between mb-2 flex-shrink-0">
-              <div className="flex items-center gap-2">
+          <div className="min-h-[200px] lg:min-h-0 lg:flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">APPOINTMENTS TRENDS</h3>
                 <CustomSelect
                   value={chartDoctorFilter || ''}
@@ -809,9 +816,9 @@ export default function HospitalDashboardPage() {
           </div>
 
           {/* Patients Trends Chart */}
-          <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
-            <div className="flex items-center justify-between mb-2 flex-shrink-0">
-              <div className="flex items-center gap-2">
+          <div className="min-h-[200px] lg:min-h-0 lg:flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">PATIENTS TRENDS</h3>
                 <CustomSelect
                   value={chartDoctorFilter || ''}
@@ -844,29 +851,25 @@ export default function HospitalDashboardPage() {
         </div>
 
         {/* Right Column - Doctor Schedule & Calendar */}
-        <div className="w-1/2 bg-white rounded-lg border border-slate-200 flex flex-col min-h-0 overflow-hidden">
-          {/* Header */}
-          <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-3">
-              <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">DOCTOR SCHEDULE</h3>
-              <CustomSelect
-                value={selectedDoctorId || ''}
-                onChange={(v) => setSelectedDoctorId(v || null)}
-                placeholder="Select Doctor..."
-                options={doctorList.map((d: any) => ({ value: d.userId, label: `Dr. ${d.name}` }))}
-              />
-            </div>
+        <div className="w-full lg:w-1/2 bg-white rounded-lg border border-slate-200 flex flex-col lg:min-h-0 lg:overflow-hidden">
+          {/* Header — Title + Dropdown + Status Badge */}
+          <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap items-center gap-1.5 flex-shrink-0">
+            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">DOCTOR SCHEDULE</h3>
+            <CustomSelect
+              value={selectedDoctorId || ''}
+              onChange={(v) => setSelectedDoctorId(v || null)}
+              placeholder="Select Doctor..."
+              options={doctorList.map((d: any) => ({ value: d.userId, label: `Dr. ${d.name}` }))}
+            />
             {selectedDocProfile && (
-              <div className="flex items-center">
-                <span className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm ${
-                  doctorCheckin.status === 'CHECKED_IN'
-                    ? 'bg-lime-100 text-lime-700 border border-lime-300'
-                    : 'bg-amber-100 text-amber-700 border border-amber-300'
-                }`}>
-                  <span className={`w-2 h-2 rounded-full ${doctorCheckin.status === 'CHECKED_IN' ? 'bg-lime-500 animate-pulse' : 'bg-amber-500'}`} />
-                  {doctorCheckin.status === 'CHECKED_IN' ? 'ONLINE' : 'OFFLINE'}
-                </span>
-              </div>
+              <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold border ${
+                doctorCheckin.status === 'CHECKED_IN'
+                  ? 'bg-lime-100 text-lime-700 border-lime-300'
+                  : 'bg-amber-100 text-amber-700 border-amber-300'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${doctorCheckin.status === 'CHECKED_IN' ? 'bg-lime-500 animate-pulse' : 'bg-amber-500'}`} />
+                {doctorCheckin.status === 'CHECKED_IN' ? 'ONLINE' : 'OFFLINE'}
+              </span>
             )}
           </div>
 
@@ -875,63 +878,17 @@ export default function HospitalDashboardPage() {
               <p className="text-xs text-slate-400">Select a doctor to view schedule</p>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col overflow-hidden p-3 gap-3">
-              {/* Top Row: Calendar + Weekly Shifts */}
-              <div className="flex gap-4 flex-shrink-0">
-                {/* Compact Square Calendar */}
-                <div className="w-44 flex-shrink-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <button onClick={prevMonth} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 transition-colors">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                    </button>
-                    <span className="text-[11px] font-semibold text-slate-700">{MONTH_SHORT[calMonth]} {calYear}</span>
-                    <button onClick={nextMonth} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 transition-colors">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                    </button>
-                  </div>
-
-                  {/* Day headers */}
-                  <div className="grid grid-cols-7 gap-px mb-px">
-                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                      <div key={i} className="text-center text-[8px] font-semibold text-slate-400 py-0.5">{d}</div>
-                    ))}
-                  </div>
-
-                  {/* Calendar grid - compact */}
-                  <div className="grid grid-cols-7 gap-px bg-slate-100 border border-slate-200 rounded overflow-hidden">
-                    {calendarCells.map((day, i) => {
-                      if (day === null) return <div key={i} className="w-full aspect-square bg-white" />;
-                      const isToday = day === hospitalNow.getDate() && calMonth === hospitalNow.getMonth() && calYear === hospitalNow.getFullYear();
-                      const isTimeOff = timeOffDates.has(day);
-                      const isWork = calWorkDates.has(day) && !isTimeOff;
-                      return (
-                        <div key={i} className={`w-full aspect-square flex items-center justify-center text-[10px] font-medium ${
-                          isToday ? 'bg-navy-600 text-white'
-                            : isTimeOff ? 'bg-navy-400 text-white'
-                            : isWork ? 'bg-navy-50 text-navy-700'
-                            : 'bg-white text-slate-300'
-                        }`}>
-                          {day}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Legend - compact */}
-                  <div className="mt-1.5 flex items-center justify-center gap-2 text-[8px]">
-                    <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-50 border border-navy-200" />Work</span>
-                    <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-400" />Leave</span>
-                    <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-600" />Today</span>
-                  </div>
-                </div>
-
-                {/* Weekly Shifts - Right Side */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Weekly Shifts</p>
-                  <div className="space-y-1">
+            <div className="flex-1 flex flex-col lg:overflow-hidden p-2 lg:p-2.5 gap-1.5">
+              {/* Top Row: Weekly Shifts (2/3) + Metrics (1/3) */}
+              <div className="flex flex-col sm:flex-row gap-1.5">
+                {/* Weekly Shifts */}
+                <div className="sm:w-2/3">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Weekly Shifts</p>
+                  <div className="space-y-0.5">
                     {DAY_NAMES_SHORT.map((day, idx) => {
                       const shifts = scheduleByDay[idx] || [];
                       const on = shifts.length > 0;
+                      const isCurrentDay = idx === hospitalNow.getDay();
                       const formatTime = (t: string | null) => {
                         if (!t) return '--';
                         const [h, m] = t.split(':').map(Number);
@@ -939,89 +896,129 @@ export default function HospitalDashboardPage() {
                         const h12 = h % 12 || 12;
                         return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
                       };
-                      const getShiftColor = (type: string, isCurrentDay: boolean) => {
-                        if (isCurrentDay) return 'bg-white/20 text-white';
-                        if (type === 'AM') return 'bg-yellow-100 text-yellow-700';
-                        if (type === 'AFT') return 'bg-orange-100 text-orange-700';
-                        if (type === 'NT') return 'bg-navy-700 text-white';
-                        return 'bg-navy-700 text-white';
-                      };
-                      const isCurrentDay = idx === hospitalNow.getDay();
                       return (
-                        <div key={day} className={`flex items-center gap-2 py-1 px-2 rounded-md transition-all ${
-                          isCurrentDay ? 'bg-navy-600 text-white' : on ? 'bg-white border border-navy-200' : 'bg-slate-50'
+                        <div key={day} className={`flex items-center gap-1.5 py-0.5 px-1.5 rounded-md transition-all ${
+                          isCurrentDay ? 'bg-navy-50 border-2 border-navy-600 shadow-sm' : on ? 'bg-white border border-slate-300' : 'bg-slate-50 border border-slate-200'
                         }`}>
-                          <span className={`text-[10px] font-bold w-8 flex-shrink-0 ${isCurrentDay ? 'text-white' : on ? 'text-navy-700' : 'text-slate-400'}`}>{day}</span>
+                          <span className={`text-[9px] font-bold w-7 flex-shrink-0 text-navy-700`}>{day}</span>
                           {on ? (
                             <div className="flex items-center gap-1.5 flex-wrap flex-1">
                               {shifts.map((shift, i) => (
                                 <div key={i} className="flex items-center gap-1">
-                                  <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${getShiftColor(shift.shiftType, isCurrentDay)}`}>
-                                    {shift.shiftType}
+                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-white border border-navy-200">
+                                    {shift.shiftType === 'AM' && (
+                                      <svg className="w-2.5 h-2.5 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                        <circle cx="12" cy="12" r="4" />
+                                        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                                      </svg>
+                                    )}
+                                    {shift.shiftType === 'AFT' && (
+                                      <svg className="w-2.5 h-2.5 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                        <path d="M12 10a4 4 0 0 0-4 4h8a4 4 0 0 0-4-4z" />
+                                        <path d="M12 2v4M4.93 4.93l2.83 2.83M2 14h4M17.24 7.76l2.83-2.83M18 14h4" />
+                                        <line x1="2" y1="18" x2="22" y2="18" />
+                                      </svg>
+                                    )}
+                                    {shift.shiftType === 'NT' && (
+                                      <svg className="w-2.5 h-2.5 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                                      </svg>
+                                    )}
                                   </span>
-                                  <span className={`text-[9px] font-medium ${isCurrentDay ? 'text-white/90' : 'text-navy-600'}`}>
+                                  <span className="text-[8px] font-medium text-navy-600">
                                     {formatTime(shift.shiftStart)}-{formatTime(shift.shiftEnd)}
                                   </span>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <span className={`text-[10px] italic ${isCurrentDay ? 'text-navy-200' : 'text-slate-400'}`}>Off</span>
+                            <span className="text-[9px] italic text-slate-400">Off</span>
                           )}
                         </div>
                       );
                     })}
                   </div>
                 </div>
-              </div>
 
-              {/* Upcoming Leaves Section - Compact 2-column */}
-              <div className="flex-shrink-0 border-t border-slate-100 pt-2">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Upcoming Time Off</p>
-                {doctorTimeOff.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-1.5 overflow-y-auto max-h-[92px]">
-                    {doctorTimeOff.slice(0, 6).map((leave: any, i: number) => {
-                      const startDate = new Date(leave.start_date + 'T00:00:00');
-                      const daysDiff = Math.ceil((new Date(leave.end_date + 'T00:00:00').getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                      return (
-                        <div key={leave.id || i} className="flex items-center gap-1.5 px-1.5 py-1 bg-navy-50 rounded border-l-2 border-navy-400">
-                          <div className="w-7 h-7 bg-navy-400 rounded flex flex-col items-center justify-center flex-shrink-0">
-                            <span className="text-[10px] font-bold text-white leading-none">{startDate.getDate()}</span>
-                            <span className="text-[6px] text-navy-100 uppercase leading-none">{startDate.toLocaleDateString('en-US', { month: 'short' })}</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[9px] font-semibold text-slate-700 truncate">{leave.reason || `${daysDiff}d leave`}</p>
-                            <p className="text-[8px] text-slate-400">{leave.status === 'APPROVED' ? '✓' : '○'} {daysDiff}d</p>
-                          </div>
+                {/* Doctor Appointment Metrics */}
+                {docMetrics && (
+                  <div className="sm:w-1/3">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Doctor&apos;s Stats</p>
+                    <div className="grid grid-cols-4 sm:grid-cols-2 gap-1">
+                    {[
+                      { label: 'Appts This Week', value: docMetrics.thisWeek, sub: 'booked' },
+                      { label: 'Appts Today', value: selectedDocAppts.today, sub: 'scheduled' },
+                      { label: 'Completion Rate', value: `${docMetrics.completionRate}%`, sub: 'done' },
+                      { label: 'Total Patients', value: docMetrics.totalPatients, sub: 'all time' },
+                    ].map((m, i) => (
+                      <div key={i} className="bg-white rounded-lg border border-slate-200 p-1 sm:p-1.5 flex flex-col justify-center">
+                        <p className="text-[7px] sm:text-[9px] font-semibold text-slate-900 uppercase tracking-wide mb-0.5">{m.label}</p>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs sm:text-base font-bold text-slate-900">{m.value}</span>
+                          <span className="text-[6px] sm:text-[7px] text-navy-600 bg-navy-50 px-0.5 py-px rounded font-medium">{m.sub}</span>
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-[9px] text-slate-400 text-center py-2">No upcoming leaves</p>
                 )}
               </div>
 
-              {/* Appointment Metrics Row */}
-              {docMetrics && (
-                <div className="flex-shrink-0 border-t border-slate-100 pt-3">
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Appointment Metrics</p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      { label: 'This Week', value: docMetrics.thisWeek, sublabel: 'appointments' },
-                      { label: 'Today', value: selectedDocAppts.today, sublabel: 'scheduled' },
-                      { label: 'Completion', value: `${docMetrics.completionRate}%`, sublabel: 'rate' },
-                      { label: 'Patients', value: docMetrics.uniquePatients, sublabel: 'unique' },
-                    ].map((m, i) => (
-                      <div key={i} className="text-center py-2 px-2 bg-gradient-to-b from-slate-50 to-white rounded-lg border border-slate-200 shadow-sm">
-                        <p className="text-lg font-bold text-navy-600">{m.value}</p>
-                        <p className="text-[9px] font-semibold text-slate-600 uppercase">{m.label}</p>
-                        <p className="text-[7px] text-slate-400">{m.sublabel}</p>
-                      </div>
-                    ))}
-                  </div>
+              {/* 3-Month Calendar */}
+              <div className="min-h-0">
+                <div className="flex items-center justify-between mb-1">
+                  <button onClick={prevMonth} className="p-0.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                  <span className="text-xs font-semibold text-slate-900 uppercase tracking-wide">DR. {(selectedDocProfile?.name || 'Doctor').toUpperCase()}&apos;S SCHEDULED TIME OFF</span>
+                  <button onClick={nextMonth} className="p-0.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </button>
                 </div>
-              )}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
+                  {threeMonthCalendar.map((mo, mIdx) => (
+                    <div key={mIdx} className={`transition-all duration-300 ${mIdx === 0 ? 'hidden sm:block' : ''}`}>
+                      <p className={`text-center text-[8px] sm:text-[9px] font-semibold mb-0.5 sm:mb-1 ${mo.isCurrent ? 'text-navy-700' : 'text-slate-500'}`}>
+                        {MONTH_SHORT[mo.month]} {mo.year}
+                      </p>
+                      {/* Day headers */}
+                      <div className="grid grid-cols-7 gap-px mb-px">
+                        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                          <div key={i} className="text-center text-[6px] sm:text-[7px] font-semibold text-slate-400 py-px">{d}</div>
+                        ))}
+                      </div>
+                      {/* Calendar grid */}
+                      <div className="grid grid-cols-7 gap-px">
+                        {mo.cells.map((day, i) => {
+                          if (day === null) return <div key={i} className="aspect-square" />;
+                          const isToday = day === hospitalNow.getDate() && mo.month === hospitalNow.getMonth() && mo.year === hospitalNow.getFullYear();
+                          const isTimeOff = mo.offDates.has(day);
+                          const isWork = mo.workDates.has(day) && !isTimeOff;
+                          const leave = isTimeOff ? mo.leaveDetails.get(day) : null;
+                          const leaveTooltip = leave ? `${leave.reason || 'Leave'}\n${leave.start_date} → ${leave.end_date}\nStatus: ${leave.status}` : '';
+                          return (
+                            <div key={i} title={leaveTooltip || undefined} className={`aspect-square flex items-center justify-center text-[7px] sm:text-[8px] font-medium rounded-sm
+                              transition-all duration-200 hover:scale-110 hover:shadow-md hover:z-10 hover:ring-1 ${
+                              isToday ? 'bg-white text-navy-700 border-2 border-navy-600 shadow-sm ring-1 ring-navy-200 hover:ring-navy-400'
+                                : isTimeOff ? 'bg-[#0a1a2e] text-white cursor-pointer hover:ring-navy-400 hover:shadow-lg'
+                                : isWork ? 'bg-navy-50 text-navy-700 hover:bg-navy-100 hover:ring-navy-200'
+                                : 'bg-white text-slate-300 hover:bg-slate-50 hover:ring-slate-200'
+                            }`}>
+                              {day}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Legend */}
+                <div className="mt-1 flex items-center justify-center gap-2.5 text-[8px]">
+                  <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-50 border border-navy-200" />Work</span>
+                  <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-[#0a1a2e]" />Leave</span>
+                  <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-white border-2 border-navy-600" />Today</span>
+                </div>
+              </div>
             </div>
           )}
         </div>

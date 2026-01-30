@@ -632,7 +632,7 @@ export default function DoctorDetailPage() {
               {editMode ? (
                 <form onSubmit={handleSaveProfile} className="space-y-3">
                   {/* Name fields with Dr prefix */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-bold text-slate-700 mb-1">First Name <span className="text-red-500">*</span></label>
                       <div className="flex">
@@ -645,7 +645,7 @@ export default function DoctorDetailPage() {
                       <input type="text" required value={formData.lastName || ''} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" placeholder="Last name" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-bold text-slate-700 mb-1">Phone <span className="text-red-500">*</span></label>
                       <PhoneInput value={formData.phone || ''} onChange={(value) => setFormData({ ...formData, phone: value })} placeholder="Phone number" />
@@ -655,7 +655,7 @@ export default function DoctorDetailPage() {
                       <input type="text" value={formData.nationalId || ''} onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" placeholder="SSN / Aadhaar / NIN" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Date of Birth</label>
                       <input type="date" value={formData.dateOfBirth || ''} onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
@@ -677,7 +677,7 @@ export default function DoctorDetailPage() {
                     <div className="space-y-2">
                       <input type="text" placeholder="Address Line 1" value={formData.addressLine1 || ''} onChange={(e) => setFormData({ ...formData, addressLine1: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                       <input type="text" placeholder="Address Line 2 (Apt, Suite, etc.)" value={formData.addressLine2 || ''} onChange={(e) => setFormData({ ...formData, addressLine2: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <select value={formData.country || ''} onChange={(e) => setFormData({ ...formData, country: e.target.value, state: '' })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500 bg-white">
                           <option value="">Country</option>
                           {COUNTRIES.map((c) => (<option key={c.code} value={c.code}>{c.name}</option>))}
@@ -691,7 +691,7 @@ export default function DoctorDetailPage() {
                           <input type="text" placeholder="State / Province" value={formData.state || ''} onChange={(e) => setFormData({ ...formData, state: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                         )}
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <input type="text" placeholder="City" value={formData.city || ''} onChange={(e) => setFormData({ ...formData, city: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                         <input type="text" placeholder="Postal / ZIP Code" value={formData.postalCode || ''} onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                       </div>
@@ -701,7 +701,7 @@ export default function DoctorDetailPage() {
                   {/* Emergency Contact */}
                   <div className="pt-3 border-t border-slate-100">
                     <p className="text-sm font-medium text-red-600 mb-2">Emergency Contact</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input type="text" placeholder="Contact Name" value={formData.emergencyContact || ''} onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
                       <select value={formData.emergencyRelation || ''} onChange={(e) => setFormData({ ...formData, emergencyRelation: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500 bg-white">
                         <option value="">Relation</option>
@@ -719,7 +719,7 @@ export default function DoctorDetailPage() {
                 </form>
               ) : (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <p className="text-sm font-medium text-slate-500 mb-0.5">Email</p>
                       <p className="text-sm text-slate-900">{doctor.email}</p>
@@ -788,7 +788,7 @@ export default function DoctorDetailPage() {
             <div className="p-4">
               {editMode ? (
                 <form onSubmit={handleSaveProfile} className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Specialization</label>
                       <select value={formData.specialization || ''} onChange={(e) => setFormData({ ...formData, specialization: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500 bg-white">
@@ -846,7 +846,7 @@ export default function DoctorDetailPage() {
                 </form>
               ) : (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <p className="text-sm font-medium text-slate-500 mb-0.5">Specialization</p>
                       <p className="text-sm text-slate-900">{doctor.specialization || '—'}</p>
@@ -1041,7 +1041,7 @@ export default function DoctorDetailPage() {
               <button onClick={() => setShowTimeOffModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"><svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             <form onSubmit={handleAddTimeOff} className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1.5">Start Date <span className="text-red-500">*</span></label>
                   <input type="date" value={newTimeOff.startDate} onChange={(e) => setNewTimeOff({ ...newTimeOff, startDate: e.target.value })} required className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
@@ -1091,7 +1091,7 @@ export default function DoctorDetailPage() {
                 return (
                   <div key={shift} className={`p-4 rounded-lg ${c.bg} border ${c.border}`}>
                     <p className={`text-sm font-semibold ${c.text} mb-3`}>{labels[shift]} Shift</p>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs text-slate-600 mb-1">Start Time</label>
                         <input type="time" value={editingShiftTimings[shift].start} onChange={(e) => handleShiftTimingChange(shift, 'start', e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />

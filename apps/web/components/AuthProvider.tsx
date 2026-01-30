@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { useRouter, usePathname } from 'next/navigation';
 import { getSupabaseClient, isSupabaseConfigured } from '../lib/supabase';
@@ -62,6 +62,9 @@ const AuthContext = createContext<AuthContextShape | undefined>(undefined);
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 const AUTH_CACHE_KEY = 'clinqflow_auth_cache';
+const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour max session
+const SESSION_CHECK_INTERVAL = 30000; // Check every 30 seconds
+const SESSION_START_KEY = 'clinqflow_session_start';
 
 function loadAuthCache(): { user: User; profile: UserProfile; hospitals: Hospital[] } | null {
   if (typeof window === 'undefined') return null;
@@ -186,6 +189,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setHospitals(data.hospitals || []);
         setEntitlements(data.entitlements || null);
         return data;
+      } else if (res.status === 401 || res.status === 403) {
+        console.warn('[AuthProvider] Session expired (API returned', res.status, '), signing out...');
+        signOut();
+        return null;
       } else {
         const errorText = await res.text();
         console.warn('[AuthProvider] Profile fetch failed:', res.status, errorText);
@@ -337,6 +344,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Cache auth state for instant hydration on next visit
             if (profileData?.user) {
               saveAuthCache(initialSession.user, profileData.user, profileData.hospitals || []);
+              // Track session start for 1-hour expiry (only set if not already tracked)
+              if (typeof window !== 'undefined' && !localStorage.getItem(SESSION_START_KEY)) {
+                localStorage.setItem(SESSION_START_KEY, String(Date.now()));
+              }
             }
 
             if (typeof window !== 'undefined' && profileData?.hospitals) {
@@ -363,6 +374,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             clearAuthCache();
             if (typeof window !== 'undefined') {
               localStorage.removeItem('clinqflow_hospital_id');
+              localStorage.removeItem(SESSION_START_KEY);
             }
           }
           if (mounted) setLoading(false);
@@ -399,8 +411,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setEntitlements(null);
               setCurrentHospitalIdState(null);
               setLegalStatus('unknown');
+              clearAuthCache();
               if (typeof window !== 'undefined') {
                 localStorage.removeItem('clinqflow_hospital_id');
+                localStorage.removeItem(SESSION_START_KEY);
               }
             }
           }
@@ -453,6 +467,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [cacheApplied]);
 
+  // Periodic session validity check — enforce 1-hour max session duration
+  useEffect(() => {
+    if (loading || !user) return;
+
+    function checkSessionExpiry() {
+      if (typeof window === 'undefined') return;
+      const sessionStart = localStorage.getItem(SESSION_START_KEY);
+      if (!sessionStart) return;
+
+      const elapsed = Date.now() - parseInt(sessionStart, 10);
+      if (elapsed >= SESSION_MAX_AGE_MS) {
+        console.log('[AuthProvider] Session expired (1-hour limit reached), signing out...');
+        signOut().then(() => {
+          window.location.href = '/login';
+        });
+      }
+    }
+
+    // Check immediately
+    checkSessionExpiry();
+
+    // Then check periodically
+    const interval = setInterval(checkSessionExpiry, SESSION_CHECK_INTERVAL);
+    return () => clearInterval(interval);
+  }, [loading, user]);
+
   async function signIn(email: string, password: string) {
     if (isSupabaseConfigured && supabase) {
       // Supabase auth
@@ -463,6 +503,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const authPromise = supabase.auth.signInWithPassword({ email, password });
         const { error } = await Promise.race([authPromise, timeoutPromise]);
+        if (!error && typeof window !== 'undefined') {
+          localStorage.setItem(SESSION_START_KEY, String(Date.now()));
+        }
         return { error };
       } catch (e: any) {
         console.error('[AuthProvider] Sign in error:', e.message);
@@ -484,6 +527,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setApiToken(token);
             if (typeof window !== 'undefined') {
               localStorage.setItem('clinqflow_api_token', token);
+              localStorage.setItem(SESSION_START_KEY, String(Date.now()));
             }
             const profileData = await fetchProfile(token);
             if (profileData) {
@@ -511,6 +555,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('clinqflow_hospital_id');
       localStorage.removeItem('clinqflow_api_token');
+      localStorage.removeItem(SESSION_START_KEY);
     }
     clearAuthCache();
     setApiToken(null);
