@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
@@ -122,12 +122,65 @@ function FilterPills({ value, onChange }: { value: TimeFilter; onChange: (v: Tim
         { value: 'year' as TimeFilter, label: 'Year' },
       ].map((f) => (
         <button key={f.value} onClick={() => onChange(f.value)}
-          className={`px-2 py-0.5 text-[9px] rounded font-medium transition-all ${
-            value === f.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          className={`w-10 py-0.5 text-[9px] rounded font-medium transition-all text-center ${
+            value === f.value ? 'bg-[#1e3a5f] text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'
           }`}>
           {f.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ─── Custom Dropdown ─────────────────────────────────────────────────────────
+function CustomSelect({ value, onChange, options, placeholder }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selectedLabel = options.find(o => o.value === value)?.label || placeholder || 'Select...';
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1.5 border border-slate-200 bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-[11px] rounded-md px-2.5 py-1 min-w-[100px] ${open ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : ''}`}
+      >
+        <span className="flex-1 text-left truncate text-slate-900 font-medium">{selectedLabel}</span>
+        <svg className={`flex-shrink-0 w-3 h-3 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg overflow-hidden rounded-md"
+          style={{ maxHeight: '180px', overflowY: 'auto' }}
+        >
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
+                opt.value === value
+                  ? 'bg-[#1e3a5f] text-white font-medium'
+                  : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -203,9 +256,9 @@ export default function HospitalDashboardPage() {
   const { currentHospital, profile } = useAuth();
   const { getCurrentTime } = useHospitalTimezone();
 
-  const [patientFilter, setPatientFilter] = useState<TimeFilter>('month');
-  const [apptFilter, setApptFilter] = useState<TimeFilter>('month');
-  const [patientBarFilter, setPatientBarFilter] = useState<'day' | 'week' | 'month' | 'year'>('month');
+  const [patientFilter, setPatientFilter] = useState<TimeFilter>('week');
+  const [apptFilter, setApptFilter] = useState<TimeFilter>('week');
+  const [patientBarFilter, setPatientBarFilter] = useState<'day' | 'week' | 'month' | 'year'>('week');
   const [chartDoctorFilter, setChartDoctorFilter] = useState<string | null>(null); // null = All Hospital
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState(() => getCurrentTime().getMonth());
@@ -355,7 +408,7 @@ export default function HospitalDashboardPage() {
 
     return buckets.map((b) => ({
       label: b.label,
-      'Registered': newMap[b.key] || 0,
+      'Scheduled Appointments': newMap[b.key] || 0,
       'Walk-ins': walkInMap[b.key] || 0,
     }));
   }, [patients, appointments, patientFilter, chartDoctorFilter, queueStats]);
@@ -389,6 +442,53 @@ export default function HospitalDashboardPage() {
     });
     return buckets.map((b) => ({ label: b.label, Booked: tM[b.key], Completed: cM[b.key] }));
   }, [appointments, apptFilter, chartDoctorFilter]);
+
+  // New vs Returning patients per time bucket
+  const patientNewVsReturningData = useMemo(() => {
+    const { start, type } = getDateRange(apptFilter);
+    const buckets = buildBuckets(apptFilter);
+    const newMap: Record<string, Set<string>> = {};
+    const retMap: Record<string, Set<string>> = {};
+    buckets.forEach((b) => { newMap[b.key] = new Set(); retMap[b.key] = new Set(); });
+
+    const patientCreated = new Map<string, Date>();
+    patients.forEach((p: any) => patientCreated.set(p.id, new Date(p.createdAt)));
+
+    const relevantAppts = chartDoctorFilter
+      ? appointments.filter((a: any) => a.doctorProfileId === chartDoctorFilter || a.doctorId === chartDoctorFilter)
+      : appointments;
+
+    relevantAppts.forEach((a: any) => {
+      const d = new Date(a.appointmentDate || a.createdAt);
+      if (d < start) return;
+      const pid = a.patientId;
+      if (!pid) return;
+
+      let k: string;
+      if (type === 'hours') {
+        const h = Math.floor(d.getHours() / 2) * 2;
+        k = `${d.toISOString().split('T')[0]}-${h.toString().padStart(2, '0')}`;
+      } else if (type === 'months') {
+        k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      } else {
+        k = bKey(d);
+      }
+      if (!newMap[k]) return;
+
+      const created = patientCreated.get(pid);
+      if (created && created >= start) {
+        newMap[k].add(pid);
+      } else {
+        retMap[k].add(pid);
+      }
+    });
+
+    return buckets.map((b) => ({
+      label: b.label,
+      'New Patients': newMap[b.key].size,
+      'Returning Patients': retMap[b.key].size,
+    }));
+  }, [patients, appointments, apptFilter, chartDoctorFilter]);
 
   const licenseDonutData = useMemo(() => {
     const products = licenseStats?.products;
@@ -567,9 +667,6 @@ export default function HospitalDashboardPage() {
       {/* Compact Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <h1 className="text-base font-semibold text-slate-900">Dashboard</h1>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{hospitalNow.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-        </div>
       </div>
 
       {/* KPI Cards - Compact Row with Clear Headers */}
@@ -577,13 +674,13 @@ export default function HospitalDashboardPage() {
         {[
           { label: 'Doctors', value: stats.activeDoctors, sub: stats.pendingDoctors > 0 ? `+${stats.pendingDoctors} pending` : 'active', href: '/hospital/doctors' },
           { label: 'Patients', value: stats.totalPatients, sub: todayPatients > 0 ? `+${todayPatients} today` : 'total', href: '/hospital/patients' },
-          { label: 'Staff', value: `${stats.activeStaff}/${stats.totalStaff}`, sub: 'active', href: '/hospital/staff' },
+          { label: 'Staff', value: stats.activeStaff, sub: 'active', href: '/hospital/staff' },
           { label: 'Appointments', value: todayAppts, sub: 'today', href: '/hospital/appointments' },
           { label: 'Licenses', value: `${stats.licensesUsed}/${stats.licensesTotal}`, sub: `${licensePct}%`, href: '/hospital/billing' },
           { label: 'Invites', value: stats.pendingInvites, sub: 'pending', href: '/hospital/doctors?action=invite' },
         ].map((kpi) => (
           <Link key={kpi.label} href={kpi.href} className="bg-white rounded-lg border border-slate-200 p-2.5 hover:border-navy-300 transition-all">
-            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">{kpi.label}</p>
+            <p className="text-[10px] font-semibold text-slate-900 uppercase tracking-wide mb-1">{kpi.label}</p>
             <div className="flex items-center justify-between">
               <span className="text-xl font-bold text-slate-900">{kpi.value}</span>
               <span className="text-[9px] text-navy-600 bg-navy-50 px-1.5 py-0.5 rounded font-medium">{kpi.sub}</span>
@@ -596,29 +693,29 @@ export default function HospitalDashboardPage() {
       <div className="flex-1 flex gap-2 min-h-0 overflow-hidden">
         {/* Left Column - Charts Stacked */}
         <div className="w-1/2 flex flex-col gap-2 min-h-0">
-          {/* Donut Charts Row - 3 donuts side by side */}
-          <div className="h-28 flex gap-2 flex-shrink-0">
+          {/* Donut Charts Row - 2 donuts side by side */}
+          <div className="h-36 flex gap-2 flex-shrink-0">
             {/* License Usage Donut */}
-            <div className="flex-1 bg-white rounded-lg border border-slate-200 p-2 flex items-center gap-2">
-              <div className="relative w-16 h-16 flex-shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={licenseDonutData} cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none">
-                      {licenseDonutData.map((_, i: number) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs font-bold text-slate-900">{stats.licensesUsed}</span>
-                  <span className="text-[8px] text-slate-400">/{stats.licensesTotal}</span>
+            <div className="w-2/5 bg-white rounded-lg border border-slate-200 p-3 flex flex-col">
+              <h3 className="text-xs font-semibold text-slate-900 mb-1.5 uppercase tracking-wide">LICENSES</h3>
+              <div className="flex items-center gap-3 flex-1">
+                <div className="relative flex-shrink-0" style={{ width: '80px', height: '80px' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={licenseDonutData} cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none">
+                        {licenseDonutData.map((_, i: number) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-base font-bold text-slate-900">{stats.licensesUsed}</span>
+                    <span className="text-[10px] text-slate-700 font-semibold">/{stats.licensesTotal}</span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Licenses</p>
-                <div className="space-y-0.5">
+                <div className="flex-1 min-w-0 space-y-1">
                   {licenseDonutData.slice(0, 2).map((d: any, i: number) => (
-                    <span key={i} className="flex items-center gap-1 text-[9px] text-slate-600">
-                      <span className="w-1.5 h-1.5 rounded-sm flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+                    <span key={i} className="flex items-center gap-1.5 text-xs text-slate-700 font-medium">
+                      <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
                       <span className="truncate">{d.name}: {d.value}</span>
                     </span>
                   ))}
@@ -627,104 +724,59 @@ export default function HospitalDashboardPage() {
             </div>
 
             {/* Patient Donut (New vs Existing) */}
-            <div className="flex-1 bg-white rounded-lg border border-slate-200 p-2 flex items-center gap-2">
-              <div className="relative w-16 h-16 flex-shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={[
-                        { name: 'New', value: patientBarData.newPatients || 0 },
-                        { name: 'Existing', value: patientBarData.existingPatients || 0 }
-                      ].filter(d => d.value > 0)}
-                      cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none"
-                    >
-                      <Cell fill={chartColors.accent} />
-                      <Cell fill={chartColors.primary} />
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs font-bold text-slate-900">{patientBarData.newPatients + patientBarData.existingPatients}</span>
-                  <span className="text-[8px] text-slate-400">total</span>
-                </div>
+            <div className="w-3/5 bg-white rounded-lg border border-slate-200 p-3 flex flex-col">
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">PATIENTS</h3>
+                <FilterPills value={patientBarFilter} onChange={setPatientBarFilter} />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Patients</p>
-                  <div className="flex gap-0.5">
-                    {(['day', 'week', 'month', 'year'] as const).map((f) => (
-                      <button
-                        key={f}
-                        onClick={() => setPatientBarFilter(f)}
-                        className={`px-1 py-0.5 text-[7px] font-medium rounded transition-colors ${
-                          patientBarFilter === f
-                            ? 'bg-navy-600 text-white'
-                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                        }`}
+              <div className="flex items-center gap-3 flex-1">
+                <div className="relative flex-shrink-0" style={{ width: '80px', height: '80px' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'New', value: patientBarData.newPatients || 0 },
+                          { name: 'Returning', value: patientBarData.existingPatients || 0 }
+                        ].filter(d => d.value > 0)}
+                        cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none"
                       >
-                        {f.charAt(0).toUpperCase()}
-                      </button>
-                    ))}
+                        <Cell fill={chartColors.accent} />
+                        <Cell fill={chartColors.primary} />
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-base font-bold text-slate-900">{patientBarData.newPatients + patientBarData.existingPatients}</span>
+                    <span className="text-[10px] text-slate-700 font-semibold">total</span>
                   </div>
                 </div>
-                <div className="space-y-0.5">
-                  <span className="flex items-center gap-1 text-[9px] text-slate-600">
-                    <span className="w-1.5 h-1.5 rounded-sm flex-shrink-0" style={{ background: chartColors.accent }} />
-                    <span className="truncate">New: {patientBarData.newPatients}</span>
+                <div className="flex-1 min-w-0 flex items-center gap-4">
+                  <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium">
+                    <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: chartColors.accent }} />
+                    New: <span className="font-bold text-slate-900">{patientBarData.newPatients}</span>
                   </span>
-                  <span className="flex items-center gap-1 text-[9px] text-slate-600">
-                    <span className="w-1.5 h-1.5 rounded-sm flex-shrink-0" style={{ background: chartColors.primary }} />
-                    <span className="truncate">Existing: {patientBarData.existingPatients}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium">
+                    <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: chartColors.primary }} />
+                    Returning: <span className="font-bold text-slate-900">{patientBarData.existingPatients}</span>
                   </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Appointment Status Donut */}
-            <div className="flex-1 bg-white rounded-lg border border-slate-200 p-2 flex items-center gap-2">
-              <div className="relative w-16 h-16 flex-shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={apptStatusData.length > 0 ? apptStatusData : [{ name: 'None', value: 1 }]} cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none">
-                      {(apptStatusData.length > 0 ? apptStatusData : [{ name: 'None', value: 1 }]).map((_, i: number) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-xs font-bold text-slate-900">{appointments.length}</span>
-                  <span className="text-[8px] text-slate-400">appts</span>
-                </div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Appts</p>
-                <div className="space-y-0.5">
-                  {apptStatusData.slice(0, 3).map((d: any, i: number) => (
-                    <span key={i} className="flex items-center gap-1 text-[9px] text-slate-600">
-                      <span className="w-1.5 h-1.5 rounded-sm flex-shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
-                      <span className="truncate">{d.name}: {d.value}</span>
-                    </span>
-                  ))}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Patient Trends Chart */}
+          {/* Appointments Trends Chart */}
           <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold text-slate-900">Patients Trends</h3>
-                <select
+                <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">APPOINTMENTS TRENDS</h3>
+                <CustomSelect
                   value={chartDoctorFilter || ''}
-                  onChange={(e) => setChartDoctorFilter(e.target.value || null)}
-                  className="text-[9px] border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-600 cursor-pointer hover:border-navy-300 focus:outline-none focus:ring-1 focus:ring-navy-200 min-w-[90px] appearance-none"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundPosition: 'right 4px center', backgroundSize: '12px', backgroundRepeat: 'no-repeat', paddingRight: '20px' }}
-                >
-                  <option value="">All Hospital</option>
-                  {doctorList.map((d: any) => (
-                    <option key={d.userId} value={d.doctorProfileId || d.userId}>{d.name}</option>
-                  ))}
-                </select>
+                  onChange={(v) => setChartDoctorFilter(v || null)}
+                  options={[
+                    { value: '', label: 'All Hospital' },
+                    ...doctorList.map((d: any) => ({ value: d.doctorProfileId || d.userId, label: `Dr. ${d.name}` }))
+                  ]}
+                />
               </div>
               <FilterPills value={patientFilter} onChange={setPatientFilter} />
             </div>
@@ -745,51 +797,48 @@ export default function HospitalDashboardPage() {
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={{ stroke: '#E2E8F0' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="Registered" stroke={chartColors.primary} strokeWidth={2} fill="url(#newPatientFill)" dot={false} />
+                  <Area type="monotone" dataKey="Scheduled Appointments" stroke={chartColors.primary} strokeWidth={2} fill="url(#newPatientFill)" dot={false} />
                   <Area type="monotone" dataKey="Walk-ins" stroke={chartColors.accent} strokeWidth={2} fill="url(#returningFill)" dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-3 mt-1 flex-shrink-0">
-              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.primary }} />Registered</span>
-              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Walk-ins</span>
+              <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium"><span className="w-2.5 h-2.5 rounded-full" style={{ background: chartColors.primary }} />Scheduled Appointments</span>
+              <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium"><span className="w-2.5 h-2.5 rounded-full" style={{ background: chartColors.accent }} />Walk-ins</span>
             </div>
           </div>
 
-          {/* Appointments Trends Chart */}
+          {/* Patients Trends Chart */}
           <div className="flex-1 bg-white rounded-lg border border-slate-200 p-3 flex flex-col min-h-0">
             <div className="flex items-center justify-between mb-2 flex-shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-xs font-semibold text-slate-900">Appointments Trends</h3>
-                <select
+                <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">PATIENTS TRENDS</h3>
+                <CustomSelect
                   value={chartDoctorFilter || ''}
-                  onChange={(e) => setChartDoctorFilter(e.target.value || null)}
-                  className="text-[9px] border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-600 cursor-pointer hover:border-navy-300 focus:outline-none focus:ring-1 focus:ring-navy-200 min-w-[90px] appearance-none"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundPosition: 'right 4px center', backgroundSize: '12px', backgroundRepeat: 'no-repeat', paddingRight: '20px' }}
-                >
-                  <option value="">All Hospital</option>
-                  {doctorList.map((d: any) => (
-                    <option key={d.userId} value={d.doctorProfileId || d.userId}>{d.name}</option>
-                  ))}
-                </select>
+                  onChange={(v) => setChartDoctorFilter(v || null)}
+                  options={[
+                    { value: '', label: 'All Hospital' },
+                    ...doctorList.map((d: any) => ({ value: d.doctorProfileId || d.userId, label: `Dr. ${d.name}` }))
+                  ]}
+                />
               </div>
               <FilterPills value={apptFilter} onChange={setApptFilter} />
             </div>
             <div className="flex-1 min-h-0">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={apptChartData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                <LineChart data={patientNewVsReturningData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={{ stroke: '#E2E8F0' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Line type="monotone" dataKey="Booked" stroke={chartColors.primary} strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="Completed" stroke={chartColors.accent} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="New Patients" stroke={chartColors.accent} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="Returning Patients" stroke={chartColors.primary} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-3 mt-1 flex-shrink-0">
-              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.primary }} />Booked</span>
-              <span className="flex items-center gap-1.5 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full" style={{ background: chartColors.accent }} />Completed</span>
+              <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium"><span className="w-2.5 h-2.5 rounded-full" style={{ background: chartColors.accent }} />New Patients</span>
+              <span className="flex items-center gap-1.5 text-xs text-slate-700 font-medium"><span className="w-2.5 h-2.5 rounded-full" style={{ background: chartColors.primary }} />Returning Patients</span>
             </div>
           </div>
         </div>
@@ -799,18 +848,13 @@ export default function HospitalDashboardPage() {
           {/* Header */}
           <div className="px-3 py-2.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-3">
-              <h3 className="text-xs font-semibold text-slate-900">Doctor Schedule</h3>
-              <select
+              <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">DOCTOR SCHEDULE</h3>
+              <CustomSelect
                 value={selectedDoctorId || ''}
-                onChange={(e) => setSelectedDoctorId(e.target.value || null)}
-                className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 font-medium min-w-[140px] cursor-pointer hover:border-navy-300 focus:border-navy-400 focus:ring-2 focus:ring-navy-100 focus:outline-none transition-all appearance-none"
-                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center', backgroundSize: '16px', backgroundRepeat: 'no-repeat', paddingRight: '32px' }}
-              >
-                <option value="" disabled>Select Doctor...</option>
-                {doctorList.map((d: any) => (
-                  <option key={d.userId} value={d.userId}>{d.name}</option>
-                ))}
-              </select>
+                onChange={(v) => setSelectedDoctorId(v || null)}
+                placeholder="Select Doctor..."
+                options={doctorList.map((d: any) => ({ value: d.userId, label: `Dr. ${d.name}` }))}
+              />
             </div>
             {selectedDocProfile && (
               <div className="flex items-center">

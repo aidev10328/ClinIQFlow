@@ -114,14 +114,6 @@ export default function AdminLayout({
 }) {
   const [showViewAsUserModal, setShowViewAsUserModal] = useState(false);
 
-  // Lock body scroll when in admin layout
-  useEffect(() => {
-    document.body.classList.add('admin-body');
-    return () => {
-      document.body.classList.remove('admin-body');
-    };
-  }, []);
-
   return (
     <div className="admin-layout">
       <AdminSidebar />

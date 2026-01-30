@@ -30,13 +30,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Admin body - lock viewport scrolling */
-body.admin-body {
+/* Admin body - lock viewport scrolling (CSS-only, no JS class needed) */
+body:has(.admin-layout) {
   overflow: hidden;
   height: 100vh;
 }
 
-body.admin-body > div {
+body:has(.admin-layout) > div {
   height: 100vh;
   overflow: hidden;
 }
@@ -47,20 +47,20 @@ body.admin-body > div {
 }
 
 /* Override container for admin pages - use full width */
-.admin-body .container {
+body:has(.admin-layout) .container {
   max-width: none;
   padding: 0;
   margin: 0;
 }
 
 /* Hide main nav and footer in admin mode */
-.admin-body > div > nav,
-.admin-body > div > footer {
+body:has(.admin-layout) > div > nav,
+body:has(.admin-layout) > div > footer {
   display: none;
 }
 
 /* Make main content full height in admin mode */
-.admin-body > div > main {
+body:has(.admin-layout) > div > main {
   flex: 1;
   padding: 0;
 }
@@ -401,16 +401,16 @@ input:disabled, textarea:disabled, select:disabled {
   height: 100vh;
   overflow: hidden;
   display: flex;
-  padding: 12px;
-  gap: 12px;
+  padding: 8px;
+  gap: 8px;
 }
 
 .admin-content {
   @apply flex-1 flex flex-col w-full;
-  height: calc(100vh - 24px);
+  height: calc(100vh - 16px);
   overflow: hidden;
   min-width: 0;
-  gap: 12px;
+  gap: 8px;
 }
 
 @media (min-width: 1024px) {
@@ -430,51 +430,51 @@ input:disabled, textarea:disabled, select:disabled {
 .admin-page {
   @apply flex-1 w-full bg-white;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 0.75rem;
   border-radius: 16px;
 }
 
 @media (min-width: 640px) {
   .admin-page {
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1.25rem;
   }
 }
 
 @media (min-width: 1024px) {
   .admin-page {
-    padding: 1.5rem 2rem;
+    padding: 1rem 1.5rem;
   }
 }
 
 /* Full-height page wrapper - for Queue, Appointments, etc. */
 /* Use this on the page's root element to break out of admin-page padding */
 .page-fullheight {
-  margin: -1rem;
-  height: calc(100% + 2rem);
-  min-height: calc(100% + 2rem);
+  margin: -0.75rem;
+  height: calc(100% + 1.5rem);
+  min-height: calc(100% + 1.5rem);
 }
 
 @media (min-width: 640px) {
   .page-fullheight {
-    margin: -1.25rem -1.5rem;
-    height: calc(100% + 2.5rem);
-    min-height: calc(100% + 2.5rem);
+    margin: -1rem -1.25rem;
+    height: calc(100% + 2rem);
+    min-height: calc(100% + 2rem);
   }
 }
 
 @media (min-width: 1024px) {
   .page-fullheight {
-    margin: -1.5rem -2rem;
-    height: calc(100% + 3rem);
-    min-height: calc(100% + 3rem);
+    margin: -1rem -1.5rem;
+    height: calc(100% + 2rem);
+    min-height: calc(100% + 2rem);
   }
 }
 
 /* Admin Sidebar - Independent Floating Card */
 .admin-sidebar {
   @apply z-50 bg-white flex flex-col flex-shrink-0;
-  width: 240px;
-  height: calc(100vh - 24px);
+  width: 210px;
+  height: calc(100vh - 16px);
   overflow: hidden;
   border-radius: 16px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
@@ -484,8 +484,8 @@ input:disabled, textarea:disabled, select:disabled {
 .admin-sidebar.open {
   display: flex;
   position: fixed;
-  top: 12px;
-  left: 12px;
+  top: 8px;
+  left: 8px;
   z-index: 100;
 }
 
@@ -499,11 +499,11 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .admin-sidebar-header {
-  @apply px-4 py-4;
+  @apply px-3 py-3;
 }
 
 .admin-sidebar-nav {
-  @apply px-4 py-1 overflow-y-auto;
+  @apply px-3 py-1 overflow-y-auto;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -513,7 +513,7 @@ input:disabled, textarea:disabled, select:disabled {
 }
 
 .admin-nav-item {
-  @apply flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium text-gray-600 transition-all mb-0.5;
+  @apply flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-600 transition-all mb-0.5;
 }
 
 .admin-nav-item:hover {
@@ -594,8 +594,8 @@ input:disabled, textarea:disabled, select:disabled {
 
 /* Admin Top Header Bar - Independent Floating Card */
 .admin-header {
-  @apply flex items-center justify-between px-4 py-3 bg-white;
-  height: 60px;
+  @apply flex items-center justify-between px-3 py-2 bg-white;
+  height: 48px;
   flex-shrink: 0;
   border-radius: 16px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
@@ -603,8 +603,8 @@ input:disabled, textarea:disabled, select:disabled {
 
 @media (min-width: 1024px) {
   .admin-header {
-    @apply px-5 py-3;
-    height: 60px;
+    @apply px-4 py-2;
+    height: 48px;
   }
 }
 
