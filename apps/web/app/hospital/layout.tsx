@@ -185,6 +185,65 @@ export default function HospitalLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const { loading } = useAuth();
+
+  // Show a clean loading state while auth is initializing
+  // This prevents the flash of incorrect avatar/nav items
+  if (loading) {
+    return (
+      <div className="admin-layout">
+        <div className="admin-sidebar hidden lg:flex flex-col">
+          {/* Skeleton sidebar header */}
+          <div className="admin-sidebar-header">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-slate-200 animate-pulse" />
+              <div className="w-20 h-3 bg-slate-200 rounded animate-pulse" />
+            </div>
+          </div>
+          {/* Skeleton nav items */}
+          <div className="px-3 pt-4 space-y-4">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="space-y-2">
+                <div className="w-16 h-2 bg-slate-100 rounded" />
+                <div className="space-y-1">
+                  <div className="w-full h-7 bg-slate-100 rounded" />
+                  <div className="w-3/4 h-7 bg-slate-100 rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <main className="admin-content">
+          <header className="admin-header">
+            <div className="admin-header-left">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-slate-200 animate-pulse" />
+                <div className="space-y-1">
+                  <div className="w-28 h-3 bg-slate-200 rounded animate-pulse" />
+                  <div className="w-16 h-2 bg-slate-100 rounded animate-pulse" />
+                </div>
+              </div>
+            </div>
+            <div className="admin-header-right">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-full bg-slate-200 animate-pulse" />
+                <div className="hidden sm:block space-y-1">
+                  <div className="w-20 h-3 bg-slate-200 rounded animate-pulse" />
+                  <div className="w-14 h-2 bg-slate-100 rounded animate-pulse" />
+                </div>
+              </div>
+            </div>
+          </header>
+          <div className="admin-page">
+            <div className="flex items-center justify-center h-64">
+              <div className="w-6 h-6 border-2 border-slate-300 border-t-[var(--color-primary)] rounded-full animate-spin" />
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="admin-layout">
       <HospitalSidebar />

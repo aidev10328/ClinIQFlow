@@ -362,6 +362,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   setCurrentHospitalIdState(null);
                   localStorage.removeItem('clinqflow_hospital_id');
                 }
+              } else if (profileData.hospitals.length === 1 && !profileData.user?.isSuperAdmin) {
+                // Auto-select the only hospital — skip select-hospital page entirely
+                const onlyHospital = profileData.hospitals[0];
+                setCurrentHospitalIdState(onlyHospital.id);
+                localStorage.setItem('clinqflow_hospital_id', onlyHospital.id);
               }
             }
           } else {
@@ -398,11 +403,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(newSession?.user || null);
 
             if (newSession) {
-              await fetchProfile(newSession.access_token);
+              const profileData = await fetchProfile(newSession.access_token);
               if (previousUserId && previousUserId !== newSession.user?.id) {
                 setCurrentHospitalIdState(null);
                 if (typeof window !== 'undefined') {
                   localStorage.removeItem('clinqflow_hospital_id');
+                }
+              } else if (typeof window !== 'undefined' && profileData?.hospitals) {
+                const savedHospitalId = localStorage.getItem('clinqflow_hospital_id');
+                if (!savedHospitalId && profileData.hospitals.length === 1 && !profileData.user?.isSuperAdmin) {
+                  // Auto-select the only hospital on sign-in
+                  const onlyHospital = profileData.hospitals[0];
+                  setCurrentHospitalIdState(onlyHospital.id);
+                  localStorage.setItem('clinqflow_hospital_id', onlyHospital.id);
                 }
               }
             } else {
@@ -449,6 +462,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } else {
                   localStorage.removeItem('clinqflow_hospital_id');
                 }
+              } else if (profileData.hospitals?.length === 1 && !profileData.user?.isSuperAdmin) {
+                // Auto-select the only hospital
+                const onlyHospital = profileData.hospitals[0];
+                setCurrentHospitalIdState(onlyHospital.id);
+                localStorage.setItem('clinqflow_hospital_id', onlyHospital.id);
               }
             } else {
               localStorage.removeItem('clinqflow_api_token');

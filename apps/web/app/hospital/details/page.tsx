@@ -626,7 +626,7 @@ function HospitalAdministrationContent() {
   const tabs = [
     { id: 'details' as TabType, label: 'Hospital Details' },
     { id: 'manager' as TabType, label: 'Hospital Manager' },
-    { id: 'staff' as TabType, label: 'Hospital Staff', count: staff.length },
+    { id: 'staff' as TabType, label: 'Staff', count: staff.length },
     { id: 'doctors' as TabType, label: 'Doctors', count: doctors.length },
     { id: 'patients' as TabType, label: 'Patients', count: patients.length },
   ];
@@ -636,7 +636,7 @@ function HospitalAdministrationContent() {
       {/* Header */}
       <div>
         <h1 className="text-base font-semibold text-slate-800">Hospital Administration</h1>
-        <p className="text-[11px] text-slate-400">Manage hospital details, team, doctors, and patients</p>
+        <p className="text-[11px] text-slate-400">Manage hospital details, billing, subscriptions, hospital manager settings, staff, doctors &amp; patients</p>
       </div>
 
       {/* Message */}
@@ -648,19 +648,19 @@ function HospitalAdministrationContent() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+      <div className="flex w-full border-b border-slate-200">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
-            className={`flex-1 min-w-fit py-2 px-2 sm:px-0 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
+            className={`flex-1 py-2 text-[10px] sm:text-[11px] font-semibold transition-all text-center border-b-[3px] -mb-px ${
               activeTab === t.id
                 ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
             }`}
           >
             {t.label}
-            {t.count !== undefined && <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] ${activeTab === t.id ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]' : 'bg-slate-100 text-slate-500'}`}>{t.count}</span>}
+            {t.count !== undefined && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${activeTab === t.id ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]' : 'bg-slate-100 text-slate-500'}`}>{t.count}</span>}
           </button>
         ))}
       </div>
@@ -672,21 +672,22 @@ function HospitalAdministrationContent() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ gridAutoRows: 'min-content' }}>
 
           {/* ── Card 1: General Information (merged General + Address + Images) ── */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3 row-span-2">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">General Information</h3>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden row-span-2">
+            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">General Information</h3>
               {generalEditMode ? (
                 <div className="flex gap-1">
-                  <button onClick={() => { setHospital(originalHospital); setLogoPreview(originalHospital.logoUrl || null); setPicturePreview(originalHospital.pictureUrl || null); setGeneralEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                  <button onClick={saveGeneral} disabled={generalSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{generalSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => { setHospital(originalHospital); setLogoPreview(originalHospital.logoUrl || null); setPicturePreview(originalHospital.pictureUrl || null); setGeneralEditMode(false); }} className="px-2 py-0.5 text-[10px] text-white/70 hover:bg-white/10 rounded">Cancel</button>
+                  <button onClick={saveGeneral} disabled={generalSaving} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 disabled:opacity-50">{generalSaving ? '...' : 'Save'}</button>
                 </div>
               ) : canEditSettings && (
-                <button onClick={() => setGeneralEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                <button onClick={() => setGeneralEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
+            <div className="p-3">
             {generalEditMode ? (
               <div className="space-y-2">
                 {/* Images */}
@@ -808,24 +809,26 @@ function HospitalAdministrationContent() {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* ── Card 2: Billing Address ── */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">Billing Address</h3>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">Billing Address</h3>
               {billingAddressEditMode ? (
                 <div className="flex gap-1">
-                  <button onClick={() => { setHospital(originalHospital); setSameAsHospitalAddress(false); setBillingAddressEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                  <button onClick={saveBillingAddress} disabled={billingAddressSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{billingAddressSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => { setHospital(originalHospital); setSameAsHospitalAddress(false); setBillingAddressEditMode(false); }} className="px-2 py-0.5 text-[10px] text-white/70 hover:bg-white/10 rounded">Cancel</button>
+                  <button onClick={saveBillingAddress} disabled={billingAddressSaving} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 disabled:opacity-50">{billingAddressSaving ? '...' : 'Save'}</button>
                 </div>
               ) : canEditSettings && (
-                <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
+            <div className="p-3">
             {billingAddressEditMode ? (
               <div className="space-y-2">
                 <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
@@ -892,24 +895,26 @@ function HospitalAdministrationContent() {
                 <div><span className="text-slate-500 w-16 inline-block font-semibold">Country *</span><span className="text-slate-700">{displayCountry(hospital.billingCountry || '') || '—'}</span></div>
               </div>
             )}
+            </div>
           </div>
 
           {/* ── Card 3: Hospital Classification ── */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">Hospital Classification</h3>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">Hospital Classification</h3>
               {classificationEditMode ? (
                 <div className="flex gap-1">
-                  <button onClick={() => { setHospital(originalHospital); setSelectedSpecialtyIds((originalHospital.specialties || []).map(s => s.id)); setClassificationEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                  <button onClick={saveClassification} disabled={classificationSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{classificationSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => { setHospital(originalHospital); setSelectedSpecialtyIds((originalHospital.specialties || []).map(s => s.id)); setClassificationEditMode(false); }} className="px-2 py-0.5 text-[10px] text-white/70 hover:bg-white/10 rounded">Cancel</button>
+                  <button onClick={saveClassification} disabled={classificationSaving} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 disabled:opacity-50">{classificationSaving ? '...' : 'Save'}</button>
                 </div>
               ) : canEditSettings && (
-                <button onClick={() => setClassificationEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                <button onClick={() => setClassificationEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
+            <div className="p-3">
             {classificationEditMode ? (
               <div className="space-y-2">
                 <div>
@@ -950,24 +955,26 @@ function HospitalAdministrationContent() {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* ── Card 4: Legal, Tax & Compliance (merged) ── */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">Legal, Tax & Compliance</h3>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">Legal, Tax & Compliance</h3>
               {legalComplianceEditMode ? (
                 <div className="flex gap-1">
-                  <button onClick={() => { setHospital(originalHospital); setLegalComplianceEditMode(false); }} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                  <button onClick={saveLegalCompliance} disabled={legalComplianceSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{legalComplianceSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => { setHospital(originalHospital); setLegalComplianceEditMode(false); }} className="px-2 py-0.5 text-[10px] text-white/70 hover:bg-white/10 rounded">Cancel</button>
+                  <button onClick={saveLegalCompliance} disabled={legalComplianceSaving} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 disabled:opacity-50">{legalComplianceSaving ? '...' : 'Save'}</button>
                 </div>
               ) : canEditSettings && (
-                <button onClick={() => setLegalComplianceEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                <button onClick={() => setLegalComplianceEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
+            <div className="p-3">
             {legalComplianceEditMode ? (
               <div className="space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1028,14 +1035,16 @@ function HospitalAdministrationContent() {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           {/* ── Card 5: Subscription ── */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">Subscription</h3>
-              {subscription && <span className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${subscription.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : subscription.status === 'TRIAL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{subscription.status}</span>}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">Subscription</h3>
+              {subscription && <span className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${subscription.status === 'ACTIVE' ? 'bg-emerald-400/20 text-emerald-200' : subscription.status === 'TRIAL' ? 'bg-blue-400/20 text-blue-200' : 'bg-white/10 text-white/70'}`}>{subscription.status}</span>}
             </div>
+            <div className="p-3">
             {subscription ? (
               <div className="space-y-2 text-[11px]">
                 {subscription.items.map(item => (
@@ -1055,14 +1064,16 @@ function HospitalAdministrationContent() {
             ) : (
               <p className="text-[11px] text-slate-400">No active subscription</p>
             )}
+            </div>
           </div>
 
           {/* ── Card 6: License Usage ── */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">License Usage</h3>
-              <button onClick={() => setShowAssignModal(true)} disabled={!subscription || availableDoctorsForLicense.length === 0} className="px-2 py-0.5 text-[10px] font-medium text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">+ Assign</button>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">License Usage</h3>
+              <button onClick={() => setShowAssignModal(true)} disabled={!subscription || availableDoctorsForLicense.length === 0} className="px-2 py-0.5 text-[10px] font-medium text-white bg-white/20 rounded hover:bg-white/30 disabled:opacity-50">+ Assign</button>
             </div>
+            <div className="p-3">
             {licenseStats && licenseStats.byProduct.length > 0 ? (
               <div className="space-y-2">
                 {licenseStats.byProduct.map(p => (
@@ -1080,13 +1091,14 @@ function HospitalAdministrationContent() {
             ) : (
               <p className="text-[11px] text-slate-400">No license data</p>
             )}
+            </div>
           </div>
 
           {/* Active Licenses Table */}
           {licenses.filter(l => l.status === 'ACTIVE').length > 0 && (
-            <div className="col-span-2 bg-white rounded-lg border border-slate-200">
-              <div className="px-3 py-2 border-b border-slate-100">
-                <h3 className="text-xs font-semibold text-slate-700">Active Licenses</h3>
+            <div className="col-span-2 bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+                <h3 className="text-xs font-semibold text-white">Active Licenses</h3>
               </div>
               <div className="max-h-[100px] overflow-auto">
                 <table className="w-full text-[11px]">
@@ -1123,21 +1135,22 @@ function HospitalAdministrationContent() {
       {activeTab === 'manager' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Profile Card */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-slate-700">My Profile</h3>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">My Profile</h3>
               {profileEditMode ? (
                 <div className="flex gap-1">
-                  <button onClick={() => setProfileEditMode(false)} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                  <button onClick={saveProfile} disabled={profileSaving} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">{profileSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => setProfileEditMode(false)} className="px-2 py-0.5 text-[10px] text-white/70 hover:bg-white/10 rounded">Cancel</button>
+                  <button onClick={saveProfile} disabled={profileSaving} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 disabled:opacity-50">{profileSaving ? '...' : 'Save'}</button>
                 </div>
               ) : (
-                <button onClick={() => setProfileEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1">
+                <button onClick={() => setProfileEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
+            <div className="p-3">
             {profileEditMode ? (
               <form onSubmit={saveProfile} className="space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1155,11 +1168,15 @@ function HospitalAdministrationContent() {
                 <div><span className="text-slate-400 w-16 inline-block">Role</span><span className="text-slate-700">{profile?.isSuperAdmin ? 'Super Admin' : 'Hospital Manager'}</span></div>
               </div>
             )}
+            </div>
           </div>
 
           {/* Account & Security Card */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <h3 className="text-xs font-semibold text-slate-700 mb-2">Account & Security</h3>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <div className="px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
+              <h3 className="text-xs font-semibold text-white">Account & Security</h3>
+            </div>
+            <div className="p-3">
             <div className="space-y-2 text-[11px]">
               <div className="flex items-center justify-between p-2 bg-slate-50 rounded">
                 <div>
@@ -1176,6 +1193,7 @@ function HospitalAdministrationContent() {
                 <button className="px-2 py-1 text-[10px] text-slate-600 border border-slate-200 rounded hover:bg-white">Enable</button>
               </div>
             </div>
+            </div>
           </div>
         </div>
       )}
@@ -1184,13 +1202,13 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL STAFF TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'staff' && (
-        <div className="bg-white rounded-lg border border-slate-200">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100">
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
             <div className="flex items-center gap-2">
-              <h3 className="text-xs font-semibold text-slate-700">Staff Members</h3>
-              <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{activeStaff} active</span>
+              <h3 className="text-xs font-semibold text-white">Staff Members</h3>
+              <span className="px-1.5 py-0.5 bg-emerald-400/20 text-emerald-200 text-[9px] font-medium rounded">{activeStaff} active</span>
             </div>
-            <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' }); setStaffAssignAll(true); setStaffSelectedDoctorIds([]); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-navy-600 rounded hover:bg-navy-700">+ Add</button>
+            <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' }); setStaffAssignAll(true); setStaffSelectedDoctorIds([]); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-white/20 rounded hover:bg-white/30">+ Add</button>
           </div>
           <div className="max-h-[200px] overflow-auto">
             {staff.length > 0 ? (
@@ -1330,18 +1348,18 @@ function HospitalAdministrationContent() {
       {/* PATIENTS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'patients' && (
-        <div className="bg-white rounded-lg border border-slate-200">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100">
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2" style={{ backgroundColor: '#1e3a5f' }}>
             <div className="flex items-center gap-2">
               <div className="relative">
-                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <input value={patientSearch} onChange={e => setPatientSearch(e.target.value)} placeholder="Search patients..." className="pl-7 pr-2 py-1 text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 w-40" />
+                <input value={patientSearch} onChange={e => setPatientSearch(e.target.value)} placeholder="Search patients..." className="pl-7 pr-2 py-1 text-[10px] border border-white/20 rounded bg-white/10 text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-white/40 w-40" />
               </div>
-              <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{activePatients} active</span>
+              <span className="px-1.5 py-0.5 bg-emerald-400/20 text-emerald-200 text-[9px] font-medium rounded">{activePatients} active</span>
             </div>
-            <button onClick={() => { setEditingPatient(null); setPatientForm({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '' }); setShowPatientModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)]">+ Add Patient</button>
+            <button onClick={() => { setEditingPatient(null); setPatientForm({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '' }); setShowPatientModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-white/20 rounded hover:bg-white/30">+ Add Patient</button>
           </div>
           <div className="max-h-[220px] overflow-auto">
             {filteredPatients.length > 0 ? (

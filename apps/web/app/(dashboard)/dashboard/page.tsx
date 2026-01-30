@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 export default function DashboardPage() {
-  const { user, profile, hospitals, currentHospitalId, loading, legalStatus } = useAuth();
+  const { user, profile, hospitals, currentHospitalId, loading } = useAuth();
   const router = useRouter();
 
   // Find current hospital
@@ -23,9 +23,18 @@ export default function DashboardPage() {
       return;
     }
 
-    // Users without hospital selected go to selector (handles no hospitals case too)
+    // Users without hospital selected — auto-route for single hospital, selector for multiple
     if (!loading && user && !profile?.isSuperAdmin && !currentHospitalId) {
-      router.push('/select-hospital');
+      if (hospitals.length === 1) {
+        // Single hospital — AuthProvider auto-selects, route directly
+        if (hospitals[0].role === 'DOCTOR') {
+          router.push('/doctor/dashboard');
+        } else {
+          router.push('/hospital/dashboard');
+        }
+      } else {
+        router.push('/select-hospital');
+      }
       return;
     }
 
@@ -54,13 +63,8 @@ export default function DashboardPage() {
     }
   }, [user, hospitals, currentHospitalId, currentHospital?.role, loading, router, profile?.isSuperAdmin]);
 
-  if (loading || legalStatus === 'checking' || legalStatus === 'unknown') {
+  if (loading) {
     return null;
-  }
-
-  // Don't render if redirecting to legal page
-  if (legalStatus === 'pending') {
-    return <div className="text-gray-500 p-4">Redirecting...</div>;
   }
 
   if (!user) {

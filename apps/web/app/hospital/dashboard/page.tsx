@@ -218,6 +218,14 @@ function buildCalendarMonth(year: number, month: number) {
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+function formatShiftTime(t: string | null): string {
+  if (!t) return '--';
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+}
+
 // Donut colors - navy shades only
 const DONUT_COLORS = [chartColors.primary, chartColors.secondary, chartColors.light, chartColors.tertiary, chartColors.muted];
 
@@ -233,6 +241,7 @@ export default function HospitalDashboardPage() {
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState(() => getCurrentTime().getMonth());
   const [calYear, setCalYear] = useState(() => getCurrentTime().getFullYear());
+  const [weekOffset, setWeekOffset] = useState(0);
 
   const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');
   if (userRole === 'DOCTOR') return <DoctorDashboard />;
@@ -295,6 +304,18 @@ export default function HospitalDashboardPage() {
   })), [members]);
 
   const hospitalNow = useMemo(() => getCurrentTime(), []);
+
+  const weekDates = useMemo(() => {
+    const startOfWeek = new Date(hospitalNow);
+    startOfWeek.setDate(hospitalNow.getDate() - hospitalNow.getDay() + (weekOffset * 7));
+    startOfWeek.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(startOfWeek);
+      d.setDate(startOfWeek.getDate() + i);
+      return d;
+    });
+  }, [weekOffset, hospitalNow]);
+
   const todayStr = useMemo(() => {
     const y = hospitalNow.getFullYear();
     const m = String(hospitalNow.getMonth() + 1).padStart(2, '0');
@@ -767,7 +788,7 @@ export default function HospitalDashboardPage() {
         </div>
 
         {/* Right Column - Doctor Schedule */}
-        <div className="w-full lg:w-1/2 bg-white rounded-lg border border-slate-200 flex flex-col lg:min-h-0 lg:overflow-hidden">
+        <div className="w-full lg:w-1/2 rounded-lg border-2 flex flex-col lg:min-h-0 lg:overflow-hidden" style={{ borderColor: '#1e3a5f', backgroundColor: '#f8f9fa' }}>
           {/* Header — Title + Dropdown + Status Badge */}
           <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap items-center gap-1.5 flex-shrink-0">
             <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">DOCTOR SCHEDULE</h3>
@@ -795,62 +816,103 @@ export default function HospitalDashboardPage() {
             </div>
           ) : (
             <div className="flex-1 flex flex-col lg:overflow-hidden p-2 gap-2">
-              {/* Weekly Shifts — full width top */}
+              {/* Weekly Shifts — Table Layout */}
               <div className="flex-shrink-0">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Weekly Shifts</p>
-                <div className="space-y-1">
-                  {DAY_NAMES_SHORT.map((day, idx) => {
-                    const shifts = scheduleByDay[idx] || [];
-                    const on = shifts.length > 0;
-                    const isCurrentDay = idx === hospitalNow.getDay();
-                    const formatTime = (t: string | null) => {
-                      if (!t) return '--';
-                      const [h, m] = t.split(':').map(Number);
-                      const ampm = h >= 12 ? 'PM' : 'AM';
-                      const h12 = h % 12 || 12;
-                      return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
-                    };
-                    return (
-                      <div key={day} className={`flex items-center gap-2 py-1 px-2 rounded-md transition-all ${
-                        isCurrentDay ? 'bg-navy-50 border-2 border-navy-600 shadow-sm' : on ? 'bg-white border border-slate-300' : 'bg-slate-50 border border-slate-200'
-                      }`}>
-                        <span className="text-[10px] font-bold w-8 flex-shrink-0 text-navy-700">{day}</span>
-                        {on ? (
-                          <div className="flex items-center gap-3 flex-wrap flex-1">
-                            {shifts.map((shift, i) => (
-                              <div key={i} className="flex items-center gap-1">
-                                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-white border border-navy-200">
-                                  {shift.shiftType === 'AM' && (
-                                    <svg className="w-3 h-3 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                      <circle cx="12" cy="12" r="4" />
-                                      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                                    </svg>
-                                  )}
-                                  {shift.shiftType === 'AFT' && (
-                                    <svg className="w-3 h-3 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                      <path d="M12 10a4 4 0 0 0-4 4h8a4 4 0 0 0-4-4z" />
-                                      <path d="M12 2v4M4.93 4.93l2.83 2.83M2 14h4M17.24 7.76l2.83-2.83M18 14h4" />
-                                      <line x1="2" y1="18" x2="22" y2="18" />
-                                    </svg>
-                                  )}
-                                  {shift.shiftType === 'NT' && (
-                                    <svg className="w-3 h-3 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                                    </svg>
-                                  )}
-                                </span>
-                                <span className="text-[9px] font-medium text-navy-600">
-                                  {formatTime(shift.shiftStart)}-{formatTime(shift.shiftEnd)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-[10px] italic text-slate-400">Off</span>
-                        )}
-                      </div>
-                    );
-                  })}
+                {/* Week Navigation Header */}
+                <p className="text-[10px] font-semibold text-slate-900 uppercase tracking-wider mb-1">Dr. {selectedDocProfile?.name?.split(' ')[0] || ''}&apos;s Weekly Shifts</p>
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <button
+                    onClick={() => setWeekOffset(w => w - 1)}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 text-slate-400 hover:text-slate-700 transition-all duration-200 active:scale-95"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                  <p className="text-sm font-bold text-black">
+                    {MONTH_SHORT[weekDates[0].getMonth()]} {weekDates[0].getDate()} – {MONTH_SHORT[weekDates[6].getMonth()]} {weekDates[6].getDate()}, {weekDates[6].getFullYear()}
+                  </p>
+                  <button
+                    onClick={() => setWeekOffset(w => w + 1)}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 text-slate-400 hover:text-slate-700 transition-all duration-200 active:scale-95"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                  {weekOffset !== 0 && (
+                    <button
+                      onClick={() => setWeekOffset(0)}
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-[#1e3a5f] text-white shadow-sm transition-all duration-200 active:scale-95 hover:bg-[#2b5a8a]"
+                    >
+                      Today
+                    </button>
+                  )}
+                </div>
+
+                {/* Shift Table */}
+                <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="text-left py-2.5 px-2.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 w-[85px] bg-slate-50/60">Shift</th>
+                        {weekDates.map((date, idx) => {
+                          const isToday = date.getDate() === hospitalNow.getDate() && date.getMonth() === hospitalNow.getMonth() && date.getFullYear() === hospitalNow.getFullYear();
+                          return (
+                            <th key={idx} className={`text-center py-2.5 px-1 border-b border-slate-200 transition-colors duration-200 ${!isToday ? 'bg-slate-50/60' : ''}`} style={isToday ? { backgroundColor: '#1e3a5f' } : undefined}>
+                              <div className={`text-[11px] font-bold ${isToday ? 'text-white' : 'text-slate-900'}`}>{DAY_NAMES_SHORT[date.getDay()]}</div>
+                              <div className={`text-base font-bold leading-tight ${isToday ? 'text-white' : 'text-slate-900'}`}>{date.getDate()}</div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { type: 'AM', label: 'Morning', iconColor: 'text-amber-500' },
+                        { type: 'AFT', label: 'Afternoon', iconColor: 'text-orange-500' },
+                        { type: 'NT', label: 'Night', iconColor: 'text-indigo-400' },
+                      ].map((shiftRow) => (
+                        <tr key={shiftRow.type} className="border-b border-slate-100 last:border-0 transition-colors duration-150 hover:bg-slate-50/60">
+                          <td className="py-3 px-2.5 text-[11px] font-bold text-slate-700 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              {shiftRow.type === 'AM' && (
+                                <svg className={`w-4 h-4 ${shiftRow.iconColor} flex-shrink-0`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                  <circle cx="12" cy="12" r="4" />
+                                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                                </svg>
+                              )}
+                              {shiftRow.type === 'AFT' && (
+                                <svg className={`w-4 h-4 ${shiftRow.iconColor} flex-shrink-0`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                  <path d="M12 10a4 4 0 0 0-4 4h8a4 4 0 0 0-4-4z" />
+                                  <path d="M12 2v4M4.93 4.93l2.83 2.83M2 14h4M17.24 7.76l2.83-2.83M18 14h4" />
+                                  <line x1="2" y1="18" x2="22" y2="18" />
+                                </svg>
+                              )}
+                              {shiftRow.type === 'NT' && (
+                                <svg className={`w-4 h-4 ${shiftRow.iconColor} flex-shrink-0`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                                </svg>
+                              )}
+                              {shiftRow.label}
+                            </div>
+                          </td>
+                          {weekDates.map((date, dayIdx) => {
+                            const dayShifts = scheduleByDay[date.getDay()] || [];
+                            const matchingShift = dayShifts.find(s => s.shiftType === shiftRow.type);
+                            const isToday = date.getDate() === hospitalNow.getDate() && date.getMonth() === hospitalNow.getMonth() && date.getFullYear() === hospitalNow.getFullYear();
+                            return (
+                              <td key={dayIdx} className={`text-center py-3 px-0.5 transition-all duration-200 ${isToday ? 'bg-[#1e3a5f]/5' : ''}`}>
+                                {matchingShift ? (
+                                  <span className="inline-block text-[10px] sm:text-[11px] text-navy-700 bg-navy-50 rounded-md px-1.5 py-0.5 transition-transform duration-150 hover:scale-105 cursor-default">
+                                    {formatShiftTime(matchingShift.shiftStart)}-{formatShiftTime(matchingShift.shiftEnd)}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-slate-300">&mdash;</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
@@ -858,7 +920,7 @@ export default function HospitalDashboardPage() {
               <div className="flex-1 flex min-h-0 border-t border-slate-100 pt-2 gap-2">
                 {/* Left: Upcoming Time Off + Calendar Button */}
                 <div className="w-1/2 flex flex-col min-h-0">
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex-shrink-0">Upcoming Time Off</p>
+                  <p className="text-[10px] font-semibold text-slate-900 uppercase tracking-wider mb-1.5 flex-shrink-0">Dr. {selectedDocProfile?.name?.split(' ')[0] || ''}&apos;s Time Off</p>
                   {upcomingLeave.length === 0 ? (
                     <div className="flex-1 flex items-center justify-center">
                       <p className="text-[11px] text-slate-400 italic">No upcoming leave</p>
@@ -973,7 +1035,7 @@ export default function HospitalDashboardPage() {
 
                 {/* Right: Doctor Metrics Cards */}
                 <div className="w-1/2 flex flex-col min-h-0 border-l border-slate-100 pl-2">
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex-shrink-0">Doctor Metrics</p>
+                  <p className="text-[10px] font-semibold text-slate-900 uppercase tracking-wider mb-1.5 flex-shrink-0">Dr. {selectedDocProfile?.name?.split(' ')[0] || ''}&apos;s Metrics</p>
                   <div className="grid grid-cols-2 gap-1.5 flex-shrink-0">
                     {/* Work Days */}
                     <div className="bg-white rounded-lg border border-slate-200 p-1.5 sm:p-2.5">

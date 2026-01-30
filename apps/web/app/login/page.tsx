@@ -23,18 +23,26 @@ export default function LoginPage() {
         return;
       }
 
-      // Regular users go to hospital selector (handles both no hospitals and hospital selection)
-      if (!currentHospitalId) {
-        router.push('/select-hospital');
-      } else {
-        // User has a hospital selected - route based on role
+      // User has a hospital selected - route based on role
+      if (currentHospitalId) {
         const currentHospital = hospitals.find(h => h.id === currentHospitalId);
         if (currentHospital?.role === 'DOCTOR') {
           router.push('/doctor/dashboard');
         } else {
           router.push('/hospital/dashboard');
         }
+      } else if (hospitals.length === 1) {
+        // Single hospital — AuthProvider auto-selects, route directly
+        if (hospitals[0].role === 'DOCTOR') {
+          router.push('/doctor/dashboard');
+        } else {
+          router.push('/hospital/dashboard');
+        }
+      } else if (hospitals.length > 1) {
+        // Multiple hospitals — must pick one
+        router.push('/select-hospital');
       }
+      // hospitals.length === 0: wait for hospitals to load from AuthProvider
     }
   }, [user, profile?.isSuperAdmin, hospitals, currentHospitalId, router, authLoading]);
 

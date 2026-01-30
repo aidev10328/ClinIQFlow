@@ -10,27 +10,36 @@ interface HospitalGuardProps {
 
 export function HospitalGuard({ children }: HospitalGuardProps) {
   const router = useRouter();
-  const { user, profile, hospitals, currentHospitalId, currentHospital, loading, legalStatus } = useAuth();
+  const { user, profile, hospitals, currentHospitalId, currentHospital, loading, setCurrentHospitalId } = useAuth();
 
   React.useEffect(() => {
-    if (!loading && !user) {
-      router.push('/login');
-    } else if (!loading && user && !profile) {
-      // User exists (from stale cache) but profile fetch failed — session is expired
-      router.push('/login');
-    } else if (!loading && profile && profile.isSuperAdmin && !currentHospitalId) {
-      // Super admin without hospital context should go to admin
-      router.push('/admin/dashboard');
-    } else if (!loading && user && !currentHospitalId && hospitals.length > 0) {
-      router.push('/select-hospital');
-    } else if (!loading && user && hospitals.length === 0 && !profile?.isSuperAdmin) {
-      // User has no hospital memberships
-      router.push('/no-access');
-    }
-  }, [user, profile, hospitals, currentHospitalId, loading, router]);
+    if (loading) return;
 
-  // Show nothing while auth or legal check is in progress (loading.tsx handles the spinner)
-  if (loading || legalStatus === 'checking' || legalStatus === 'unknown') {
+    if (!user || (!user && !profile)) {
+      router.push('/login');
+      return;
+    }
+
+    if (profile?.isSuperAdmin && !currentHospitalId) {
+      router.push('/admin/dashboard');
+      return;
+    }
+
+    if (!currentHospitalId) {
+      if (hospitals.length === 1) {
+        // Auto-select the only hospital — no redirect needed
+        setCurrentHospitalId(hospitals[0].id);
+      } else if (hospitals.length > 1) {
+        router.push('/select-hospital');
+      } else if (!profile?.isSuperAdmin) {
+        router.push('/no-access');
+      }
+    }
+  }, [user, profile, hospitals, currentHospitalId, loading, router, setCurrentHospitalId]);
+
+  // Only block while auth is loading — don't block on legal check
+  // Legal redirect happens via AuthProvider if requirements are pending
+  if (loading) {
     return null;
   }
 
