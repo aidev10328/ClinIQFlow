@@ -437,12 +437,14 @@ input:disabled, textarea:disabled, select:disabled {
   @apply flex-1 w-full bg-white;
   overflow-y: auto;
   padding: 0.75rem;
+  padding-bottom: 3.5rem; /* extra space so fixed chat button doesn't overlap content on mobile */
   border-radius: 16px;
 }
 
 @media (min-width: 640px) {
   .admin-page {
     padding: 1rem 1.25rem;
+    padding-bottom: 1rem;
   }
 }
 

@@ -3,14 +3,19 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from './AuthProvider';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { getTimezoneLabel, getCurrencySymbol, formatTimeInTimezone } from '../lib/timezone';
 
 export default function Nav() {
   const { user, profile, hospitals, currentHospitalId, setCurrentHospitalId, signOut, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState<string>('');
+
+  // Hide Nav on pages that have their own layout (login, hospital portal, admin console)
+  const hideNav = pathname === '/login' || pathname.startsWith('/hospital') || pathname.startsWith('/admin') || pathname.startsWith('/doctor');
+  if (hideNav) return null;
 
   // Find current hospital
   const currentHospital = hospitals.find(h => h.id === currentHospitalId);

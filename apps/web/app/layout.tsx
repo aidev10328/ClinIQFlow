@@ -6,6 +6,7 @@ import { RbacProvider } from '../lib/rbac/RbacContext';
 import { ImpersonationProvider } from '../lib/ImpersonationContext';
 import { QueryProvider } from '../lib/QueryProvider';
 import Nav from '../components/Nav';
+import ConditionalFooter from '../components/ConditionalFooter';
 import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const inter = Inter({
@@ -40,11 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <main className="container py-8 flex-1">
                   {children}
                 </main>
-                <footer className="border-t border-gray-100 py-4">
-                  <div className="container text-center text-sm text-gray-500">
-                    Built with ClinQflow
-                  </div>
-                </footer>
+                <ConditionalFooter />
               </div>
             </RbacProvider>
           </ImpersonationProvider>

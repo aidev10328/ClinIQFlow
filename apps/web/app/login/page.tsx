@@ -66,6 +66,16 @@ export default function LoginPage() {
     }
   }
 
+  // Once authenticated, show spinner while redirect completes — prevents flash of login form
+  if (user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center">
+        <div className="w-8 h-8 border-[3px] border-slate-200 border-t-[var(--color-primary)] rounded-full animate-spin" />
+        <p className="mt-3 text-sm text-slate-500">Signing you in...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-4 sm:px-6">
       <div className="w-full max-w-md">
