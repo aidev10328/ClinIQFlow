@@ -18,8 +18,6 @@ const AreaChart = dynamic(() => import('recharts').then((m) => m.AreaChart), { s
 const Area = dynamic(() => import('recharts').then((m) => m.Area), { ssr: false });
 const LineChart = dynamic(() => import('recharts').then((m) => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then((m) => m.Line), { ssr: false });
-const BarChart = dynamic(() => import('recharts').then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import('recharts').then((m) => m.Bar), { ssr: false });
 const PieChart = dynamic(() => import('recharts').then((m) => m.PieChart), { ssr: false });
 const Pie = dynamic(() => import('recharts').then((m) => m.Pie), { ssr: false });
 const XAxis = dynamic(() => import('recharts').then((m) => m.XAxis), { ssr: false });
@@ -63,24 +61,6 @@ function normalizeSchedule(raw: any): DoctorSchedule {
 
 type TimeFilter = 'day' | 'week' | 'month' | 'year';
 
-// ─── Design Tokens (Navy Blue Only Palette) ──────────────────────────────────
-const colors = {
-  navy900: '#050d17',
-  navy800: '#0a1a2e',
-  navy700: '#0f2744',
-  navy600: '#1e3a5f',
-  navy500: '#2b5a8a',
-  navy400: '#3d7ab8',
-  navy300: '#5a9ad4',
-  navy200: '#a3cbef',
-  navy100: '#d1e5f7',
-  navy50: '#e8f4fc',
-  slate500: '#64748B',
-  slate400: '#94A3B8',
-  slate300: '#CBD5E1',
-  slate200: '#E2E8F0',
-};
-
 // Chart colors - navy blue palette only
 const chartColors = {
   primary: '#1e3a5f',   // navy-600 - dark navy
@@ -92,8 +72,6 @@ const chartColors = {
 };
 
 const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // ─── Components ──────────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
@@ -238,15 +216,7 @@ function buildCalendarMonth(year: number, month: number) {
   return cells;
 }
 
-function getShiftFlags(shiftStart: string | null, shiftEnd: string | null) {
-  const startHour = parseInt(shiftStart?.split(':')[0] || '0');
-  const endHour = parseInt(shiftEnd?.split(':')[0] || '0');
-  return {
-    morning: startHour < 14 && endHour > 6,
-    evening: startHour < 22 && endHour > 14,
-    night: endHour <= 6 || startHour >= 22,
-  };
-}
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Donut colors - navy shades only
 const DONUT_COLORS = [chartColors.primary, chartColors.secondary, chartColors.light, chartColors.tertiary, chartColors.muted];
@@ -256,8 +226,8 @@ export default function HospitalDashboardPage() {
   const { currentHospital, profile } = useAuth();
   const { getCurrentTime } = useHospitalTimezone();
 
-  const [patientFilter, setPatientFilter] = useState<TimeFilter>('week');
-  const [apptFilter, setApptFilter] = useState<TimeFilter>('week');
+  const [apptTrendFilter, setApptTrendFilter] = useState<TimeFilter>('week');
+  const [patientTrendFilter, setPatientTrendFilter] = useState<TimeFilter>('week');
   const [patientBarFilter, setPatientBarFilter] = useState<'day' | 'week' | 'month' | 'year'>('week');
   const [chartDoctorFilter, setChartDoctorFilter] = useState<string | null>(null); // null = All Hospital
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
@@ -313,7 +283,7 @@ export default function HospitalDashboardPage() {
     const active = docs.filter((d: any) => d.complianceStatus === 'compliant').length;
     const pending = docs.filter((d: any) => d.complianceStatus === 'pending_signatures' || d.complianceStatus === 'not_logged_in').length;
     const tStaff = staffData.length;
-    const aStaff = staffData.filter((s: any) => s.isActive).length;
+    const aStaff = staffData.filter((s: any) => s.status === 'ACTIVE').length;
     const pInvites = invites.filter((i: any) => i.status === 'PENDING').length;
     const lUsed = licenseStats?.totalUsed ?? active;
     const lTotal = licenseStats?.totalLicenses ?? 10;
@@ -345,81 +315,18 @@ export default function HospitalDashboardPage() {
     return { status: c?.status || null, checkedInAt: c?.checkedInAt || null, checkedOutAt: c?.checkedOutAt || null };
   }, [queueData]);
 
-  useMemo(() => { if (!selectedDoctorId && doctorList.length > 0) setSelectedDoctorId(doctorList[0].userId); }, [doctorList, selectedDoctorId]);
+  useEffect(() => { if (!selectedDoctorId && doctorList.length > 0) setSelectedDoctorId(doctorList[0].userId); }, [doctorList, selectedDoctorId]);
 
   // ─── Chart data ──────────────────────────────────────────────────────────
-  const patientChartData = useMemo(() => {
-    const { start, type } = getDateRange(patientFilter);
-    const buckets = buildBuckets(patientFilter);
+  const apptTrendData = useMemo(() => {
+    const { start, type } = getDateRange(apptTrendFilter);
+    const buckets = buildBuckets(apptTrendFilter);
 
-    // Filter patients by doctor if selected
-    let filteredPatients = patients;
-    if (chartDoctorFilter) {
-      // Filter patients who have appointments with this doctor
-      const doctorPatientIds = new Set(
-        appointments
-          .filter((a: any) => a.doctorProfileId === chartDoctorFilter || a.doctorId === chartDoctorFilter)
-          .map((a: any) => a.patientId)
-      );
-      filteredPatients = patients.filter((p: any) => doctorPatientIds.has(p.id));
-    }
-
-    const newMap: Record<string, number> = {};
+    const scheduledMap: Record<string, number> = {};
     const walkInMap: Record<string, number> = {};
-    buckets.forEach((b) => { newMap[b.key] = 0; walkInMap[b.key] = 0; });
+    buckets.forEach((b) => { scheduledMap[b.key] = 0; walkInMap[b.key] = 0; });
 
-    // Count NEW patient registrations by createdAt date
-    filteredPatients.forEach((p: any) => {
-      const d = new Date(p.createdAt);
-      if (d < start) return;
-
-      let k: string;
-      if (type === 'hours') {
-        const h = Math.floor(d.getHours() / 2) * 2;
-        k = `${d.toISOString().split('T')[0]}-${h.toString().padStart(2, '0')}`;
-      } else if (type === 'months') {
-        k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      } else {
-        k = bKey(d);
-      }
-
-      if (newMap[k] !== undefined) newMap[k]++;
-    });
-
-    // Add walk-ins from queue stats
-    queueStats.forEach((stat) => {
-      const d = new Date(stat.date);
-      if (d < start) return;
-
-      let k: string;
-      if (type === 'hours') {
-        // For hourly view, we don't have hourly queue data, so skip
-        return;
-      } else if (type === 'months') {
-        k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      } else {
-        k = stat.date;
-      }
-
-      if (walkInMap[k] !== undefined) {
-        walkInMap[k] += stat.walkIns;
-      }
-    });
-
-    return buckets.map((b) => ({
-      label: b.label,
-      'Scheduled Appointments': newMap[b.key] || 0,
-      'Walk-ins': walkInMap[b.key] || 0,
-    }));
-  }, [patients, appointments, patientFilter, chartDoctorFilter, queueStats]);
-
-  const apptChartData = useMemo(() => {
-    const { start, type } = getDateRange(apptFilter);
-    const buckets = buildBuckets(apptFilter);
-    const tM: Record<string, number> = {}, cM: Record<string, number> = {};
-    buckets.forEach((b) => { tM[b.key] = 0; cM[b.key] = 0; });
-
-    // Filter by doctor if selected
+    // Count actual scheduled appointments
     const relevantAppts = chartDoctorFilter
       ? appointments.filter((a: any) => a.doctorProfileId === chartDoctorFilter || a.doctorId === chartDoctorFilter)
       : appointments;
@@ -438,15 +345,36 @@ export default function HospitalDashboardPage() {
         k = bKey(d);
       }
 
-      if (tM[k] !== undefined) { tM[k]++; if (a.status === 'COMPLETED') cM[k]++; }
+      if (scheduledMap[k] !== undefined) scheduledMap[k]++;
     });
-    return buckets.map((b) => ({ label: b.label, Booked: tM[b.key], Completed: cM[b.key] }));
-  }, [appointments, apptFilter, chartDoctorFilter]);
+
+    // Walk-ins from queue stats
+    queueStats.forEach((stat) => {
+      const d = new Date(stat.date);
+      if (d < start) return;
+
+      let k: string;
+      if (type === 'hours') return;
+      else if (type === 'months') {
+        k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      } else {
+        k = stat.date;
+      }
+
+      if (walkInMap[k] !== undefined) walkInMap[k] += stat.walkIns;
+    });
+
+    return buckets.map((b) => ({
+      label: b.label,
+      'Scheduled Appointments': scheduledMap[b.key] || 0,
+      'Walk-ins': walkInMap[b.key] || 0,
+    }));
+  }, [appointments, apptTrendFilter, chartDoctorFilter, queueStats]);
 
   // New vs Returning patients per time bucket
   const patientNewVsReturningData = useMemo(() => {
-    const { start, type } = getDateRange(apptFilter);
-    const buckets = buildBuckets(apptFilter);
+    const { start, type } = getDateRange(patientTrendFilter);
+    const buckets = buildBuckets(patientTrendFilter);
     const newMap: Record<string, Set<string>> = {};
     const retMap: Record<string, Set<string>> = {};
     buckets.forEach((b) => { newMap[b.key] = new Set(); retMap[b.key] = new Set(); });
@@ -488,7 +416,7 @@ export default function HospitalDashboardPage() {
       'New Patients': newMap[b.key].size,
       'Returning Patients': retMap[b.key].size,
     }));
-  }, [patients, appointments, apptFilter, chartDoctorFilter]);
+  }, [patients, appointments, patientTrendFilter, chartDoctorFilter]);
 
   const licenseDonutData = useMemo(() => {
     const products = licenseStats?.products;
@@ -548,49 +476,6 @@ export default function HospitalDashboardPage() {
     return { newPatients, existingPatients, periodLabel };
   }, [patients, appointments, patientBarFilter]);
 
-  // Team Status donut data (keeping for appointment status)
-  const teamStatusData = useMemo(() => [
-    { name: 'Active', value: stats.activeDoctors },
-    { name: 'Pending', value: stats.pendingDoctors },
-    { name: 'Invites', value: stats.pendingInvites },
-  ].filter(d => d.value > 0), [stats]);
-
-  // Appointment Status donut data
-  const apptStatusData = useMemo(() => {
-    const completed = appointments.filter((a: any) => a.status === 'COMPLETED').length;
-    const scheduled = appointments.filter((a: any) => a.status === 'SCHEDULED' || a.status === 'BOOKED').length;
-    const cancelled = appointments.filter((a: any) => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
-    return [
-      { name: 'Completed', value: completed },
-      { name: 'Scheduled', value: scheduled },
-      { name: 'Cancelled', value: cancelled },
-    ].filter(d => d.value > 0);
-  }, [appointments]);
-
-  const selectedDocAppts = useMemo(() => {
-    if (!actualDoctorProfileId) return { total: 0, completed: 0, today: 0 };
-    const docAppts = appointments.filter((a: any) => a.doctorProfileId === actualDoctorProfileId);
-    return {
-      total: docAppts.length,
-      completed: docAppts.filter((a: any) => a.status === 'COMPLETED').length,
-      today: docAppts.filter((a: any) => (a.appointmentDate || '').startsWith(todayStr)).length,
-    };
-  }, [appointments, actualDoctorProfileId, todayStr]);
-
-  const docMetrics = useMemo(() => {
-    if (!actualDoctorProfileId) return null;
-    const docAppts = appointments.filter((a: any) => a.doctorProfileId === actualDoctorProfileId);
-    const completed = docAppts.filter((a: any) => a.status === 'COMPLETED').length;
-    const cancelled = docAppts.filter((a: any) => a.status === 'CANCELLED' || a.status === 'NO_SHOW').length;
-    const uniquePatients = new Set(docAppts.map((a: any) => a.patientId)).size;
-    const completionRate = docAppts.length > 0 ? Math.round((completed / docAppts.length) * 100) : 0;
-    const now = new Date();
-    const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
-    const thisWeek = docAppts.filter((a: any) => new Date(a.appointmentDate || a.createdAt) >= weekStart).length;
-    const totalPatients = docAppts.length;
-    return { completed, cancelled, uniquePatients, completionRate, thisWeek, totalPatients };
-  }, [appointments, actualDoctorProfileId]);
-
   // Derive shift types (AM/PM/NT) from the time range
   const scheduleByDay = useMemo(() => {
     const m: Record<number, { shiftType: string; shiftStart: string; shiftEnd: string }[]> = {};
@@ -620,54 +505,85 @@ export default function HospitalDashboardPage() {
     });
     return m;
   }, [doctorSchedule]);
+  const upcomingLeave = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return doctorTimeOff
+      .filter((t: any) => {
+        const ep = (t.end_date || '').split('-').map(Number);
+        if (ep.length < 3) return false;
+        return new Date(ep[0], ep[1] - 1, ep[2]) >= today;
+      })
+      .sort((a: any, b: any) => (a.start_date || '').localeCompare(b.start_date || ''))
+      .slice(0, 4);
+  }, [doctorTimeOff]);
+
+  const totalUpcomingLeaves = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return doctorTimeOff.filter((t: any) => {
+      const ep = (t.end_date || '').split('-').map(Number);
+      if (ep.length < 3) return false;
+      return new Date(ep[0], ep[1] - 1, ep[2]) >= today;
+    }).length;
+  }, [doctorTimeOff]);
+
+  const workingDaysPerWeek = useMemo(() => Object.keys(scheduleByDay).length, [scheduleByDay]);
+
+  const doctorPatientsThisWeek = useMemo(() => {
+    if (!actualDoctorProfileId) return 0;
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const seen = new Set<string>();
+    appointments.forEach((a: any) => {
+      if ((a.doctorProfileId === actualDoctorProfileId || a.doctorId === actualDoctorProfileId) && a.patientId) {
+        const d = new Date(a.appointmentDate || a.createdAt);
+        if (d >= weekStart) seen.add(a.patientId);
+      }
+    });
+    return seen.size;
+  }, [appointments, actualDoctorProfileId]);
+
   const workingDaysSet = useMemo(() => {
     const set = new Set<number>();
     doctorSchedule.filter(s => s.isWorking).forEach(s => set.add(s.dayOfWeek));
     return set;
   }, [doctorSchedule]);
-  const threeMonthCalendar = useMemo(() => {
-    const months: { month: number; year: number; cells: (number | null)[]; workDates: Set<number>; offDates: Set<number>; leaveDetails: Map<number, { reason?: string; start_date: string; end_date: string; status: string }>; isCurrent: boolean }[] = [];
-    for (let offset = -1; offset <= 1; offset++) {
-      let m = calMonth + offset;
-      let y = calYear;
-      if (m < 0) { m = 11; y--; }
-      if (m > 11) { m = 0; y++; }
-      const cells = buildCalendarMonth(y, m);
-      const workDates = new Set<number>();
-      cells.forEach((day, idx) => { if (day !== null && workingDaysSet.has(idx % 7)) workDates.add(day); });
-      const offDates = new Set<number>();
-      const leaveDetails = new Map<number, { reason?: string; start_date: string; end_date: string; status: string }>();
-      doctorTimeOff.forEach((t: any) => {
-        const sp = (t.start_date || '').split('-').map(Number);
-        const ep = (t.end_date || '').split('-').map(Number);
-        if (sp.length < 3 || ep.length < 3) return;
-        const s = new Date(sp[0], sp[1] - 1, sp[2]);
-        const e = new Date(ep[0], ep[1] - 1, ep[2]);
-        const c = new Date(s);
-        while (c <= e) {
-          if (c.getMonth() === m && c.getFullYear() === y) {
-            offDates.add(c.getDate());
-            leaveDetails.set(c.getDate(), { reason: t.reason, start_date: t.start_date, end_date: t.end_date, status: t.status });
-          }
-          c.setDate(c.getDate() + 1);
+
+  const calendarMonth = useMemo(() => {
+    const cells = buildCalendarMonth(calYear, calMonth);
+    const workDates = new Set<number>();
+    cells.forEach((day, idx) => { if (day !== null && workingDaysSet.has(idx % 7)) workDates.add(day); });
+    const offDates = new Set<number>();
+    doctorTimeOff.forEach((t: any) => {
+      const sp = (t.start_date || '').split('-').map(Number);
+      const ep = (t.end_date || '').split('-').map(Number);
+      if (sp.length < 3 || ep.length < 3) return;
+      const s = new Date(sp[0], sp[1] - 1, sp[2]);
+      const e = new Date(ep[0], ep[1] - 1, ep[2]);
+      const c = new Date(s);
+      while (c <= e) {
+        if (c.getMonth() === calMonth && c.getFullYear() === calYear) {
+          offDates.add(c.getDate());
         }
-      });
-      months.push({ month: m, year: y, cells, workDates, offDates, leaveDetails, isCurrent: offset === 0 });
-    }
-    return months;
+        c.setDate(c.getDate() + 1);
+      }
+    });
+    return { month: calMonth, year: calYear, cells, workDates, offDates };
   }, [calMonth, calYear, workingDaysSet, doctorTimeOff]);
 
+  const prevMonth = () => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); };
+  const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); };
+
   const licensePct = stats.licensesTotal > 0 ? Math.round((stats.licensesUsed / stats.licensesTotal) * 100) : 0;
-  const workDayCount = workingDaysSet.size;
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[400px]">
       <div className="w-8 h-8 border-2 border-navy-600 border-t-transparent rounded-full animate-spin" />
     </div>
   );
-
-  const prevMonth = () => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); };
-  const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); };
 
   return (
     <div className="page-fullheight flex flex-col gap-1.5 p-2 overflow-y-auto lg:overflow-hidden">
@@ -785,11 +701,11 @@ export default function HospitalDashboardPage() {
                   ]}
                 />
               </div>
-              <FilterPills value={patientFilter} onChange={setPatientFilter} />
+              <FilterPills value={apptTrendFilter} onChange={setApptTrendFilter} />
             </div>
             <div className="flex-1 min-h-0">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={patientChartData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                <AreaChart data={apptTrendData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                   <defs>
                     <linearGradient id="newPatientFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={chartColors.primary} stopOpacity={0.2} />
@@ -829,7 +745,7 @@ export default function HospitalDashboardPage() {
                   ]}
                 />
               </div>
-              <FilterPills value={apptFilter} onChange={setApptFilter} />
+              <FilterPills value={patientTrendFilter} onChange={setPatientTrendFilter} />
             </div>
             <div className="flex-1 min-h-0">
               <ResponsiveContainer width="100%" height="100%">
@@ -850,7 +766,7 @@ export default function HospitalDashboardPage() {
           </div>
         </div>
 
-        {/* Right Column - Doctor Schedule & Calendar */}
+        {/* Right Column - Doctor Schedule */}
         <div className="w-full lg:w-1/2 bg-white rounded-lg border border-slate-200 flex flex-col lg:min-h-0 lg:overflow-hidden">
           {/* Header — Title + Dropdown + Status Badge */}
           <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap items-center gap-1.5 flex-shrink-0">
@@ -878,145 +794,220 @@ export default function HospitalDashboardPage() {
               <p className="text-xs text-slate-400">Select a doctor to view schedule</p>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col lg:overflow-hidden p-2 lg:p-2.5 gap-1.5">
-              {/* Top Row: Weekly Shifts (2/3) + Metrics (1/3) */}
-              <div className="flex flex-col sm:flex-row gap-1.5">
-                {/* Weekly Shifts */}
-                <div className="sm:w-2/3">
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Weekly Shifts</p>
-                  <div className="space-y-0.5">
-                    {DAY_NAMES_SHORT.map((day, idx) => {
-                      const shifts = scheduleByDay[idx] || [];
-                      const on = shifts.length > 0;
-                      const isCurrentDay = idx === hospitalNow.getDay();
-                      const formatTime = (t: string | null) => {
-                        if (!t) return '--';
-                        const [h, m] = t.split(':').map(Number);
-                        const ampm = h >= 12 ? 'PM' : 'AM';
-                        const h12 = h % 12 || 12;
-                        return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
-                      };
-                      return (
-                        <div key={day} className={`flex items-center gap-1.5 py-0.5 px-1.5 rounded-md transition-all ${
-                          isCurrentDay ? 'bg-navy-50 border-2 border-navy-600 shadow-sm' : on ? 'bg-white border border-slate-300' : 'bg-slate-50 border border-slate-200'
-                        }`}>
-                          <span className={`text-[9px] font-bold w-7 flex-shrink-0 text-navy-700`}>{day}</span>
-                          {on ? (
-                            <div className="flex items-center gap-1.5 flex-wrap flex-1">
-                              {shifts.map((shift, i) => (
-                                <div key={i} className="flex items-center gap-1">
-                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-white border border-navy-200">
-                                    {shift.shiftType === 'AM' && (
-                                      <svg className="w-2.5 h-2.5 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                        <circle cx="12" cy="12" r="4" />
-                                        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                                      </svg>
-                                    )}
-                                    {shift.shiftType === 'AFT' && (
-                                      <svg className="w-2.5 h-2.5 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                        <path d="M12 10a4 4 0 0 0-4 4h8a4 4 0 0 0-4-4z" />
-                                        <path d="M12 2v4M4.93 4.93l2.83 2.83M2 14h4M17.24 7.76l2.83-2.83M18 14h4" />
-                                        <line x1="2" y1="18" x2="22" y2="18" />
-                                      </svg>
-                                    )}
-                                    {shift.shiftType === 'NT' && (
-                                      <svg className="w-2.5 h-2.5 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                                      </svg>
-                                    )}
-                                  </span>
-                                  <span className="text-[8px] font-medium text-navy-600">
-                                    {formatTime(shift.shiftStart)}-{formatTime(shift.shiftEnd)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-[9px] italic text-slate-400">Off</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Doctor Appointment Metrics */}
-                {docMetrics && (
-                  <div className="sm:w-1/3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Doctor&apos;s Stats</p>
-                    <div className="grid grid-cols-4 sm:grid-cols-2 gap-1">
-                    {[
-                      { label: 'Appts This Week', value: docMetrics.thisWeek, sub: 'booked' },
-                      { label: 'Appts Today', value: selectedDocAppts.today, sub: 'scheduled' },
-                      { label: 'Completion Rate', value: `${docMetrics.completionRate}%`, sub: 'done' },
-                      { label: 'Total Patients', value: docMetrics.totalPatients, sub: 'all time' },
-                    ].map((m, i) => (
-                      <div key={i} className="bg-white rounded-lg border border-slate-200 p-1 sm:p-1.5 flex flex-col justify-center">
-                        <p className="text-[7px] sm:text-[9px] font-semibold text-slate-900 uppercase tracking-wide mb-0.5">{m.label}</p>
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="text-xs sm:text-base font-bold text-slate-900">{m.value}</span>
-                          <span className="text-[6px] sm:text-[7px] text-navy-600 bg-navy-50 px-0.5 py-px rounded font-medium">{m.sub}</span>
-                        </div>
+            <div className="flex-1 flex flex-col lg:overflow-hidden p-2 gap-2">
+              {/* Weekly Shifts — full width top */}
+              <div className="flex-shrink-0">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Weekly Shifts</p>
+                <div className="space-y-1">
+                  {DAY_NAMES_SHORT.map((day, idx) => {
+                    const shifts = scheduleByDay[idx] || [];
+                    const on = shifts.length > 0;
+                    const isCurrentDay = idx === hospitalNow.getDay();
+                    const formatTime = (t: string | null) => {
+                      if (!t) return '--';
+                      const [h, m] = t.split(':').map(Number);
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      const h12 = h % 12 || 12;
+                      return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+                    };
+                    return (
+                      <div key={day} className={`flex items-center gap-2 py-1 px-2 rounded-md transition-all ${
+                        isCurrentDay ? 'bg-navy-50 border-2 border-navy-600 shadow-sm' : on ? 'bg-white border border-slate-300' : 'bg-slate-50 border border-slate-200'
+                      }`}>
+                        <span className="text-[10px] font-bold w-8 flex-shrink-0 text-navy-700">{day}</span>
+                        {on ? (
+                          <div className="flex items-center gap-3 flex-wrap flex-1">
+                            {shifts.map((shift, i) => (
+                              <div key={i} className="flex items-center gap-1">
+                                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-white border border-navy-200">
+                                  {shift.shiftType === 'AM' && (
+                                    <svg className="w-3 h-3 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                      <circle cx="12" cy="12" r="4" />
+                                      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                                    </svg>
+                                  )}
+                                  {shift.shiftType === 'AFT' && (
+                                    <svg className="w-3 h-3 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                      <path d="M12 10a4 4 0 0 0-4 4h8a4 4 0 0 0-4-4z" />
+                                      <path d="M12 2v4M4.93 4.93l2.83 2.83M2 14h4M17.24 7.76l2.83-2.83M18 14h4" />
+                                      <line x1="2" y1="18" x2="22" y2="18" />
+                                    </svg>
+                                  )}
+                                  {shift.shiftType === 'NT' && (
+                                    <svg className="w-3 h-3 text-navy-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                                    </svg>
+                                  )}
+                                </span>
+                                <span className="text-[9px] font-medium text-navy-600">
+                                  {formatTime(shift.shiftStart)}-{formatTime(shift.shiftEnd)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-[10px] italic text-slate-400">Off</span>
+                        )}
                       </div>
-                    ))}
-                    </div>
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* 3-Month Calendar */}
-              <div className="min-h-0">
-                <div className="flex items-center justify-between mb-1">
-                  <button onClick={prevMonth} className="p-0.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                  </button>
-                  <span className="text-xs font-semibold text-slate-900 uppercase tracking-wide">DR. {(selectedDocProfile?.name || 'Doctor').toUpperCase()}&apos;S SCHEDULED TIME OFF</span>
-                  <button onClick={nextMonth} className="p-0.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-all">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
-                  {threeMonthCalendar.map((mo, mIdx) => (
-                    <div key={mIdx} className={`transition-all duration-300 ${mIdx === 0 ? 'hidden sm:block' : ''}`}>
-                      <p className={`text-center text-[8px] sm:text-[9px] font-semibold mb-0.5 sm:mb-1 ${mo.isCurrent ? 'text-navy-700' : 'text-slate-500'}`}>
-                        {MONTH_SHORT[mo.month]} {mo.year}
-                      </p>
-                      {/* Day headers */}
-                      <div className="grid grid-cols-7 gap-px mb-px">
-                        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                          <div key={i} className="text-center text-[6px] sm:text-[7px] font-semibold text-slate-400 py-px">{d}</div>
+              {/* Time Off + Doctor Metrics — below, fills remaining height */}
+              <div className="flex-1 flex min-h-0 border-t border-slate-100 pt-2 gap-2">
+                {/* Left: Upcoming Time Off + Calendar Button */}
+                <div className="w-1/2 flex flex-col min-h-0">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex-shrink-0">Upcoming Time Off</p>
+                  {upcomingLeave.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center">
+                      <p className="text-[11px] text-slate-400 italic">No upcoming leave</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5 flex-shrink-0">
+                      {upcomingLeave.map((t: any, i: number) => {
+                        const sp = (t.start_date || '').split('-').map(Number);
+                        const startDate = sp.length >= 3 ? new Date(sp[0], sp[1] - 1, sp[2]) : null;
+                        const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                        let relativeLabel = '';
+                        let dayName = '';
+                        let dateStr = '';
+                        if (startDate) {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const diffDays = Math.round((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                          dayName = DAY_FULL[startDate.getDay()];
+                          dateStr = `${MONTH_SHORT[startDate.getMonth()]} ${startDate.getDate()}`;
+                          if (diffDays === 0) relativeLabel = 'Today';
+                          else if (diffDays === 1) relativeLabel = 'Tomorrow';
+                          else if (diffDays > 1 && diffDays <= 7) relativeLabel = 'This Week';
+                          else if (diffDays > 7 && diffDays <= 14) relativeLabel = 'Next Week';
+                          else if (startDate.getMonth() === today.getMonth() && startDate.getFullYear() === today.getFullYear()) relativeLabel = 'This Month';
+                          else if ((startDate.getMonth() === today.getMonth() + 1 && startDate.getFullYear() === today.getFullYear()) || (today.getMonth() === 11 && startDate.getMonth() === 0 && startDate.getFullYear() === today.getFullYear() + 1)) relativeLabel = 'Next Month';
+                          else relativeLabel = `${MONTH_SHORT[startDate.getMonth()]} ${startDate.getFullYear()}`;
+                        }
+                        return (
+                          <div key={t.id || i} className="flex items-center gap-1.5 py-1 px-2 rounded-md bg-slate-50 border border-slate-200">
+                            <svg className="w-3.5 h-3.5 text-navy-600 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                              <line x1="16" y1="2" x2="16" y2="6" />
+                              <line x1="8" y1="2" x2="8" y2="6" />
+                              <line x1="3" y1="10" x2="21" y2="10" />
+                              <line x1="9" y1="14" x2="15" y2="18" />
+                              <line x1="15" y1="14" x2="9" y2="18" />
+                            </svg>
+                            <span className="text-[10px] font-bold text-slate-900">{relativeLabel}</span>
+                            <span className="text-[10px] font-bold text-slate-900">{dayName},</span>
+                            <span className="text-[9px] font-medium text-slate-600">{dateStr}</span>
+                            {t.start_date !== t.end_date && (
+                              <span className="text-[8px] text-slate-400 ml-auto">— {(() => { const ep = (t.end_date || '').split('-').map(Number); return ep.length >= 3 ? `${MONTH_SHORT[ep[1]-1]} ${ep[2]}` : t.end_date; })()}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* Calendar Button below leaves */}
+                  <div className="mt-2 flex-shrink-0 relative group/cal">
+                    <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-navy-200 bg-navy-50 text-navy-700 text-[11px] font-semibold hover:bg-navy-100 transition-colors cursor-pointer w-full justify-center">
+                      <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                        <line x1="16" y1="2" x2="16" y2="6" />
+                        <line x1="8" y1="2" x2="8" y2="6" />
+                        <line x1="3" y1="10" x2="21" y2="10" />
+                      </svg>
+                      View Dr. {selectedDocProfile?.name?.split(' ')[0] || ''} Time Off Calendar
+                    </button>
+
+                    {/* Calendar Hover Popover */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[280px] bg-white rounded-xl shadow-2xl border border-slate-200 p-3 opacity-0 invisible group-hover/cal:opacity-100 group-hover/cal:visible transition-all duration-200 z-50">
+                      {/* Month Nav */}
+                      <div className="flex items-center justify-between mb-2">
+                        <button onClick={prevMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-500">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" /></svg>
+                        </button>
+                        <span className="text-xs font-bold text-slate-900">{MONTH_SHORT[calendarMonth.month]} {calendarMonth.year}</span>
+                        <button onClick={nextMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-500">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                      </div>
+                      {/* Day Headers */}
+                      <div className="grid grid-cols-7 gap-px mb-1">
+                        {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                          <span key={d} className="text-center text-[8px] font-bold text-slate-400 uppercase">{d}</span>
                         ))}
                       </div>
-                      {/* Calendar grid */}
+                      {/* Calendar Grid */}
                       <div className="grid grid-cols-7 gap-px">
-                        {mo.cells.map((day, i) => {
-                          if (day === null) return <div key={i} className="aspect-square" />;
-                          const isToday = day === hospitalNow.getDate() && mo.month === hospitalNow.getMonth() && mo.year === hospitalNow.getFullYear();
-                          const isTimeOff = mo.offDates.has(day);
-                          const isWork = mo.workDates.has(day) && !isTimeOff;
-                          const leave = isTimeOff ? mo.leaveDetails.get(day) : null;
-                          const leaveTooltip = leave ? `${leave.reason || 'Leave'}\n${leave.start_date} → ${leave.end_date}\nStatus: ${leave.status}` : '';
+                        {calendarMonth.cells.map((day, idx) => {
+                          if (day === null) return <span key={idx} className="w-full aspect-square" />;
+                          const isWork = calendarMonth.workDates.has(day);
+                          const isOff = calendarMonth.offDates.has(day);
+                          const isToday = day === hospitalNow.getDate() && calendarMonth.month === hospitalNow.getMonth() && calendarMonth.year === hospitalNow.getFullYear();
                           return (
-                            <div key={i} title={leaveTooltip || undefined} className={`aspect-square flex items-center justify-center text-[7px] sm:text-[8px] font-medium rounded-sm
-                              transition-all duration-200 hover:scale-110 hover:shadow-md hover:z-10 hover:ring-1 ${
-                              isToday ? 'bg-white text-navy-700 border-2 border-navy-600 shadow-sm ring-1 ring-navy-200 hover:ring-navy-400'
-                                : isTimeOff ? 'bg-[#0a1a2e] text-white cursor-pointer hover:ring-navy-400 hover:shadow-lg'
-                                : isWork ? 'bg-navy-50 text-navy-700 hover:bg-navy-100 hover:ring-navy-200'
-                                : 'bg-white text-slate-300 hover:bg-slate-50 hover:ring-slate-200'
-                            }`}>
+                            <span key={idx} className={`w-full aspect-square flex items-center justify-center text-[9px] font-medium rounded ${
+                              isOff ? 'bg-[#0a1a2e] text-white font-bold' :
+                              isWork ? 'bg-navy-50 text-navy-700' :
+                              'text-slate-400'
+                            } ${isToday ? 'ring-1 ring-navy-600' : ''}`}>
                               {day}
-                            </div>
+                            </span>
                           );
                         })}
                       </div>
+                      {/* Legend */}
+                      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
+                        <span className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-navy-50 border border-navy-200" />Work
+                        </span>
+                        <span className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-[#0a1a2e]" />Leave
+                        </span>
+                        <span className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                          <span className="w-2.5 h-2.5 rounded-sm border border-navy-600" />Today
+                        </span>
+                      </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-                {/* Legend */}
-                <div className="mt-1 flex items-center justify-center gap-2.5 text-[8px]">
-                  <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-navy-50 border border-navy-200" />Work</span>
-                  <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-[#0a1a2e]" />Leave</span>
-                  <span className="flex items-center gap-1 text-slate-500"><span className="w-2 h-2 rounded-sm bg-white border-2 border-navy-600" />Today</span>
+
+                {/* Right: Doctor Metrics Cards */}
+                <div className="w-1/2 flex flex-col min-h-0 border-l border-slate-100 pl-2">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 flex-shrink-0">Doctor Metrics</p>
+                  <div className="grid grid-cols-2 gap-1.5 flex-shrink-0">
+                    {/* Work Days */}
+                    <div className="bg-white rounded-lg border border-slate-200 p-1.5 sm:p-2.5">
+                      <p className="text-[8px] sm:text-[10px] font-semibold text-slate-900 uppercase tracking-wide mb-0.5 sm:mb-1">Work Days</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm sm:text-xl font-bold text-slate-900">{workingDaysPerWeek}</span>
+                        <span className="text-[7px] sm:text-[9px] text-navy-600 bg-navy-50 px-1 sm:px-1.5 py-px sm:py-0.5 rounded font-medium">per week</span>
+                      </div>
+                    </div>
+                    {/* Upcoming Leaves */}
+                    <div className="bg-white rounded-lg border border-slate-200 p-1.5 sm:p-2.5">
+                      <p className="text-[8px] sm:text-[10px] font-semibold text-slate-900 uppercase tracking-wide mb-0.5 sm:mb-1">Upcoming Leaves</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm sm:text-xl font-bold text-slate-900">{totalUpcomingLeaves}</span>
+                        <span className="text-[7px] sm:text-[9px] text-navy-600 bg-navy-50 px-1 sm:px-1.5 py-px sm:py-0.5 rounded font-medium">scheduled</span>
+                      </div>
+                    </div>
+                    {/* Licenses Assigned */}
+                    <div className="bg-white rounded-lg border border-slate-200 p-1.5 sm:p-2.5">
+                      <p className="text-[8px] sm:text-[10px] font-semibold text-slate-900 uppercase tracking-wide mb-0.5 sm:mb-1">Licenses</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm sm:text-xl font-bold text-slate-900">{stats.licensesUsed}/{stats.licensesTotal}</span>
+                        <span className="text-[7px] sm:text-[9px] text-navy-600 bg-navy-50 px-1 sm:px-1.5 py-px sm:py-0.5 rounded font-medium">assigned</span>
+                      </div>
+                    </div>
+                    {/* Patients Seen This Week */}
+                    <div className="bg-white rounded-lg border border-slate-200 p-1.5 sm:p-2.5">
+                      <p className="text-[8px] sm:text-[10px] font-semibold text-slate-900 uppercase tracking-wide mb-0.5 sm:mb-1">Patients Seen</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm sm:text-xl font-bold text-slate-900">{doctorPatientsThisWeek}</span>
+                        <span className="text-[7px] sm:text-[9px] text-navy-600 bg-navy-50 px-1 sm:px-1.5 py-px sm:py-0.5 rounded font-medium">this week</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
