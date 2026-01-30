@@ -52,7 +52,7 @@ export class StaffController {
     if (!hospitalId) {
       throw new BadRequestException('x-hospital-id header is required');
     }
-    return this.staffService.getHospitalStaff(hospitalId, req.accessToken);
+    return this.staffService.getHospitalStaff(hospitalId, req.accessToken, req.scopingContext);
   }
 
   /**
@@ -64,7 +64,7 @@ export class StaffController {
     @Param('hospitalId') hospitalId: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.staffService.getHospitalStaff(hospitalId, req.accessToken);
+    return this.staffService.getHospitalStaff(hospitalId, req.accessToken, req.scopingContext);
   }
 
   /**

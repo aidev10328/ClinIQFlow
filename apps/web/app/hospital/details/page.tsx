@@ -622,6 +622,12 @@ function HospitalAdministrationContent() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur }).format(amt);
   }
 
+  // Consistent form field styles — prevents layout shift between view/edit modes
+  const fieldClass = (editing: boolean) =>
+    `w-full px-2 py-1.5 text-xs border border-slate-200 rounded ${editing ? 'bg-white focus:outline-none focus:ring-1 focus:ring-navy-500' : 'bg-slate-50 text-slate-700 cursor-default'}`;
+  const selectFieldClass = (editing: boolean) =>
+    `w-full px-2 py-1.5 text-xs border border-slate-200 rounded ${editing ? 'bg-white focus:outline-none focus:ring-1 focus:ring-navy-500' : 'bg-slate-50 text-slate-700 cursor-default opacity-100'}`;
+
   // ─── RENDER ──────────────────────────────────────────────────────────────────
   const tabs = [
     { id: 'details' as TabType, label: 'Hospital Details' },
@@ -688,19 +694,18 @@ function HospitalAdministrationContent() {
               )}
             </div>
             <div className="p-3">
-            {generalEditMode ? (
               <div className="space-y-2">
                 {/* Images */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500 mb-1 block">Logo</label>
-                    <div onClick={() => logoInputRef.current?.click()} className="h-16 border-2 border-dashed border-slate-200 rounded cursor-pointer flex items-center justify-center hover:border-slate-400 transition-colors overflow-hidden">
+                    <div onClick={() => generalEditMode && logoInputRef.current?.click()} className={`h-16 border-2 border-dashed rounded flex items-center justify-center transition-colors overflow-hidden ${generalEditMode ? 'border-slate-200 cursor-pointer hover:border-slate-400' : 'border-slate-100 cursor-default bg-slate-50'}`}>
                       {logoPreview ? (
                         <img src={logoPreview} alt="Logo" className="h-full w-full object-contain" />
                       ) : (
                         <div className="text-center">
                           <svg className="w-4 h-4 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                          <p className="text-[9px] text-slate-400 mt-0.5">Upload</p>
+                          <p className="text-[9px] text-slate-400 mt-0.5">{generalEditMode ? 'Upload' : 'No logo'}</p>
                         </div>
                       )}
                     </div>
@@ -708,13 +713,13 @@ function HospitalAdministrationContent() {
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-500 mb-1 block">Hospital Picture</label>
-                    <div onClick={() => pictureInputRef.current?.click()} className="h-16 border-2 border-dashed border-slate-200 rounded cursor-pointer flex items-center justify-center hover:border-slate-400 transition-colors overflow-hidden">
+                    <div onClick={() => generalEditMode && pictureInputRef.current?.click()} className={`h-16 border-2 border-dashed rounded flex items-center justify-center transition-colors overflow-hidden ${generalEditMode ? 'border-slate-200 cursor-pointer hover:border-slate-400' : 'border-slate-100 cursor-default bg-slate-50'}`}>
                       {picturePreview ? (
                         <img src={picturePreview} alt="Hospital" className="h-full w-full object-contain" />
                       ) : (
                         <div className="text-center">
                           <svg className="w-4 h-4 text-slate-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                          <p className="text-[9px] text-slate-400 mt-0.5">Upload</p>
+                          <p className="text-[9px] text-slate-400 mt-0.5">{generalEditMode ? 'Upload' : 'No image'}</p>
                         </div>
                       )}
                     </div>
@@ -725,21 +730,21 @@ function HospitalAdministrationContent() {
                 {/* Hospital Name */}
                 <div>
                   <label className="text-[10px] font-bold text-slate-600">Hospital Name <span className="text-red-500">*</span></label>
-                  <input value={hospital.name || ''} onChange={e => setHospital({ ...hospital, name: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  <input value={hospital.name || ''} onChange={e => setHospital({ ...hospital, name: e.target.value })} readOnly={!generalEditMode} className={fieldClass(generalEditMode)} />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500">Phone</label>
-                    <PhoneInput value={hospital.phone || ''} onChange={(value) => setHospital({ ...hospital, phone: value })} placeholder="Phone number" />
+                    <PhoneInput value={hospital.phone || ''} onChange={(value) => setHospital({ ...hospital, phone: value })} placeholder="Phone number" disabled={!generalEditMode} />
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-500">Email</label>
-                    <input value={hospital.email || ''} onChange={e => setHospital({ ...hospital, email: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    <input value={hospital.email || ''} onChange={e => setHospital({ ...hospital, email: e.target.value })} readOnly={!generalEditMode} className={fieldClass(generalEditMode)} />
                   </div>
                 </div>
                 <div>
                   <label className="text-[10px] text-slate-500">Website</label>
-                  <input value={hospital.website || ''} onChange={e => setHospital({ ...hospital, website: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  <input value={hospital.website || ''} onChange={e => setHospital({ ...hospital, website: e.target.value })} readOnly={!generalEditMode} className={fieldClass(generalEditMode)} />
                 </div>
 
                 {/* Address Section */}
@@ -748,16 +753,16 @@ function HospitalAdministrationContent() {
                   <div className="space-y-2">
                     <div>
                       <label className="text-[10px] font-bold text-slate-600">Street Address <span className="text-red-500">*</span></label>
-                      <input value={hospital.addressLine1 || ''} onChange={e => setHospital({ ...hospital, addressLine1: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <input value={hospital.addressLine1 || ''} onChange={e => setHospital({ ...hospital, addressLine1: e.target.value })} readOnly={!generalEditMode} className={fieldClass(generalEditMode)} />
                     </div>
                     <div>
                       <label className="text-[10px] text-slate-500">Address Line 2</label>
-                      <input value={hospital.addressLine2 || ''} onChange={e => setHospital({ ...hospital, addressLine2: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <input value={hospital.addressLine2 || ''} onChange={e => setHospital({ ...hospital, addressLine2: e.target.value })} readOnly={!generalEditMode} className={fieldClass(generalEditMode)} />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">Country <span className="text-red-500">*</span></label>
-                        <select value={hospital.country || ''} onChange={e => setHospital({ ...hospital, country: e.target.value, state: '' })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                        <select value={hospital.country || ''} onChange={e => setHospital({ ...hospital, country: e.target.value, state: '' })} disabled={!generalEditMode} className={selectFieldClass(generalEditMode)}>
                           <option value="">Select Country</option>
                           {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                         </select>
@@ -765,50 +770,28 @@ function HospitalAdministrationContent() {
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">State <span className="text-red-500">*</span></label>
                         {getStatesForCountry(hospital.country || '').length > 0 ? (
-                          <select value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                          <select value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} disabled={!generalEditMode} className={selectFieldClass(generalEditMode)}>
                             <option value="">Select State</option>
                             {getStatesForCountry(hospital.country || '').map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                           </select>
                         ) : (
-                          <input value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} placeholder="State/Province" required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                          <input value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} readOnly={!generalEditMode} placeholder="State/Province" className={fieldClass(generalEditMode)} />
                         )}
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">City <span className="text-red-500">*</span></label>
-                        <input value={hospital.city || ''} onChange={e => setHospital({ ...hospital, city: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                        <input value={hospital.city || ''} onChange={e => setHospital({ ...hospital, city: e.target.value })} readOnly={!generalEditMode} className={fieldClass(generalEditMode)} />
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">Postal Code <span className="text-red-500">*</span></label>
-                        <input value={hospital.postal || ''} onChange={e => setHospital({ ...hospital, postal: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                        <input value={hospital.postal || ''} onChange={e => setHospital({ ...hospital, postal: e.target.value })} readOnly={!generalEditMode} className={fieldClass(generalEditMode)} />
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-1.5 text-[11px]">
-                {(hospital.logoUrl || hospital.pictureUrl) && (
-                  <div className="flex gap-2 mb-2">
-                    {hospital.logoUrl && <img src={hospital.logoUrl} alt="Logo" className="w-10 h-10 rounded object-cover border border-slate-200" />}
-                    {hospital.pictureUrl && <img src={hospital.pictureUrl} alt="Hospital" className="w-10 h-10 rounded object-cover border border-slate-200" />}
-                  </div>
-                )}
-                <div><span className="text-slate-500 w-16 inline-block font-semibold">Name *</span><span className="text-slate-700 font-medium">{hospital.name || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Phone</span><span className="text-slate-700">{hospital.phone || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Email</span><span className="text-slate-700">{hospital.email || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Website</span>{hospital.website ? <a href={hospital.website} className="text-navy-600 hover:underline">{hospital.website}</a> : <span className="text-slate-700">—</span>}</div>
-                <div className="border-t border-slate-100 pt-1.5 mt-1.5">
-                  <div><span className="text-slate-500 w-16 inline-block font-semibold">Street *</span><span className="text-slate-700">{hospital.addressLine1 || '—'}</span></div>
-                  {hospital.addressLine2 && <div><span className="text-slate-400 w-16 inline-block">Line 2</span><span className="text-slate-700">{hospital.addressLine2}</span></div>}
-                  <div><span className="text-slate-500 w-16 inline-block font-semibold">City *</span><span className="text-slate-700">{hospital.city || '—'}</span></div>
-                  <div><span className="text-slate-500 w-16 inline-block font-semibold">State *</span><span className="text-slate-700">{displayState(hospital.country || '', hospital.state || '') || '—'}</span></div>
-                  <div><span className="text-slate-500 w-16 inline-block font-semibold">Postal *</span><span className="text-slate-700">{hospital.postal || '—'}</span></div>
-                  <div><span className="text-slate-500 w-16 inline-block font-semibold">Country *</span><span className="text-slate-700">{displayCountry(hospital.country || '') || '—'}</span></div>
-                </div>
-              </div>
-            )}
             </div>
           </div>
 
@@ -829,32 +812,34 @@ function HospitalAdministrationContent() {
               )}
             </div>
             <div className="p-3">
-            {billingAddressEditMode ? (
               <div className="space-y-2">
-                <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
-                  <input type="checkbox" checked={sameAsHospitalAddress} onChange={e => {
-                    const checked = e.target.checked;
-                    setSameAsHospitalAddress(checked);
-                    if (checked) {
-                      setHospital(h => ({ ...h, billingAddressLine1: h.addressLine1, billingAddressLine2: h.addressLine2, billingCity: h.city, billingState: h.state, billingPostal: h.postal, billingCountry: h.country }));
-                    }
-                  }} className="w-3 h-3 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
-                  <span className="font-medium">Same as hospital address</span>
-                </label>
-                {!sameAsHospitalAddress && (
+                {billingAddressEditMode && (
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={sameAsHospitalAddress} onChange={e => {
+                      const checked = e.target.checked;
+                      setSameAsHospitalAddress(checked);
+                      if (checked) {
+                        setHospital(h => ({ ...h, billingAddressLine1: h.addressLine1, billingAddressLine2: h.addressLine2, billingCity: h.city, billingState: h.state, billingPostal: h.postal, billingCountry: h.country }));
+                      }
+                    }} className="w-3 h-3 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+                    <span className="font-medium">Same as hospital address</span>
+                  </label>
+                )}
+                {!billingAddressEditMode && sameAsHospitalAddress && <span className="text-[9px] text-emerald-600 font-medium">Same as hospital address</span>}
+                {!(billingAddressEditMode && sameAsHospitalAddress) && (
                   <>
                     <div>
                       <label className="text-[10px] font-bold text-slate-600">Street Address <span className="text-red-500">*</span></label>
-                      <input value={hospital.billingAddressLine1 || ''} onChange={e => setHospital({ ...hospital, billingAddressLine1: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <input value={hospital.billingAddressLine1 || ''} onChange={e => setHospital({ ...hospital, billingAddressLine1: e.target.value })} readOnly={!billingAddressEditMode} className={fieldClass(billingAddressEditMode)} />
                     </div>
                     <div>
                       <label className="text-[10px] text-slate-500">Address Line 2</label>
-                      <input value={hospital.billingAddressLine2 || ''} onChange={e => setHospital({ ...hospital, billingAddressLine2: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <input value={hospital.billingAddressLine2 || ''} onChange={e => setHospital({ ...hospital, billingAddressLine2: e.target.value })} readOnly={!billingAddressEditMode} className={fieldClass(billingAddressEditMode)} />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">Country <span className="text-red-500">*</span></label>
-                        <select value={hospital.billingCountry || ''} onChange={e => setHospital({ ...hospital, billingCountry: e.target.value, billingState: '' })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                        <select value={hospital.billingCountry || ''} onChange={e => setHospital({ ...hospital, billingCountry: e.target.value, billingState: '' })} disabled={!billingAddressEditMode} className={selectFieldClass(billingAddressEditMode)}>
                           <option value="">Select Country</option>
                           {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
                         </select>
@@ -862,39 +847,28 @@ function HospitalAdministrationContent() {
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">State <span className="text-red-500">*</span></label>
                         {getStatesForCountry(hospital.billingCountry || '').length > 0 ? (
-                          <select value={hospital.billingState || ''} onChange={e => setHospital({ ...hospital, billingState: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                          <select value={hospital.billingState || ''} onChange={e => setHospital({ ...hospital, billingState: e.target.value })} disabled={!billingAddressEditMode} className={selectFieldClass(billingAddressEditMode)}>
                             <option value="">Select State</option>
                             {getStatesForCountry(hospital.billingCountry || '').map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
                           </select>
                         ) : (
-                          <input value={hospital.billingState || ''} onChange={e => setHospital({ ...hospital, billingState: e.target.value })} placeholder="State/Province" required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                          <input value={hospital.billingState || ''} onChange={e => setHospital({ ...hospital, billingState: e.target.value })} readOnly={!billingAddressEditMode} placeholder="State/Province" className={fieldClass(billingAddressEditMode)} />
                         )}
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">City <span className="text-red-500">*</span></label>
-                        <input value={hospital.billingCity || ''} onChange={e => setHospital({ ...hospital, billingCity: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                        <input value={hospital.billingCity || ''} onChange={e => setHospital({ ...hospital, billingCity: e.target.value })} readOnly={!billingAddressEditMode} className={fieldClass(billingAddressEditMode)} />
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-600">Postal Code <span className="text-red-500">*</span></label>
-                        <input value={hospital.billingPostal || ''} onChange={e => setHospital({ ...hospital, billingPostal: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                        <input value={hospital.billingPostal || ''} onChange={e => setHospital({ ...hospital, billingPostal: e.target.value })} readOnly={!billingAddressEditMode} className={fieldClass(billingAddressEditMode)} />
                       </div>
                     </div>
                   </>
                 )}
               </div>
-            ) : (
-              <div className="space-y-1.5 text-[11px]">
-                {sameAsHospitalAddress && <span className="text-[9px] text-emerald-600 font-medium">Same as hospital address</span>}
-                <div><span className="text-slate-500 w-16 inline-block font-semibold">Street *</span><span className="text-slate-700">{hospital.billingAddressLine1 || '—'}</span></div>
-                {hospital.billingAddressLine2 && <div><span className="text-slate-400 w-16 inline-block">Line 2</span><span className="text-slate-700">{hospital.billingAddressLine2}</span></div>}
-                <div><span className="text-slate-500 w-16 inline-block font-semibold">City *</span><span className="text-slate-700">{hospital.billingCity || '—'}</span></div>
-                <div><span className="text-slate-500 w-16 inline-block font-semibold">State *</span><span className="text-slate-700">{displayState(hospital.billingCountry || '', hospital.billingState || '') || '—'}</span></div>
-                <div><span className="text-slate-500 w-16 inline-block font-semibold">Postal *</span><span className="text-slate-700">{hospital.billingPostal || '—'}</span></div>
-                <div><span className="text-slate-500 w-16 inline-block font-semibold">Country *</span><span className="text-slate-700">{displayCountry(hospital.billingCountry || '') || '—'}</span></div>
-              </div>
-            )}
             </div>
           </div>
 
@@ -915,22 +889,21 @@ function HospitalAdministrationContent() {
               )}
             </div>
             <div className="p-3">
-            {classificationEditMode ? (
               <div className="space-y-2">
                 <div>
                   <label className="text-[10px] font-bold text-slate-600">Hospital Type <span className="text-red-500">*</span></label>
-                  <select value={hospital.hospitalType || ''} onChange={e => setHospital({ ...hospital, hospitalType: e.target.value })} required className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                  <select value={hospital.hospitalType || ''} onChange={e => setHospital({ ...hospital, hospitalType: e.target.value })} disabled={!classificationEditMode} className={selectFieldClass(classificationEditMode)}>
                     <option value="">Select Hospital Type</option>
                     {hospitalTypeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
                 {specializations.length > 0 && (
                   <div>
-                    <label className="text-[10px] font-bold text-slate-600">Specialties <span className="text-red-500">*</span> <span className="font-normal text-slate-400">(select at least one)</span></label>
-                    <div className="max-h-[100px] overflow-auto border border-slate-200 rounded p-1.5 space-y-1 mt-1">
+                    <label className="text-[10px] font-bold text-slate-600">Specialties <span className="text-red-500">*</span> {classificationEditMode && <span className="font-normal text-slate-400">(select at least one)</span>}</label>
+                    <div className={`max-h-[100px] overflow-auto border border-slate-200 rounded p-1.5 space-y-1 mt-1 ${!classificationEditMode ? 'bg-slate-50' : ''}`}>
                       {specializations.map(s => (
-                        <label key={s.id} className="flex items-center gap-1.5 text-[11px] text-slate-700 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded">
-                          <input type="checkbox" checked={selectedSpecialtyIds.includes(s.id)} onChange={e => { if (e.target.checked) setSelectedSpecialtyIds([...selectedSpecialtyIds, s.id]); else setSelectedSpecialtyIds(selectedSpecialtyIds.filter(id => id !== s.id)); }} className="w-3 h-3 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
+                        <label key={s.id} className={`flex items-center gap-1.5 text-[11px] text-slate-700 px-1 py-0.5 rounded ${classificationEditMode ? 'cursor-pointer hover:bg-slate-50' : 'cursor-default'}`}>
+                          <input type="checkbox" checked={selectedSpecialtyIds.includes(s.id)} onChange={e => { if (classificationEditMode) { if (e.target.checked) setSelectedSpecialtyIds([...selectedSpecialtyIds, s.id]); else setSelectedSpecialtyIds(selectedSpecialtyIds.filter(id => id !== s.id)); } }} disabled={!classificationEditMode} className="w-3 h-3 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]" />
                           {s.name}
                         </label>
                       ))}
@@ -938,23 +911,6 @@ function HospitalAdministrationContent() {
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="space-y-1.5 text-[11px]">
-                <div><span className="text-slate-500 w-16 inline-block font-semibold">Type *</span><span className="text-slate-700">{hospitalTypeOptions.find(t => t.value === hospital.hospitalType)?.label || hospital.hospitalType || '—'}</span></div>
-                <div>
-                  <span className="text-slate-500 font-semibold block mb-1">Specialties *</span>
-                  {hospital.specialties && hospital.specialties.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {hospital.specialties.map(s => (
-                        <span key={s.id} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] font-medium rounded">{s.name}</span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-slate-700">—</span>
-                  )}
-                </div>
-              </div>
-            )}
             </div>
           </div>
 
@@ -975,66 +931,49 @@ function HospitalAdministrationContent() {
               )}
             </div>
             <div className="p-3">
-            {legalComplianceEditMode ? (
               <div className="space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500">Legal Entity Name</label>
-                    <input value={hospital.legalEntityName || ''} onChange={e => setHospital({ ...hospital, legalEntityName: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    <input value={hospital.legalEntityName || ''} onChange={e => setHospital({ ...hospital, legalEntityName: e.target.value })} readOnly={!legalComplianceEditMode} className={fieldClass(legalComplianceEditMode)} />
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-500">Billing Contact Email</label>
-                    <input type="email" value={hospital.billingContactEmail || ''} onChange={e => setHospital({ ...hospital, billingContactEmail: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    <input type="email" value={hospital.billingContactEmail || ''} onChange={e => setHospital({ ...hospital, billingContactEmail: e.target.value })} readOnly={!legalComplianceEditMode} className={fieldClass(legalComplianceEditMode)} />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label className="text-[10px] text-slate-500">Tax ID Type</label>
-                    <select value={hospital.taxIdType || ''} onChange={e => setHospital({ ...hospital, taxIdType: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                    <select value={hospital.taxIdType || ''} onChange={e => setHospital({ ...hospital, taxIdType: e.target.value })} disabled={!legalComplianceEditMode} className={selectFieldClass(legalComplianceEditMode)}>
                       <option value="">Select Type</option>
                       {availableTaxIdTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="text-[10px] text-slate-500">Tax ID Value</label>
-                    <input value={hospital.taxIdValue || ''} onChange={e => setHospital({ ...hospital, taxIdValue: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    <input value={hospital.taxIdValue || ''} onChange={e => setHospital({ ...hospital, taxIdValue: e.target.value })} readOnly={!legalComplianceEditMode} className={fieldClass(legalComplianceEditMode)} />
                   </div>
                 </div>
                 <div className="border-t border-slate-100 pt-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[10px] text-slate-500">Stores PHI</label>
-                    <button type="button" onClick={() => setHospital({ ...hospital, storesPhi: !hospital.storesPhi })} className={`relative w-9 h-5 rounded-full transition-colors ${hospital.storesPhi ? 'bg-[var(--color-primary)]' : 'bg-slate-300'}`}>
+                    <button type="button" onClick={() => legalComplianceEditMode && setHospital({ ...hospital, storesPhi: !hospital.storesPhi })} className={`relative w-9 h-5 rounded-full transition-colors ${hospital.storesPhi ? 'bg-[var(--color-primary)]' : 'bg-slate-300'} ${!legalComplianceEditMode ? 'cursor-default opacity-70' : 'cursor-pointer'}`}>
                       <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${hospital.storesPhi ? 'translate-x-4' : ''}`} />
                     </button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="text-[10px] text-slate-500">Patient Volume (monthly)</label>
-                      <input type="number" min="0" value={hospital.estimatedPatientVolume ?? ''} onChange={e => setHospital({ ...hospital, estimatedPatientVolume: e.target.value ? parseInt(e.target.value) : undefined })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <input type="number" min="0" value={hospital.estimatedPatientVolume ?? ''} onChange={e => setHospital({ ...hospital, estimatedPatientVolume: e.target.value ? parseInt(e.target.value) : undefined })} readOnly={!legalComplianceEditMode} className={fieldClass(legalComplianceEditMode)} />
                     </div>
                     <div>
                       <label className="text-[10px] text-slate-500">Data Retention (days)</label>
-                      <input type="number" min="1" value={hospital.dataRetentionDays ?? ''} onChange={e => setHospital({ ...hospital, dataRetentionDays: e.target.value ? parseInt(e.target.value) : undefined })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <input type="number" min="1" value={hospital.dataRetentionDays ?? ''} onChange={e => setHospital({ ...hospital, dataRetentionDays: e.target.value ? parseInt(e.target.value) : undefined })} readOnly={!legalComplianceEditMode} className={fieldClass(legalComplianceEditMode)} />
                     </div>
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-1.5 text-[11px]">
-                <div><span className="text-slate-400 w-20 inline-block">Entity</span><span className="text-slate-700">{hospital.legalEntityName || '—'}</span></div>
-                <div><span className="text-slate-400 w-20 inline-block">Tax ID Type</span><span className="text-slate-700">{hospital.taxIdType || '—'}</span></div>
-                <div><span className="text-slate-400 w-20 inline-block">Tax ID</span><span className="text-slate-700">{hospital.taxIdValue || '—'}</span></div>
-                <div><span className="text-slate-400 w-20 inline-block">Billing Email</span><span className="text-slate-700">{hospital.billingContactEmail || '—'}</span></div>
-                <div className="border-t border-slate-100 pt-1.5 mt-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Stores PHI</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${hospital.storesPhi ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{hospital.storesPhi ? 'Yes' : 'No'}</span>
-                  </div>
-                  <div><span className="text-slate-400 w-20 inline-block">Patient Vol.</span><span className="text-slate-700">{hospital.estimatedPatientVolume != null ? hospital.estimatedPatientVolume.toLocaleString() + '/mo' : '—'}</span></div>
-                  <div><span className="text-slate-400 w-20 inline-block">Retention</span><span className="text-slate-700">{hospital.dataRetentionDays != null ? hospital.dataRetentionDays + ' days' : '—'}</span></div>
-                </div>
-              </div>
-            )}
             </div>
           </div>
 

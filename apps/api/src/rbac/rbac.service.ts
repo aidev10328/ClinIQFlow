@@ -627,11 +627,107 @@ export class RbacService {
   // =============================================
 
   async getRoles(): Promise<{ role: string; name: string; isSystem: boolean }[]> {
-    // Return system roles
     return [
       { role: 'SUPER_ADMIN', name: 'Super Admin', isSystem: true },
       { role: 'HOSPITAL_MANAGER', name: 'Hospital Manager', isSystem: true },
+      { role: 'HOSPITAL_STAFF', name: 'Hospital Staff', isSystem: true },
       { role: 'DOCTOR', name: 'Doctor', isSystem: true },
+      { role: 'PATIENT', name: 'Patient', isSystem: true },
+      { role: 'SALES_MANAGER', name: 'Sales Manager', isSystem: true },
+      { role: 'SALES_PERSONNEL', name: 'Sales Personnel', isSystem: true },
+      { role: 'CUSTOMER_SERVICE_MANAGER', name: 'CS Manager', isSystem: true },
+      { role: 'CUSTOMER_SERVICE_PERSONNEL', name: 'CS Personnel', isSystem: true },
     ];
   }
+
+  // =============================================
+  // Resource Tree (hierarchical)
+  // =============================================
+
+  async getResourcesTree(accessToken: string): Promise<{
+    hospital: ResourceTreeNode[];
+    admin: ResourceTreeNode[];
+  }> {
+    const cached = this.getCached<{ hospital: ResourceTreeNode[]; admin: ResourceTreeNode[] }>('resources_tree');
+    if (cached) return cached;
+
+    const supabase = this.supabaseService.getClientWithToken(accessToken);
+
+    const { data: resources, error } = await supabase
+      .from('rbac_resources')
+      .select('id, code, name, description, category, element_type, parent_code, sort_order')
+      .eq('is_active', true)
+      .order('sort_order');
+
+    if (error) {
+      this.logger.error(`Failed to fetch resources tree: ${error.message}`);
+      throw new BadRequestException('Failed to fetch resources tree');
+    }
+
+    // Fetch actions for all resources
+    const { data: actions } = await supabase
+      .from('rbac_resource_actions')
+      .select('resource_id, action')
+      .eq('is_active', true);
+
+    const actionMap = new Map<string, string[]>();
+    for (const a of (actions || [])) {
+      const existing = actionMap.get(a.resource_id) || [];
+      existing.push(a.action);
+      actionMap.set(a.resource_id, existing);
+    }
+
+    // Build flat map
+    const nodeMap = new Map<string, ResourceTreeNode>();
+    for (const r of (resources || [])) {
+      nodeMap.set(r.code, {
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        description: r.description,
+        category: r.category,
+        elementType: r.element_type || 'page',
+        parentCode: r.parent_code,
+        sortOrder: r.sort_order,
+        actions: actionMap.get(r.id) || ['view'],
+        children: [],
+      });
+    }
+
+    // Build tree
+    const hospital: ResourceTreeNode[] = [];
+    const admin: ResourceTreeNode[] = [];
+
+    for (const r of (resources || [])) {
+      const node = nodeMap.get(r.code);
+      if (!node) continue;
+
+      if (r.parent_code && nodeMap.has(r.parent_code)) {
+        nodeMap.get(r.parent_code)!.children.push(node);
+      } else if (!r.parent_code) {
+        if (r.category === 'admin') {
+          admin.push(node);
+        } else {
+          hospital.push(node);
+        }
+      }
+    }
+
+    const result = { hospital, admin };
+    this.setCache('resources_tree', result);
+    return result;
+  }
+}
+
+export interface ResourceTreeNode {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  category: string;
+  elementType: string;
+  parentCode: string | null;
+  sortOrder: number;
+  actions: string[];
+  children: ResourceTreeNode[];
 }

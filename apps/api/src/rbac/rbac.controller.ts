@@ -38,6 +38,11 @@ export class RbacController {
     return this.rbacService.getResources(req.accessToken);
   }
 
+  @Get('resources/tree')
+  async getResourcesTree(@Req() req: AuthenticatedRequest) {
+    return this.rbacService.getResourcesTree(req.accessToken);
+  }
+
   // =============================================
   // Roles
   // =============================================

@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { SupabaseService } from './supabase.service';
+import { DataScopingContext } from '../data-scoping/dto/data-scoping.dto';
 
 export interface AuthenticatedRequest extends Request {
   user: {
@@ -15,6 +16,7 @@ export interface AuthenticatedRequest extends Request {
   };
   accessToken: string;
   hospitalId?: string;
+  scopingContext?: DataScopingContext | null;
   // Impersonation fields
   isImpersonating?: boolean;
   originalUser?: {

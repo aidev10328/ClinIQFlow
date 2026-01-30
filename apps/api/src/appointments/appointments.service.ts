@@ -6,6 +6,8 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { DataScopingContext } from '../data-scoping/dto/data-scoping.dto';
+import { getVisibleDoctorProfileIds, getScopeType } from '../data-scoping/scoping.utils';
 import {
   GenerateSlotsDto,
   GetSlotsQueryDto,
@@ -661,13 +663,17 @@ export class AppointmentsService {
   }
 
   /**
-   * Get appointments list
+   * Get appointments list, filtered by data scoping context
    */
   async getAppointments(
     query: GetAppointmentsQueryDto,
     hospitalId: string,
     accessToken: string,
+    scopingContext?: DataScopingContext | null,
   ): Promise<AppointmentResponseDto[]> {
+    const scope = getScopeType(scopingContext, 'appointments');
+    if (scope === 'none') return [];
+
     const adminClient = this.supabaseService.getAdminClient();
     if (!adminClient) {
       throw new BadRequestException('Admin client not available');
@@ -679,6 +685,18 @@ export class AppointmentsService {
       .eq('hospital_id', hospitalId)
       .order('appointment_date', { ascending: true })
       .order('start_time', { ascending: true });
+
+    // Apply scoping filter on doctor_profile_id if not full access
+    if (scope === 'by_doctor_scope' || scope === 'self_only') {
+      const visibleIds = getVisibleDoctorProfileIds(scopingContext);
+      if (visibleIds && visibleIds.length > 0) {
+        queryBuilder = queryBuilder.in('doctor_profile_id', visibleIds);
+      } else if (scopingContext?.doctorProfileId) {
+        queryBuilder = queryBuilder.eq('doctor_profile_id', scopingContext.doctorProfileId);
+      } else {
+        return [];
+      }
+    }
 
     if (query.doctorProfileId) {
       queryBuilder = queryBuilder.eq('doctor_profile_id', query.doctorProfileId);
@@ -930,26 +948,21 @@ export class AppointmentsService {
   }
 
   /**
-   * Get doctors with appointments license for dropdown
+   * Get doctors with appointments license for dropdown, filtered by scoping context
    */
   async getDoctorsWithLicense(
     hospitalId: string,
     userId: string,
     accessToken: string,
+    scopingContext?: DataScopingContext | null,
   ): Promise<any[]> {
     const adminClient = this.supabaseService.getAdminClient();
     if (!adminClient) {
       throw new BadRequestException('Admin client not available');
     }
 
-    // Get the user's role and assigned doctors (for staff)
-    const { data: membership } = await adminClient
-      .from('hospital_memberships')
-      .select('role, assigned_doctor_ids')
-      .eq('hospital_id', hospitalId)
-      .eq('user_id', userId)
-      .eq('status', 'ACTIVE')
-      .single();
+    const scope = getScopeType(scopingContext, 'doctors');
+    if (scope === 'none') return [];
 
     // Get APPOINTMENTS product ID
     const { data: product } = await adminClient
@@ -1001,9 +1014,10 @@ export class AppointmentsService {
       appointmentDurationMinutes: d.appointment_duration_minutes || 30,
     }));
 
-    // If staff, filter to assigned doctors only
-    if (membership?.role === 'STAFF' && membership.assigned_doctor_ids) {
-      doctors = doctors.filter((d) => membership.assigned_doctor_ids.includes(d.userId));
+    // Apply data scoping filter instead of ad-hoc role check
+    const visibleDoctorIds = getVisibleDoctorProfileIds(scopingContext);
+    if (visibleDoctorIds) {
+      doctors = doctors.filter((d) => visibleDoctorIds.includes(d.id));
     }
 
     return doctors;

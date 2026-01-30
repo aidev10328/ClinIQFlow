@@ -5,21 +5,80 @@ import {
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
+import { DataScopingContext } from '../data-scoping/dto/data-scoping.dto';
+import { getVisibleDoctorProfileIds, getScopeType } from '../data-scoping/scoping.utils';
 
 @Injectable()
 export class PatientsService {
   constructor(private readonly supabase: SupabaseService) {}
 
   /**
-   * Get all patients for a hospital
+   * Get all patients for a hospital, filtered by data scoping context
    */
-  async getPatients(hospitalId: string, accessToken: string) {
+  async getPatients(hospitalId: string, accessToken: string, scopingContext?: DataScopingContext | null) {
+    const scope = getScopeType(scopingContext, 'patients');
+
+    if (scope === 'none') return [];
+
+    if (scope === 'self_record' && scopingContext?.patientId) {
+      return this.getPatientsByIds(hospitalId, [scopingContext.patientId]);
+    }
+
+    // by_doctor_scope — get patients linked to visible doctors via appointments
+    if (scope === 'by_doctor_scope') {
+      const visibleDoctorIds = getVisibleDoctorProfileIds(scopingContext);
+      if (visibleDoctorIds && visibleDoctorIds.length > 0) {
+        return this.getPatientsByDoctorScope(hospitalId, visibleDoctorIds);
+      }
+      return [];
+    }
+
+    // all_hospital or fallback — no filtering
+    return this.getAllPatients(hospitalId, accessToken);
+  }
+
+  private async getAllPatients(hospitalId: string, accessToken: string) {
     const client = this.supabase.getClientWithToken(accessToken);
 
     const { data, error } = await client
       .from('patients')
       .select('*')
       .eq('hospital_id', hospitalId)
+      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true });
+
+    if (error) {
+      throw new ForbiddenException(error.message);
+    }
+
+    return (data || []).map(this.mapPatient);
+  }
+
+  private async getPatientsByDoctorScope(hospitalId: string, doctorProfileIds: string[]) {
+    const adminClient = this.supabase.getAdminClient();
+    if (!adminClient) return [];
+
+    const { data: appointments } = await adminClient
+      .from('appointments')
+      .select('patient_id')
+      .eq('hospital_id', hospitalId)
+      .in('doctor_profile_id', doctorProfileIds);
+
+    const patientIds = [...new Set((appointments || []).map((a: any) => a.patient_id))];
+    if (patientIds.length === 0) return [];
+
+    return this.getPatientsByIds(hospitalId, patientIds);
+  }
+
+  private async getPatientsByIds(hospitalId: string, patientIds: string[]) {
+    const adminClient = this.supabase.getAdminClient();
+    if (!adminClient) return [];
+
+    const { data, error } = await adminClient
+      .from('patients')
+      .select('*')
+      .eq('hospital_id', hospitalId)
+      .in('id', patientIds)
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true });
 

@@ -28,7 +28,7 @@ export class PatientsController {
     if (!hospitalId) {
       throw new BadRequestException('x-hospital-id header is required');
     }
-    return this.patientsService.getPatients(hospitalId, req.accessToken);
+    return this.patientsService.getPatients(hospitalId, req.accessToken, req.scopingContext);
   }
 
   /**

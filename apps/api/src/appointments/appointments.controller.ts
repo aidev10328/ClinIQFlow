@@ -224,6 +224,7 @@ export class AppointmentsController {
       query,
       hospitalId,
       req.accessToken,
+      req.scopingContext,
     );
   }
 
@@ -334,6 +335,7 @@ export class AppointmentsController {
       hospitalId,
       req.user.id,
       req.accessToken,
+      req.scopingContext,
     );
   }
 }

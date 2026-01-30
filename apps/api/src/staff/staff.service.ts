@@ -1,6 +1,8 @@
 import { Injectable, Logger, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { CreateStaffDto, UpdateStaffDto, ResetPasswordDto, StaffResponseDto } from './dto/staff.dto';
+import { DataScopingContext } from '../data-scoping/dto/data-scoping.dto';
+import { getVisibleDoctorUserIds, getScopeType } from '../data-scoping/scoping.utils';
 
 @Injectable()
 export class StaffService {
@@ -137,11 +139,17 @@ export class StaffService {
   }
 
   /**
-   * Get all staff members for a hospital
+   * Get all staff members for a hospital, filtered by data scoping context
    * Staff are users with STAFF role in hospital_memberships
    */
-  async getHospitalStaff(hospitalId: string, accessToken: string): Promise<StaffResponseDto[]> {
-    const supabase = this.supabaseService.getClientWithToken(accessToken);
+  async getHospitalStaff(
+    hospitalId: string,
+    accessToken: string,
+    scopingContext?: DataScopingContext | null,
+  ): Promise<StaffResponseDto[]> {
+    const scope = getScopeType(scopingContext, 'staff');
+    if (scope === 'none') return [];
+
     const adminClient = this.supabaseService.getAdminClient();
 
     if (!adminClient) {
@@ -165,8 +173,24 @@ export class StaffService {
       return [];
     }
 
+    // Apply "same_doctors" scoping: only show staff who share at least one assigned doctor
+    let filteredMemberships = memberships;
+    if (scope === 'same_doctors') {
+      const visibleDocUserIds = getVisibleDoctorUserIds(scopingContext);
+      if (visibleDocUserIds && visibleDocUserIds.length > 0) {
+        filteredMemberships = memberships.filter(m => {
+          const staffDoctors: string[] = m.assigned_doctor_ids || [];
+          return staffDoctors.some(id => visibleDocUserIds.includes(id));
+        });
+      } else {
+        return [];
+      }
+    }
+
+    if (filteredMemberships.length === 0) return [];
+
     // Get profiles for these users
-    const userIds = memberships.map(m => m.user_id);
+    const userIds = filteredMemberships.map(m => m.user_id);
     const { data: profiles } = await adminClient
       .from('profiles')
       .select('user_id, email, full_name, phone')
@@ -182,7 +206,7 @@ export class StaffService {
     // Map profiles to memberships
     const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
 
-    return memberships.map(m => {
+    return filteredMemberships.map(m => {
       const profile = profileMap.get(m.user_id);
       return {
         id: m.user_id,

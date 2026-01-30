@@ -246,6 +246,15 @@ export default function HospitalDashboardPage() {
   const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');
   if (userRole === 'DOCTOR') return <DoctorDashboard />;
 
+  // ─── Data Scoping Context ────────────────────────────────────────────────
+  const { data: scopingContext } = useApiQuery<{
+    role: string; isSuperAdmin: boolean;
+    visibleDoctorUserIds: string[]; visibleDoctorProfileIds: string[];
+    rules: Record<string, string>;
+  }>(['hospital', 'scoping-context'], '/v1/data-scoping/my-context');
+
+  const hasFullDoctorAccess = !scopingContext || scopingContext.isSuperAdmin || scopingContext.rules?.doctors === 'all_hospital';
+
   // ─── Data ────────────────────────────────────────────────────────────────
   const { data: members = [], isLoading: ml } = useApiQuery<any[]>(['hospital', 'members', 'compliance'], '/v1/hospitals/members/compliance');
   const { data: staffData = [], isLoading: sl } = useApiQuery<any[]>(['hospital', 'staff'], '/v1/staff');
@@ -299,9 +308,17 @@ export default function HospitalDashboardPage() {
     return { totalDoctors: docs.length, activeDoctors: active, pendingDoctors: pending, totalPatients: patients.length, totalStaff: tStaff, activeStaff: aStaff, licensesUsed: lUsed, licensesTotal: lTotal, pendingInvites: pInvites };
   }, [members, staffData, invites, patients, licenseStats]);
 
-  const doctorList = useMemo(() => members.filter((m: any) => m.role === 'DOCTOR').map((d: any) => ({
-    userId: d.userId, doctorProfileId: d.doctorProfileId || d.userId, name: d.fullName || d.email || 'Unknown', status: d.complianceStatus, specialty: d.specialty || '',
-  })), [members]);
+  const doctorList = useMemo(() => {
+    const allDocs = members.filter((m: any) => m.role === 'DOCTOR').map((d: any) => ({
+      userId: d.userId, doctorProfileId: d.doctorProfileId || d.userId, name: d.fullName || d.email || 'Unknown', status: d.complianceStatus, specialty: d.specialty || '',
+    }));
+    // Apply data scoping: filter to visible doctors only
+    if (hasFullDoctorAccess || !scopingContext?.visibleDoctorUserIds?.length) return allDocs;
+    return allDocs.filter((d: any) =>
+      scopingContext.visibleDoctorUserIds.includes(d.userId) ||
+      scopingContext.visibleDoctorProfileIds?.includes(d.doctorProfileId)
+    );
+  }, [members, scopingContext, hasFullDoctorAccess]);
 
   const hospitalNow = useMemo(() => getCurrentTime(), []);
 
@@ -337,6 +354,13 @@ export default function HospitalDashboardPage() {
   }, [queueData]);
 
   useEffect(() => { if (!selectedDoctorId && doctorList.length > 0) setSelectedDoctorId(doctorList[0].userId); }, [doctorList, selectedDoctorId]);
+
+  // Auto-select first doctor in chart filter for restricted users
+  useEffect(() => {
+    if (!hasFullDoctorAccess && !chartDoctorFilter && doctorList.length > 0) {
+      setChartDoctorFilter(doctorList[0].doctorProfileId || doctorList[0].userId);
+    }
+  }, [hasFullDoctorAccess, chartDoctorFilter, doctorList]);
 
   // ─── Chart data ──────────────────────────────────────────────────────────
   const apptTrendData = useMemo(() => {
@@ -717,7 +741,7 @@ export default function HospitalDashboardPage() {
                   value={chartDoctorFilter || ''}
                   onChange={(v) => setChartDoctorFilter(v || null)}
                   options={[
-                    { value: '', label: 'All Hospital' },
+                    ...(hasFullDoctorAccess ? [{ value: '', label: 'All Hospital' }] : []),
                     ...doctorList.map((d: any) => ({ value: d.doctorProfileId || d.userId, label: `Dr. ${d.name}` }))
                   ]}
                 />
@@ -761,7 +785,7 @@ export default function HospitalDashboardPage() {
                   value={chartDoctorFilter || ''}
                   onChange={(v) => setChartDoctorFilter(v || null)}
                   options={[
-                    { value: '', label: 'All Hospital' },
+                    ...(hasFullDoctorAccess ? [{ value: '', label: 'All Hospital' }] : []),
                     ...doctorList.map((d: any) => ({ value: d.doctorProfileId || d.userId, label: `Dr. ${d.name}` }))
                   ]}
                 />
@@ -788,7 +812,7 @@ export default function HospitalDashboardPage() {
         </div>
 
         {/* Right Column - Doctor Schedule */}
-        <div className="w-full lg:w-1/2 rounded-lg border-2 flex flex-col lg:min-h-0 lg:overflow-hidden" style={{ borderColor: '#1e3a5f', backgroundColor: '#f8f9fa' }}>
+        <div className="w-full lg:w-1/2 bg-white rounded-lg border border-slate-200 flex flex-col lg:min-h-0 lg:overflow-hidden">
           {/* Header — Title + Dropdown + Status Badge */}
           <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap items-center gap-1.5 flex-shrink-0">
             <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wide">DOCTOR SCHEDULE</h3>
@@ -819,7 +843,7 @@ export default function HospitalDashboardPage() {
               {/* Weekly Shifts — Table Layout */}
               <div className="flex-shrink-0">
                 {/* Week Navigation Header */}
-                <p className="text-[10px] font-semibold text-slate-900 uppercase tracking-wider mb-1">Dr. {selectedDocProfile?.name?.split(' ')[0] || ''}&apos;s Weekly Shifts</p>
+                <p className="text-[10px] font-semibold text-slate-900 uppercase tracking-wider mb-1 text-center">Dr. {selectedDocProfile?.name?.split(' ')[0] || ''}&apos;s Weekly Shifts</p>
                 <div className="flex items-center justify-center gap-1.5 sm:gap-2 mb-2">
                   <button
                     onClick={() => setWeekOffset(w => w - 1)}

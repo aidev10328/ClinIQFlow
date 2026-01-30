@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
@@ -18,6 +18,8 @@ import { DoctorsModule } from './doctors/doctors.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { QueueModule } from './queue/queue.module';
 import { SpecializationsModule } from './specializations/specializations.module';
+import { DataScopingModule } from './data-scoping/data-scoping.module';
+import { DataScopingMiddleware } from './data-scoping/data-scoping.middleware';
 
 @Module({
   imports: [
@@ -38,9 +40,14 @@ import { SpecializationsModule } from './specializations/specializations.module'
     AppointmentsModule,
     QueueModule,
     SpecializationsModule,
+    DataScopingModule,
   ],
   controllers: [HealthController],
   providers: [PrismaService],
   exports: [PrismaService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(DataScopingMiddleware).forRoutes('*');
+  }
+}
