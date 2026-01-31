@@ -198,6 +198,18 @@ export default function AppointmentsPage() {
   const [timeOffForm, setTimeOffForm] = useState({ startDate: '', endDate: '', reason: '' });
   const [addingTimeOff, setAddingTimeOff] = useState(false);
 
+  // Hospital holidays
+  const [hospitalHolidays, setHospitalHolidays] = useState<{ month: number; day: number; name: string }[]>([]);
+  useEffect(() => {
+    if (!currentHospital?.id) return;
+    apiFetch(`/v1/hospitals/${currentHospital.id}`).then(async res => {
+      if (res.ok) {
+        const data = await res.json();
+        setHospitalHolidays(data.hospitalHolidays || []);
+      }
+    }).catch(() => {});
+  }, [currentHospital?.id]);
+
   // Fetch doctors with APPOINTMENTS license
   const fetchDoctors = useCallback(async () => {
     try {
@@ -512,6 +524,15 @@ export default function AppointmentsPage() {
   };
 
   // Build calendar grid
+  const holidaySet = useMemo(() => {
+    const map = new Map<string, string>();
+    hospitalHolidays.forEach(h => {
+      const key = `${h.month}-${h.day}`;
+      map.set(key, h.name);
+    });
+    return map;
+  }, [hospitalHolidays]);
+
   const buildCalendarGrid = () => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -522,7 +543,7 @@ export default function AppointmentsPage() {
     const calendarMap = new Map<string, CalendarDay>();
     calendarDays.forEach((d) => calendarMap.set(d.date, d));
 
-    const grid: Array<{ day: number; date: string; isCurrentMonth: boolean; calendarDay?: CalendarDay }> = [];
+    const grid: Array<{ day: number; date: string; isCurrentMonth: boolean; calendarDay?: CalendarDay; isHoliday?: boolean; holidayName?: string }> = [];
     const formatDate = (y: number, m: number, d: number) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
     const prevM = month === 0 ? 11 : month - 1;
@@ -533,7 +554,9 @@ export default function AppointmentsPage() {
     }
     for (let day = 1; day <= daysInMonth; day++) {
       const date = formatDate(year, month, day);
-      grid.push({ day, date, isCurrentMonth: true, calendarDay: calendarMap.get(date) });
+      const hKey = `${month + 1}-${day}`;
+      const hName = holidaySet.get(hKey);
+      grid.push({ day, date, isCurrentMonth: true, calendarDay: calendarMap.get(date), isHoliday: !!hName, holidayName: hName });
     }
     const nextM = month === 11 ? 0 : month + 1;
     const nextY = month === 11 ? year + 1 : year;
@@ -1079,6 +1102,7 @@ function SchedulerTab({
               const isToday = cell.date === today;
               const availableCount = cell.calendarDay?.availableCount || 0;
               const bookedCount = cell.calendarDay?.bookedCount || 0;
+              const isHoliday = cell.isHoliday;
 
               return (
                 <button
@@ -1090,15 +1114,19 @@ function SchedulerTab({
                     }
                   }}
                   disabled={!cell.isCurrentMonth}
+                  title={isHoliday ? cell.holidayName : undefined}
                   className={`
                     relative p-1 text-[10px] transition-colors bg-white
-                    ${!cell.isCurrentMonth ? 'text-slate-300 bg-slate-50' : 'text-slate-700 hover:bg-slate-50'}
+                    ${!cell.isCurrentMonth ? 'text-slate-300 bg-slate-50' : isHoliday && !isSelected ? 'bg-red-50 text-red-700 font-bold hover:bg-red-100' : 'text-slate-700 hover:bg-slate-50'}
                     ${isSelected ? 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)]' : ''}
                     ${isToday && !isSelected ? 'ring-1 ring-[var(--color-primary)] ring-inset font-bold' : ''}
                   `}
                 >
                   <span>{cell.day}</span>
-                  {cell.isCurrentMonth && cell.calendarDay?.hasSlots && (
+                  {isHoliday && !isSelected && (
+                    <div className="text-[7px] text-red-500 leading-none mt-0.5 truncate">Holiday</div>
+                  )}
+                  {!isHoliday && cell.isCurrentMonth && cell.calendarDay?.hasSlots && (
                     <div className="text-[8px] text-slate-400 leading-none mt-0.5">
                       {availableCount}/{availableCount + bookedCount}
                     </div>

@@ -85,6 +85,18 @@ interface Doctor {
   createdAt: string;
 }
 
+interface Manager {
+  id: string;
+  userId: string;
+  email: string;
+  fullName?: string;
+  role: string;
+  isPrimary: boolean;
+  status: string;
+  createdAt: string;
+  hasLoggedIn?: boolean;
+}
+
 interface Patient {
   id: string;
   firstName: string;
@@ -147,6 +159,7 @@ function HospitalAdministrationContent() {
   const isManager = profile?.isSuperAdmin || currentHospital?.role === 'HOSPITAL_MANAGER';
 
   // ─── STATE ───────────────────────────────────────────────────────────────────
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('details');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string; source: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; destructive?: boolean } | null>(null);
@@ -165,6 +178,8 @@ function HospitalAdministrationContent() {
   const [legalComplianceSaving, setLegalComplianceSaving] = useState(false);
   const [classificationSaving, setClassificationSaving] = useState(false);
   const [hospital, setHospital] = useState<Partial<HospitalDetails>>({});
+  const hospitalRef = useRef<Partial<HospitalDetails>>({});
+  hospitalRef.current = hospital; // Always keep ref in sync
   const [originalHospital, setOriginalHospital] = useState<Partial<HospitalDetails>>({});
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
   const [selectedSpecialtyIds, setSelectedSpecialtyIds] = useState<string[]>([]);
@@ -197,6 +212,13 @@ function HospitalAdministrationContent() {
   const [resetPassword, setResetPassword] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
 
+  // Managers
+  const [managers, setManagers] = useState<Manager[]>([]);
+  const [pendingManagerInvites, setPendingManagerInvites] = useState<Invite[]>([]);
+  const [showInviteManagerModal, setShowInviteManagerModal] = useState(false);
+  const [inviteManagerEmail, setInviteManagerEmail] = useState('');
+  const [invitingManager, setInvitingManager] = useState(false);
+
   // Doctors
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [pendingInvites, setPendingInvites] = useState<Invite[]>([]);
@@ -211,6 +233,11 @@ function HospitalAdministrationContent() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignForm, setAssignForm] = useState({ doctorId: '', productCode: 'APPOINTMENTS' });
   const [assigning, setAssigning] = useState(false);
+  const [assignProductOpen, setAssignProductOpen] = useState(false);
+  const [assignDoctorOpen, setAssignDoctorOpen] = useState(false);
+  const [assignDoctorSearch, setAssignDoctorSearch] = useState('');
+  const assignProductRef = useRef<HTMLDivElement>(null);
+  const assignDoctorRef = useRef<HTMLDivElement>(null);
 
   // Patients
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -219,6 +246,22 @@ function HospitalAdministrationContent() {
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [patientSaving, setPatientSaving] = useState(false);
   const [patientForm, setPatientForm] = useState({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '' });
+
+  // ─── AUTO-DISMISS BANNERS AFTER 10 SECONDS ──────────────────────────────────
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(null), 10000);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (assignProductRef.current && !assignProductRef.current.contains(e.target as Node)) setAssignProductOpen(false);
+      if (assignDoctorRef.current && !assignDoctorRef.current.contains(e.target as Node)) setAssignDoctorOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // ─── ACCESS CHECK ────────────────────────────────────────────────────────────
   if (!isManager) {
@@ -279,10 +322,12 @@ function HospitalAdministrationContent() {
         if (membersRes.ok) {
           const m = await membersRes.json();
           setDoctors(m.filter((x: any) => x.role === 'DOCTOR'));
+          setManagers(m.filter((x: any) => x.role === 'HOSPITAL_MANAGER'));
         }
         if (invitesRes.ok) {
           const inv = await invitesRes.json();
           setPendingInvites(inv.filter((i: Invite) => i.status === 'PENDING' && i.role === 'DOCTOR'));
+          setPendingManagerInvites(inv.filter((i: Invite) => i.status === 'PENDING' && i.role === 'HOSPITAL_MANAGER'));
         }
         if (subRes.ok) setSubscription(await subRes.json());
         if (statsRes.ok) setLicenseStats(await statsRes.json());
@@ -296,6 +341,8 @@ function HospitalAdministrationContent() {
         } catch {}
       } catch (e) {
         console.error('Fetch error:', e);
+      } finally {
+        setDataLoaded(true);
       }
     }
     fetchAll();
@@ -356,9 +403,11 @@ function HospitalAdministrationContent() {
         setOriginalHospital(hospital);
         refreshProfile();
       } else {
-        setMessage({ type: 'error', text: 'Failed to update', source: 'general' });
+        const errBody = await res.json().catch(() => null);
+        const errMsg = errBody?.message || `Failed to update (${res.status})`;
+        setMessage({ type: 'error', text: Array.isArray(errMsg) ? errMsg[0] : errMsg, source: 'general' });
       }
-    } catch { setMessage({ type: 'error', text: 'Failed to update', source: 'general' }); }
+    } catch (e: any) { setMessage({ type: 'error', text: e.message || 'Failed to update', source: 'general' }); }
     finally { setGeneralSaving(false); }
   }
 
@@ -379,9 +428,11 @@ function HospitalAdministrationContent() {
         setBillingAddressEditMode(false);
         setOriginalHospital(hospital);
       } else {
-        setMessage({ type: 'error', text: 'Failed to update', source: 'billing' });
+        const errBody = await res.json().catch(() => null);
+        const errMsg = errBody?.message || `Failed to update (${res.status})`;
+        setMessage({ type: 'error', text: Array.isArray(errMsg) ? errMsg[0] : errMsg, source: 'billing' });
       }
-    } catch { setMessage({ type: 'error', text: 'Failed to update', source: 'billing' }); }
+    } catch (e: any) { setMessage({ type: 'error', text: e.message || 'Failed to update', source: 'billing' }); }
     finally { setBillingAddressSaving(false); }
   }
 
@@ -408,9 +459,11 @@ function HospitalAdministrationContent() {
         setLegalComplianceEditMode(false);
         setOriginalHospital(hospital);
       } else {
-        setMessage({ type: 'error', text: 'Failed to update', source: 'legal' });
+        const errBody = await res.json().catch(() => null);
+        const errMsg = errBody?.message || `Failed to update (${res.status})`;
+        setMessage({ type: 'error', text: Array.isArray(errMsg) ? errMsg[0] : errMsg, source: 'legal' });
       }
-    } catch { setMessage({ type: 'error', text: 'Failed to update', source: 'legal' }); }
+    } catch (e: any) { setMessage({ type: 'error', text: e.message || 'Failed to update', source: 'legal' }); }
     finally { setLegalComplianceSaving(false); }
   }
 
@@ -418,18 +471,31 @@ function HospitalAdministrationContent() {
     if (!currentHospitalId) return;
     setHoursSaving(true);
     try {
-      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({
-        operatingHours: hospital.operatingHours,
-        hospitalHolidays: hospital.hospitalHolidays,
-      })});
+      // Use ref to guarantee latest state (avoid stale closures)
+      const h = hospitalRef.current;
+      // Explicitly clean holiday data to ensure correct types
+      const cleanHolidays = (h.hospitalHolidays || []).map(hol => ({
+        month: Number(hol.month),
+        day: Number(hol.day),
+        name: String(hol.name || ''),
+      }));
+      const body: Record<string, unknown> = {};
+      if (h.operatingHours) body.operatingHours = h.operatingHours;
+      body.hospitalHolidays = cleanHolidays;
+      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify(body) });
       if (res.ok) {
+        const updated = await res.json();
         setMessage({ type: 'success', text: 'Operating hours updated', source: 'hours' });
         setHoursEditMode(false);
-        setOriginalHospital(hospital);
+        setHospital(h => ({ ...h, operatingHours: updated.operatingHours, hospitalHolidays: updated.hospitalHolidays }));
+        setOriginalHospital(h => ({ ...h, operatingHours: updated.operatingHours, hospitalHolidays: updated.hospitalHolidays }));
       } else {
-        setMessage({ type: 'error', text: 'Failed to update', source: 'hours' });
+        const errBody = await res.json().catch(() => null);
+        const errMsg = errBody?.message || `Failed to update (${res.status})`;
+        console.error('[saveOperatingHours] API error:', res.status, errBody);
+        setMessage({ type: 'error', text: Array.isArray(errMsg) ? errMsg[0] : errMsg, source: 'hours' });
       }
-    } catch { setMessage({ type: 'error', text: 'Failed to update', source: 'hours' }); }
+    } catch (e: any) { console.error('[saveOperatingHours] error:', e); setMessage({ type: 'error', text: e.message || 'Failed to update', source: 'hours' }); }
     finally { setHoursSaving(false); }
   }
 
@@ -464,11 +530,14 @@ function HospitalAdministrationContent() {
     if (selectedSpecialtyIds.length === 0) { setMessage({ type: 'error', text: 'At least one specialty is required', source: 'general' }); return; }
     setGeneralSaving(true);
     try {
-      const genRes = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({
+      const genBody: any = {
         name: hospital.name, phone: hospital.phone, email: hospital.email, website: hospital.website,
         addressLine1: hospital.addressLine1, addressLine2: hospital.addressLine2,
         city: hospital.city, state: hospital.state, postal: hospital.postal, country: hospital.country,
-      })});
+      };
+      if (hospital.logoUrl && hospital.logoUrl !== originalHospital.logoUrl) genBody.logoUrl = hospital.logoUrl;
+      if (hospital.pictureUrl && hospital.pictureUrl !== originalHospital.pictureUrl) genBody.pictureUrl = hospital.pictureUrl;
+      const genRes = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify(genBody) });
       if (!genRes.ok) { setMessage({ type: 'error', text: 'Failed to update hospital info', source: 'general' }); return; }
       const classRes = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({ hospitalType: hospital.hospitalType, specialtyIds: selectedSpecialtyIds })});
       if (!classRes.ok) { setMessage({ type: 'error', text: 'Failed to update classification', source: 'general' }); return; }
@@ -625,6 +694,44 @@ function HospitalAdministrationContent() {
       }
     } catch { alert('Failed'); }
     finally { setInviting(false); }
+  }
+
+  async function inviteManager(e: React.FormEvent) {
+    e.preventDefault();
+    setInvitingManager(true);
+    try {
+      const res = await apiFetch('/v1/invites/create-manager', { method: 'POST', body: JSON.stringify({ hospitalId: currentHospitalId, email: inviteManagerEmail }) });
+      if (res.ok) {
+        setShowInviteManagerModal(false);
+        setInviteManagerEmail('');
+        const inv = await apiFetch('/v1/invites/pending');
+        if (inv.ok) {
+          const data = await inv.json();
+          setPendingManagerInvites(data.filter((i: Invite) => i.status === 'PENDING' && i.role === 'HOSPITAL_MANAGER'));
+        }
+        setMessage({ type: 'success', text: 'Manager invite sent', source: 'profile' });
+      } else {
+        const err = await res.json().catch(() => null);
+        setMessage({ type: 'error', text: err?.message || 'Failed to send invite', source: 'profile' });
+      }
+    } catch { setMessage({ type: 'error', text: 'Failed to send invite', source: 'profile' }); }
+    finally { setInvitingManager(false); }
+  }
+
+  function revokeManagerInvite(id: string) {
+    setConfirmDialog({
+      title: 'Revoke Manager Invite',
+      message: 'Are you sure you want to revoke this manager invitation?',
+      destructive: true,
+      onConfirm: async () => {
+        await apiFetch(`/v1/invites/${id}`, { method: 'DELETE' });
+        const inv = await apiFetch('/v1/invites/pending');
+        if (inv.ok) {
+          const data = await inv.json();
+          setPendingManagerInvites(data.filter((i: Invite) => i.status === 'PENDING' && i.role === 'HOSPITAL_MANAGER'));
+        }
+      },
+    });
   }
 
   function revokeInvite(id: string) {
@@ -788,15 +895,21 @@ function HospitalAdministrationContent() {
   const holidays = hospital.hospitalHolidays || [];
   function getHolidaysForMonth(m: number) { return holidays.filter(h => h.month === m); }
   function addHoliday(month: number, day: number, name: string) {
-    const updated = [...holidays, { month, day, name }].sort((a, b) => a.month - b.month || a.day - b.day);
-    setHospital({ ...hospital, hospitalHolidays: updated });
+    setHospital(h => {
+      const current = h.hospitalHolidays || [];
+      const updated = [...current, { month, day, name }].sort((a, b) => a.month - b.month || a.day - b.day);
+      return { ...h, hospitalHolidays: updated };
+    });
   }
   function removeHoliday(month: number, day: number, name: string) {
-    const updated = holidays.filter(h => !(h.month === month && h.day === day && h.name === name));
-    setHospital({ ...hospital, hospitalHolidays: updated });
+    setHospital(h => {
+      const current = h.hospitalHolidays || [];
+      const updated = current.filter(hol => !(hol.month === month && hol.day === day && hol.name === name));
+      return { ...h, hospitalHolidays: updated };
+    });
   }
   function initDefaultHolidays() {
-    setHospital({ ...hospital, hospitalHolidays: [...DEFAULT_INDIAN_HOLIDAYS] });
+    setHospital(h => ({ ...h, hospitalHolidays: [...DEFAULT_INDIAN_HOLIDAYS] }));
   }
 
   function markdownToHtml(md: string): string {
@@ -846,21 +959,40 @@ function HospitalAdministrationContent() {
   const InfoRow = ({ label, value }: { label: string; value?: string | number | null }) => (
     <div className="flex justify-between gap-2 py-0.5">
       <span className="text-slate-900 text-[10px] shrink-0">{label}</span>
-      <span className="text-slate-700 font-medium text-right truncate">{value || '—'}</span>
+      {!dataLoaded ? (
+        <span className="h-3 w-20 bg-slate-100 rounded animate-pulse" />
+      ) : (
+        <span className="text-slate-700 font-medium text-right truncate">{value || '—'}</span>
+      )}
     </div>
   );
 
+  // Placeholder rows for tables while loading — keeps table height stable
+  const TableSkeleton = ({ cols, rows = 3 }: { cols: number; rows?: number }) => (
+    <tbody>
+      {Array.from({ length: rows }).map((_, i) => (
+        <tr key={i}>
+          {Array.from({ length: cols }).map((_, j) => (
+            <td key={j} className="px-3 py-1.5"><div className="h-3 bg-slate-100 rounded animate-pulse w-3/4" /></td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  );
+
   // ─── RENDER ──────────────────────────────────────────────────────────────────
-  const tabs = [
-    { id: 'details' as TabType, label: 'Hospital Details' },
-    { id: 'manager' as TabType, label: 'Hospital Manager' },
-    { id: 'staff' as TabType, label: 'Staff', count: staff.length },
-    { id: 'doctors' as TabType, label: 'Doctors', count: doctors.length },
-    { id: 'patients' as TabType, label: 'Patients', count: patients.length },
+  const countBadge = (n: number, active: boolean) => (
+    <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${active ? 'bg-[#1e3a5f]/10 text-[#1e3a5f]' : 'bg-slate-200/70 text-slate-500'}`}>{n}</span>
+  );
+  const tabs: { id: TabType; label: string; count?: number; renderLabel?: (active: boolean) => React.ReactNode }[] = [
+    { id: 'details', label: 'Hospital Details' },
+    { id: 'manager', label: 'Hospital Managers & Staff', renderLabel: (active) => (<>Hospital Managers {countBadge(managers.length, active)} &amp; Staff {countBadge(staff.length, active)}</>) },
+    { id: 'doctors', label: 'Doctors', count: doctors.length },
+    { id: 'patients', label: 'Patients', count: patients.length },
   ];
 
   return (
-    <div className="page-fullheight flex flex-col overflow-hidden p-2 gap-1">
+    <div className="page-fullheight flex flex-col overflow-auto lg:overflow-hidden p-2 gap-1">
       {/* Header */}
       <div className="shrink-0">
         <h1 className="text-sm font-semibold text-slate-800">Hospital Administration</h1>
@@ -879,7 +1011,7 @@ function HospitalAdministrationContent() {
                 : 'border-transparent text-slate-400 hover:text-slate-600'
             }`}
           >
-            {t.label}
+            {t.renderLabel ? t.renderLabel(activeTab === t.id) : t.label}
             {t.count !== undefined && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${activeTab === t.id ? 'bg-[#1e3a5f]/10 text-[#1e3a5f]' : 'bg-slate-200/70 text-slate-500'}`}>{t.count}</span>}
           </button>
         ))}
@@ -889,23 +1021,23 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL DETAILS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'details' && (
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-2 gap-2">
+        <div className="flex-1 lg:min-h-0 grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-2 gap-2">
 
           {/* ── Card 1: Hospital Information (compact) ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col lg:min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-white">Hospital Information</h3>
+                <h3 className="text-[11px] font-semibold text-slate-800">Hospital Information</h3>
                 {cardMsg('general')}
               </div>
               {canEditSettings && (
-                <button onClick={() => setGeneralEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
+                <button onClick={() => setGeneralEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+            <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
               <InfoRow label="Name" value={hospital.name} />
               <InfoRow label="Type" value={hospitalTypeOptions.find(t => t.value === hospital.hospitalType)?.label || hospital.hospitalType} />
               <InfoRow label="Phone" value={hospital.phone} />
@@ -927,22 +1059,22 @@ function HospitalAdministrationContent() {
           </div>
 
           {/* ── Card 2: Billing & Subscriptions ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col lg:min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-white">ClinIQ Flow Billing & Subscriptions</h3>
+                <h3 className="text-[11px] font-semibold text-slate-800">CLINIQ FLOW Billing & Subscriptions</h3>
                 {cardMsg('billing')}
               </div>
               {canEditSettings && (
-                <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
+                <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+            <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
               <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Billing Address</p>
-              {sameAsHospitalAddress && <span className="text-[9px] text-emerald-600 font-medium block mb-0.5">Same as hospital address</span>}
+              {sameAsHospitalAddress && <span className="text-[9px] text-[#5a8a4f] font-medium block mb-0.5">Same as hospital address</span>}
               <InfoRow label="Street" value={hospital.billingAddressLine1} />
               {hospital.billingAddressLine2 && <InfoRow label="Line 2" value={hospital.billingAddressLine2} />}
               <InfoRow label="City" value={hospital.billingCity} />
@@ -955,9 +1087,18 @@ function HospitalAdministrationContent() {
               <div className="border-t border-slate-100 pt-1 mt-1">
                 <div className="flex items-center justify-between mb-0.5">
                   <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">Subscription</p>
-                  {subscription && <span className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${subscription.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : subscription.status === 'TRIAL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{subscription.status}</span>}
+                  {subscription && <span className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${subscription.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : subscription.status === 'TRIAL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{subscription.status}</span>}
                 </div>
-                {subscription ? (
+                {!dataLoaded ? (
+                  <div className="space-y-1">
+                    {['Started', 'Next Billing', 'Plan'].map(l => (
+                      <div key={l} className="flex justify-between gap-2 py-0.5">
+                        <span className="text-slate-900 text-[10px] shrink-0">{l}</span>
+                        <span className="h-3 w-20 bg-slate-100 rounded animate-pulse" />
+                      </div>
+                    ))}
+                  </div>
+                ) : subscription ? (
                   <>
                     <InfoRow label="Started" value={new Date(subscription.billingCycleStart).toLocaleDateString()} />
                     <InfoRow label="Next Billing" value={new Date(subscription.billingCycleEnd).toLocaleDateString()} />
@@ -966,7 +1107,7 @@ function HospitalAdministrationContent() {
                     <div className="mt-1 pt-1 border-t border-slate-100">
                       {subscription.items.map(item => (
                         <div key={item.productCode} className="flex items-center justify-between py-0.5">
-                          <span className="text-slate-600">{item.productName} <span className="text-slate-400">({item.doctorLimit} lic)</span></span>
+                          <span className="text-slate-600">CLINIQ FLOW {item.productName} <span className="text-slate-400">({item.doctorLimit} licenses)</span></span>
                           <span className="font-medium text-slate-700">{fmt(item.monthlyTotal, item.currency)}/mo</span>
                         </div>
                       ))}
@@ -987,20 +1128,20 @@ function HospitalAdministrationContent() {
           </div>
 
           {/* ── Card 3: Legal, Tax & Compliance ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden lg:row-span-2 flex flex-col min-h-0">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden lg:row-span-2 flex flex-col lg:min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-white">Legal, Tax & Compliance</h3>
+                <h3 className="text-[11px] font-semibold text-slate-800">Legal, Tax & Compliance</h3>
                 {cardMsg('legal')}
               </div>
               {canEditSettings && (
-                <button onClick={() => setLegalComplianceEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
+                <button onClick={() => setLegalComplianceEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+            <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
               {signedDocs.length > 0 && (
                 <div className="mb-1 pb-1 border-b border-slate-100">
                   <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Signed Documents</p>
@@ -1052,20 +1193,20 @@ function HospitalAdministrationContent() {
           </div>
 
           {/* ── Card 4: Operating Hours ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col lg:min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-white">Hospital Operating Days & Hours</h3>
+                <h3 className="text-[11px] font-semibold text-slate-800">Hospital Operating Days & Hours</h3>
                 {cardMsg('hours')}
               </div>
               {canEditSettings && (
-                <button onClick={() => { if (!hospital.operatingHours) setHospital({ ...hospital, operatingHours: defaultHours }); setHolidayMonth(new Date().getMonth() + 1); setHoursEditMode(true); }} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
+                <button onClick={() => { setHospital(h => h.operatingHours ? h : { ...h, operatingHours: defaultHours }); setHolidayMonth(new Date().getMonth() + 1); setHoursEditMode(true); }} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+            <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
               {DAYS.map(day => {
                 const d = hours[day] || { open: '', close: '', closed: true };
                 return (
@@ -1081,13 +1222,27 @@ function HospitalAdministrationContent() {
               {/* Hospital Holidays — 6x2 Month Grid */}
               <div className="border-t border-slate-100 pt-1.5 mt-1.5">
                 <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Hospital Holidays ({holidays.length})</p>
-                <div className="grid grid-cols-6 gap-1">
+                <div className="grid grid-cols-6 gap-1 overflow-visible relative">
                   {MONTHS.map((m, i) => {
                     const mHolidays = getHolidaysForMonth(i + 1);
+                    const col = i % 6;
+                    const tooltipAlign = col <= 1 ? 'left-0' : col >= 4 ? 'right-0' : 'left-1/2 -translate-x-1/2';
+                    const arrowAlign = col <= 1 ? 'left-3' : col >= 4 ? 'right-3' : 'left-1/2 -translate-x-1/2';
                     return (
-                      <div key={m} className="flex items-center justify-between px-1.5 py-1 rounded border border-slate-100 text-left">
+                      <div key={m} className="group relative flex items-center justify-between px-1.5 py-1 rounded border border-slate-100 text-left cursor-default">
                         <span className="text-[9px] font-medium text-slate-700">{m}</span>
                         <span className={`text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center ${mHolidays.length > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400'}`}>{mHolidays.length}</span>
+                        {mHolidays.length > 0 && (
+                          <div className={`hidden group-hover:block absolute bottom-full ${tooltipAlign} mb-1 z-50 bg-slate-800 text-white rounded-md shadow-lg px-2 py-1.5 min-w-[120px] whitespace-nowrap`}>
+                            <div className={`absolute top-full ${arrowAlign} w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-800`} />
+                            <p className="text-[9px] font-semibold mb-0.5 text-slate-300">{m} Holidays</p>
+                            {mHolidays.map((h, idx) => (
+                              <div key={idx} className="text-[9px] leading-relaxed">
+                                <span className="text-amber-300 font-medium">{h.day}</span> — {h.name}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1097,21 +1252,32 @@ function HospitalAdministrationContent() {
           </div>
 
           {/* ── Card 5: License Management ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col lg:min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-white">ClinIQ Flow License Management</h3>
+                <h3 className="text-[11px] font-semibold text-slate-800">CLINIQ FLOW Licenses</h3>
                 {cardMsg('license')}
               </div>
               {canEditSettings && subscription && (
-                <button onClick={() => setShowAssignModal(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
+                <button onClick={() => setShowAssignModal(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                   Assign
                 </button>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
-              {licenseStats && licenseStats.byProduct.length > 0 ? (
+            <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
+              {!dataLoaded ? (
+                <div className="space-y-2 animate-pulse">
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">License Usage</p>
+                  <div className="space-y-1.5">
+                    <div className="h-3 bg-slate-100 rounded w-3/4" />
+                    <div className="w-full bg-slate-100 rounded-full h-1.5" />
+                  </div>
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mt-2 mb-0.5">Active Licenses</p>
+                  <div className="h-3 bg-slate-100 rounded w-full" />
+                  <div className="h-3 bg-slate-100 rounded w-2/3" />
+                </div>
+              ) : licenseStats && licenseStats.byProduct.length > 0 ? (
                 <>
                   <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">License Usage</p>
                   {licenseStats.byProduct.map(p => (
@@ -1151,132 +1317,173 @@ function HospitalAdministrationContent() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {/* HOSPITAL MANAGER TAB */}
+      {/* HOSPITAL MANAGERS & STAFF TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'manager' && (
-        <div className="flex-1 min-h-0 overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {/* Profile Card */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
-              <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-white">My Profile</h3>
-                {cardMsg('profile')}
+        <div className="flex-1 lg:min-h-0 lg:overflow-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+            {/* Hospital Managers Table */}
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-[11px] font-semibold text-slate-800">Hospital Managers</h3>
+                  <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{managers.filter(m => m.status === 'ACTIVE').length} active</span>
+                  {cardMsg('profile')}
+                </div>
+                <button onClick={() => { setInviteManagerEmail(''); setShowInviteManagerModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Hospital Manager</button>
               </div>
-              {profileEditMode ? (
+              <div className="flex-1 lg:overflow-auto">
+                {/* Pending Manager Invites */}
+                {pendingManagerInvites.length > 0 && (
+                  <div className="px-2 py-1.5 bg-amber-50/50 border-b border-amber-100">
+                    <p className="text-[9px] font-semibold text-amber-700 uppercase tracking-wide mb-1">Pending Invites</p>
+                    {pendingManagerInvites.map(inv => (
+                      <div key={inv.id} className="flex items-center justify-between py-0.5">
+                        <span className="text-[10px] text-amber-800">{inv.invitedEmail}</span>
+                        <button onClick={() => revokeManagerInvite(inv.id)} className="text-[9px] text-red-500 hover:text-red-700">Revoke</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!dataLoaded ? (
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <TableSkeleton cols={3} rows={2} />
+                  </table>
+                  </div>
+                ) : managers.length > 0 ? (
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {managers.map(m => (
+                        <tr key={m.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-slate-700">{m.fullName || '—'}</span>
+                              {m.isPrimary && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[9px] font-medium rounded">Primary</span>}
+                            </div>
+                            <div className="text-[10px] text-slate-400">{m.email}</div>
+                          </td>
+                          <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${m.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{m.status}</span></td>
+                          <td className="px-3 py-1.5 text-right">
+                            <button onClick={() => { setProfileEditMode(true); const nameParts = (m.fullName || '').split(' '); setProfileForm({ firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || '', phone: '' }); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-slate-400 text-xs">No hospital managers found</div>
+                )}
+              </div>
+            </div>
+
+            {/* Staff Members Table */}
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-[11px] font-semibold text-slate-800">Staff Members</h3>
+                  <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{activeStaff} active</span>
+                  {cardMsg('staff')}
+                </div>
+                <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' }); setStaffAssignAll(true); setStaffSelectedDoctorIds([]); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Staff</button>
+              </div>
+              <div className="flex-1 lg:overflow-auto">
+                {!dataLoaded ? (
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Title</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <TableSkeleton cols={5} rows={3} />
+                  </table>
+                  </div>
+                ) : staff.length > 0 ? (
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Title</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
+                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {staff.map(s => (
+                        <tr key={s.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-1.5">
+                            <div className="font-medium text-slate-700">{s.displayName}</div>
+                            <div className="text-[10px] text-slate-400">{s.email}</div>
+                          </td>
+                          <td className="px-3 py-1.5 text-slate-500">{s.title || '—'}</td>
+                          <td className="px-3 py-1.5">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                              {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'All' : `${s.assignedDoctorIds.length}`}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${s.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
+                          <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                            <button onClick={() => { setEditingStaff(s); const nameParts = (s.displayName || '').split(' '); const firstName = nameParts[0] || ''; const lastName = nameParts.slice(1).join(' ') || ''; setStaffForm({ email: s.email, password: '', firstName, lastName, title: s.title || '', phone: s.phone || '' }); if (s.assignedDoctorIds && s.assignedDoctorIds.length > 0) { setStaffAssignAll(false); setStaffSelectedDoctorIds(s.assignedDoctorIds); } else { setStaffAssignAll(true); setStaffSelectedDoctorIds([]); } setShowStaffModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
+                            <button onClick={() => { setPasswordResetStaff(s); setResetPassword(''); setShowPasswordResetModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200 rounded hover:bg-amber-50 mr-1">Reset Pwd</button>
+                            <button onClick={() => toggleStaffStatus(s)} className={`px-2 py-0.5 text-[10px] font-medium rounded mr-1 ${s.status === 'ACTIVE' ? 'text-orange-700 border border-orange-200 hover:bg-orange-50' : 'text-[#4d7c43] border border-[#b8d4af] hover:bg-[#ecf5e7]'}`}>{s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button>
+                            <button onClick={() => deleteStaff(s.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50">Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                ) : (
+                  <div className="py-6 text-center text-slate-400 text-xs">No staff members yet</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Edit Manager (inline below grid) */}
+          {profileEditMode && (
+            <div className="mt-2 bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff]">
+                <h3 className="text-[11px] font-semibold text-slate-800">Edit Manager Details</h3>
                 <div className="flex gap-1">
-                  <button onClick={() => setProfileEditMode(false)} className="px-2 py-0.5 text-[10px] text-white/70 hover:bg-white/10 rounded">Cancel</button>
-                  <button onClick={saveProfile} disabled={profileSaving} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 disabled:opacity-50">{profileSaving ? '...' : 'Save'}</button>
+                  <button onClick={() => setProfileEditMode(false)} className="px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-200 rounded">Cancel</button>
+                  <button onClick={saveProfile} disabled={profileSaving} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] disabled:opacity-50">{profileSaving ? '...' : 'Save'}</button>
                 </div>
-              ) : (
-                <button onClick={() => setProfileEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                  Edit
-                </button>
-              )}
-            </div>
-            <div className="p-2">
-            {profileEditMode ? (
-              <form onSubmit={saveProfile} className="space-y-1.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  <input value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} placeholder="First Name" className="w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  <input value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} placeholder="Last Name" className="w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                </div>
-                <input value={profile?.email || ''} disabled className="w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded bg-slate-50 text-slate-400" />
-                <PhoneInput value={profileForm.phone} onChange={(value) => setProfileForm({ ...profileForm, phone: value })} placeholder="Phone number" />
-              </form>
-            ) : (
-              <div className="space-y-1.5 text-[11px]">
-                <div><span className="text-slate-400 w-16 inline-block">Name</span><span className="text-slate-700 font-medium">{profile?.fullName || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Email</span><span className="text-slate-700">{profile?.email}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Phone</span><span className="text-slate-700">{profile?.phone || '—'}</span></div>
-                <div><span className="text-slate-400 w-16 inline-block">Role</span><span className="text-slate-700">{profile?.isSuperAdmin ? 'Super Admin' : 'Hospital Manager'}</span></div>
               </div>
-            )}
-            </div>
-          </div>
-
-          {/* Account & Security Card */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="px-2 py-1.5 bg-[#1e3a5f]">
-              <h3 className="text-[11px] font-semibold text-white">Account & Security</h3>
-            </div>
-            <div className="p-2">
-            <div className="space-y-1.5 text-[11px]">
-              <div className="flex items-center justify-between p-2 bg-slate-50 rounded">
-                <div>
-                  <p className="font-medium text-slate-700">Password</p>
-                  <p className="text-[10px] text-slate-400">Last changed: Unknown</p>
-                </div>
-                <button className="px-2 py-1 text-[10px] text-slate-600 border border-slate-200 rounded hover:bg-white">Change</button>
-              </div>
-              <div className="flex items-center justify-between p-2 bg-slate-50 rounded">
-                <div>
-                  <p className="font-medium text-slate-700">Two-Factor Auth</p>
-                  <p className="text-[10px] text-slate-400">Not enabled</p>
-                </div>
-                <button className="px-2 py-1 text-[10px] text-slate-600 border border-slate-200 rounded hover:bg-white">Enable</button>
+              <div className="p-2">
+                <form onSubmit={saveProfile} className="space-y-1.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <input value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} placeholder="First Name" className="w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    <input value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} placeholder="Last Name" className="w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                  <PhoneInput value={profileForm.phone} onChange={(value) => setProfileForm({ ...profileForm, phone: value })} placeholder="Phone number" />
+                </form>
               </div>
             </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════════ */}
-      {/* HOSPITAL STAFF TAB */}
-      {/* ══════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'staff' && (
-        <div className="flex-1 min-h-0 overflow-auto bg-white rounded-lg border border-slate-200">
-          <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
-            <div className="flex items-center gap-2">
-              <h3 className="text-[11px] font-semibold text-white">Staff Members</h3>
-              <span className="px-1.5 py-0.5 bg-emerald-400/30 text-emerald-200 text-[9px] font-medium rounded">{activeStaff} active</span>
-              {cardMsg('staff')}
-            </div>
-            <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' }); setStaffAssignAll(true); setStaffSelectedDoctorIds([]); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-white/20 rounded hover:bg-white/30">+ Add</button>
-          </div>
-          <div className="max-h-[200px] overflow-auto">
-            {staff.length > 0 ? (
-              <div className="overflow-x-auto">
-              <table className="w-full text-[11px] min-w-[500px]">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Title</th>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
-                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
-                    <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {staff.map(s => (
-                    <tr key={s.id} className="hover:bg-slate-50">
-                      <td className="px-3 py-1.5">
-                        <div className="font-medium text-slate-700">{s.displayName}</div>
-                        <div className="text-[10px] text-slate-400">{s.email}</div>
-                      </td>
-                      <td className="px-3 py-1.5 text-slate-500">{s.title || '—'}</td>
-                      <td className="px-3 py-1.5">
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
-                          {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'All' : `${s.assignedDoctorIds.length}`}
-                        </span>
-                      </td>
-                      <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${s.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
-                      <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                        <button onClick={() => { setEditingStaff(s); const nameParts = (s.displayName || '').split(' '); const firstName = nameParts[0] || ''; const lastName = nameParts.slice(1).join(' ') || ''; setStaffForm({ email: s.email, password: '', firstName, lastName, title: s.title || '', phone: s.phone || '' }); if (s.assignedDoctorIds && s.assignedDoctorIds.length > 0) { setStaffAssignAll(false); setStaffSelectedDoctorIds(s.assignedDoctorIds); } else { setStaffAssignAll(true); setStaffSelectedDoctorIds([]); } setShowStaffModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
-                        <button onClick={() => { setPasswordResetStaff(s); setResetPassword(''); setShowPasswordResetModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200 rounded hover:bg-amber-50 mr-1">Reset Pwd</button>
-                        <button onClick={() => toggleStaffStatus(s)} className={`px-2 py-0.5 text-[10px] font-medium rounded mr-1 ${s.status === 'ACTIVE' ? 'text-orange-700 border border-orange-200 hover:bg-orange-50' : 'text-emerald-700 border border-emerald-200 hover:bg-emerald-50'}`}>{s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button>
-                        <button onClick={() => deleteStaff(s.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50">Delete</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            ) : (
-              <div className="py-6 text-center text-slate-400 text-xs">No staff members yet</div>
-            )}
-          </div>
+          )}
         </div>
       )}
 
@@ -1284,19 +1491,37 @@ function HospitalAdministrationContent() {
       {/* DOCTORS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'doctors' && (
-        <div className="flex-1 min-h-0 overflow-auto space-y-2">
+        <div className="flex-1 lg:min-h-0 lg:overflow-auto space-y-2">
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{activeDoctors} active</span>
+              <span className="px-1.5 py-0.5 bg-[#f0f7eb] text-[#4d7c43] text-[9px] font-medium rounded">{activeDoctors} active</span>
               {pendingInvites.length > 0 && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[9px] font-medium rounded">{pendingInvites.length} pending</span>}
             </div>
             <button onClick={() => setShowInviteModal(true)} className="px-2 py-1 text-[10px] font-medium text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)]">+ Invite Doctor</button>
           </div>
 
           {/* Doctor Cards Grid */}
-          {doctors.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-auto">
+          {!dataLoaded ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:max-h-[220px] lg:overflow-auto">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="bg-white rounded-lg border border-slate-200 p-3 animate-pulse">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-slate-100" />
+                    <div className="flex-1 space-y-1">
+                      <div className="h-3 bg-slate-100 rounded w-2/3" />
+                      <div className="h-2.5 bg-slate-100 rounded w-1/3" />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="h-2.5 bg-slate-100 rounded w-full" />
+                    <div className="h-2.5 bg-slate-100 rounded w-3/4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : doctors.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:max-h-[220px] lg:overflow-auto">
               {doctors.map(d => (
                 <div key={d.id} className="bg-white rounded-lg border border-slate-200 p-3 hover:border-slate-300 transition-colors">
                   <div className="flex items-start justify-between mb-2">
@@ -1310,7 +1535,7 @@ function HospitalAdministrationContent() {
                       </div>
                     </div>
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
-                      d.complianceStatus === 'compliant' || !d.complianceStatus ? 'bg-emerald-50 text-emerald-700' :
+                      d.complianceStatus === 'compliant' || !d.complianceStatus ? 'bg-[#f0f7eb] text-[#4d7c43]' :
                       d.complianceStatus === 'pending_signatures' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'
                     }`}>
                       {d.complianceStatus === 'compliant' || !d.complianceStatus ? 'Active' : d.complianceStatus === 'pending_signatures' ? 'Pending' : 'Not Logged In'}
@@ -1373,22 +1598,38 @@ function HospitalAdministrationContent() {
       {/* PATIENTS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'patients' && (
-        <div className="flex-1 min-h-0 overflow-auto bg-white rounded-lg border border-slate-200">
-          <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
+        <div className="flex-1 lg:min-h-0 lg:overflow-auto bg-white rounded-lg border border-slate-200">
+          <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff]">
             <div className="flex items-center gap-2">
               <div className="relative">
-                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <input value={patientSearch} onChange={e => setPatientSearch(e.target.value)} placeholder="Search patients..." className="pl-7 pr-2 py-1 text-[10px] border border-white/20 rounded bg-white/10 text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-white/40 w-40" />
+                <input value={patientSearch} onChange={e => setPatientSearch(e.target.value)} placeholder="Search patients..." className="pl-7 pr-2 py-1 text-[10px] border border-slate-300 rounded bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#a3cbef] w-40" />
               </div>
-              <span className="px-1.5 py-0.5 bg-emerald-400/30 text-emerald-200 text-[9px] font-medium rounded">{activePatients} active</span>
+              <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{activePatients} active</span>
               {cardMsg('patients')}
             </div>
-            <button onClick={() => { setEditingPatient(null); setPatientForm({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '' }); setShowPatientModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-white/20 rounded hover:bg-white/30">+ Add Patient</button>
+            <button onClick={() => { setEditingPatient(null); setPatientForm({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '' }); setShowPatientModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Add Patient</button>
           </div>
-          <div className="max-h-[220px] overflow-auto">
-            {filteredPatients.length > 0 ? (
+          <div className="lg:max-h-[220px] lg:overflow-auto">
+            {!dataLoaded ? (
+              <div className="overflow-x-auto">
+              <table className="w-full text-[11px] min-w-[500px]">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Patient</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">Contact</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">DOB</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">Gender</th>
+                    <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                    <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                  </tr>
+                </thead>
+                <TableSkeleton cols={6} rows={4} />
+              </table>
+              </div>
+            ) : filteredPatients.length > 0 ? (
               <div className="overflow-x-auto">
               <table className="w-full text-[11px] min-w-[500px]">
                 <thead className="bg-slate-50 sticky top-0">
@@ -1419,11 +1660,11 @@ function HospitalAdministrationContent() {
                       <td className="px-3 py-1.5 text-slate-500 hidden sm:table-cell">{p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '—'}</td>
                       <td className="px-3 py-1.5 text-slate-500 capitalize hidden sm:table-cell">{p.gender || '—'}</td>
                       <td className="px-3 py-1.5">
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{p.status}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${p.status === 'active' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{p.status}</span>
                       </td>
                       <td className="px-3 py-1.5 text-right">
                         <button onClick={() => { setEditingPatient(p); setPatientForm({ firstName: p.firstName, lastName: p.lastName, email: p.email || '', phone: p.phone || '', dateOfBirth: p.dateOfBirth || '', gender: p.gender || '' }); setShowPatientModal(true); }} className="text-navy-600 hover:underline mr-2">Edit</button>
-                        <button onClick={() => togglePatientStatus(p)} className={`hover:underline mr-2 ${p.status === 'active' ? 'text-amber-600' : 'text-emerald-600'}`}>{p.status === 'active' ? 'Deactivate' : 'Activate'}</button>
+                        <button onClick={() => togglePatientStatus(p)} className={`hover:underline mr-2 ${p.status === 'active' ? 'text-amber-600' : 'text-[#5a8a4f]'}`}>{p.status === 'active' ? 'Deactivate' : 'Activate'}</button>
                         <Link href={`/hospital/patients?id=${p.id}`} className="text-slate-500 hover:underline">View</Link>
                       </td>
                     </tr>
@@ -1530,6 +1771,23 @@ function HospitalAdministrationContent() {
       )}
 
       {/* Invite Doctor Modal */}
+      {/* Invite Hospital Manager Modal */}
+      {showInviteManagerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowInviteManagerModal(false)}>
+          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
+            <h2 className="text-sm font-semibold text-slate-800 mb-3">Invite Hospital Manager</h2>
+            <p className="text-[10px] text-slate-400 mb-3">Send an email invitation to add a new hospital manager.</p>
+            <form onSubmit={inviteManager} className="space-y-3">
+              <input type="email" value={inviteManagerEmail} onChange={e => setInviteManagerEmail(e.target.value)} placeholder="Email address *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowInviteManagerModal(false)} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button type="submit" disabled={invitingManager} className="flex-1 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{invitingManager ? 'Sending...' : 'Send Invite'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showInviteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowInviteModal(false)}>
           <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
@@ -1547,24 +1805,82 @@ function HospitalAdministrationContent() {
 
       {/* Assign License Modal */}
       {showAssignModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowAssignModal(false)}>
-          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
-            <h2 className="text-sm font-semibold text-slate-800 mb-3">Assign License</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowAssignModal(false); setAssignDoctorSearch(''); setAssignProductOpen(false); setAssignDoctorOpen(false); }}>
+          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-5" onClick={e => e.stopPropagation()}>
+            <h2 className="text-sm font-semibold text-slate-800 mb-4">Assign License</h2>
             <form onSubmit={assignLicense} className="space-y-3">
-              <select value={assignForm.productCode} onChange={e => setAssignForm({ ...assignForm, productCode: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500">
-                {subscription?.items.map(item => (
-                  <option key={item.productCode} value={item.productCode}>{item.productName}</option>
-                ))}
-              </select>
-              <select value={assignForm.doctorId} onChange={e => setAssignForm({ ...assignForm, doctorId: e.target.value })} required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500">
-                <option value="">Select doctor...</option>
-                {availableDoctorsForLicense.map(d => (
-                  <option key={d.userId} value={d.userId}>Dr. {d.fullName || d.email}</option>
-                ))}
-              </select>
+              {/* Product Dropdown */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Product</label>
+                <div className="relative" ref={assignProductRef}>
+                  <button type="button" onClick={() => { setAssignProductOpen(!assignProductOpen); setAssignDoctorOpen(false); }} className={`flex items-center w-full border bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-xs rounded-lg px-3 py-2 ${assignProductOpen ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200'}`}>
+                    <span className="flex-1 text-left truncate text-slate-900 font-medium">{subscription?.items.find(i => i.productCode === assignForm.productCode)?.productName || 'Select product...'}</span>
+                    <svg className={`flex-shrink-0 w-3.5 h-3.5 text-slate-400 transition-transform ${assignProductOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  {assignProductOpen && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden" style={{ maxHeight: '160px', overflowY: 'auto' }}>
+                      {subscription?.items.map(item => (
+                        <button type="button" key={item.productCode} onClick={() => { setAssignForm({ ...assignForm, productCode: item.productCode, doctorId: '' }); setAssignProductOpen(false); }} className={`w-full text-left px-3 py-2 text-xs transition-colors ${item.productCode === assignForm.productCode ? 'bg-[#1e3a5f] text-white font-medium' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
+                          {item.productName}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Doctor Dropdown (searchable) */}
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">Doctor</label>
+                <div className="relative" ref={assignDoctorRef}>
+                  <button type="button" onClick={() => { setAssignDoctorOpen(!assignDoctorOpen); setAssignProductOpen(false); }} className={`flex items-center w-full border bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-xs rounded-lg px-3 py-2 ${assignDoctorOpen ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200'}`}>
+                    <span className={`flex-1 text-left truncate ${assignForm.doctorId ? 'text-slate-900 font-medium' : 'text-slate-400'}`}>
+                      {assignForm.doctorId ? `Dr. ${availableDoctorsForLicense.find(d => d.userId === assignForm.doctorId)?.fullName || availableDoctorsForLicense.find(d => d.userId === assignForm.doctorId)?.email || ''}` : 'Select doctor...'}
+                    </span>
+                    <svg className={`flex-shrink-0 w-3.5 h-3.5 text-slate-400 transition-transform ${assignDoctorOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  {assignDoctorOpen && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden">
+                      <div className="p-2 border-b border-slate-100">
+                        <div className="relative">
+                          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                          <input type="text" value={assignDoctorSearch} onChange={e => setAssignDoctorSearch(e.target.value)} placeholder="Search doctors..." className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#a3cbef] focus:border-[#2b5a8a]" autoFocus />
+                        </div>
+                      </div>
+                      <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
+                        {availableDoctorsForLicense.filter(d => {
+                          if (!assignDoctorSearch) return true;
+                          const q = assignDoctorSearch.toLowerCase();
+                          return (d.fullName || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q);
+                        }).length === 0 ? (
+                          <div className="px-3 py-3 text-xs text-slate-400 text-center">No doctors available</div>
+                        ) : (
+                          availableDoctorsForLicense.filter(d => {
+                            if (!assignDoctorSearch) return true;
+                            const q = assignDoctorSearch.toLowerCase();
+                            return (d.fullName || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q);
+                          }).map(d => (
+                            <button type="button" key={d.userId} onClick={() => { setAssignForm({ ...assignForm, doctorId: d.userId }); setAssignDoctorOpen(false); setAssignDoctorSearch(''); }} className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${d.userId === assignForm.doctorId ? 'bg-[#1e3a5f] text-white' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${d.userId === assignForm.doctorId ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                {(d.fullName || d.email || '?').charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <div className={`truncate font-medium ${d.userId === assignForm.doctorId ? 'text-white' : ''}`}>Dr. {d.fullName || 'No name'}</div>
+                                <div className={`truncate text-[10px] ${d.userId === assignForm.doctorId ? 'text-white/70' : 'text-slate-400'}`}>{d.email}</div>
+                              </div>
+                              {d.userId === assignForm.doctorId && (
+                                <svg className="w-4 h-4 ml-auto flex-shrink-0 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setShowAssignModal(false)} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={assigning || !assignForm.doctorId} className="flex-1 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign'}</button>
+                <button type="button" onClick={() => { setShowAssignModal(false); setAssignDoctorSearch(''); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button type="submit" disabled={assigning || !assignForm.doctorId} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign'}</button>
               </div>
             </form>
           </div>
@@ -1840,33 +2156,53 @@ function HospitalAdministrationContent() {
 
       {/* Operating Hours & Holidays Edit Modal */}
       {hoursEditMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setHoursEditMode(false); setHospital({ ...hospital, operatingHours: originalHospital.operatingHours, hospitalHolidays: originalHospital.hospitalHolidays }); }}>
-          <div className="w-full max-w-2xl bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setHoursEditMode(false); setCalSelectedDate(''); setHospital({ ...hospital, operatingHours: originalHospital.operatingHours, hospitalHolidays: originalHospital.hospitalHolidays }); }}>
+          <div className="w-full max-w-4xl bg-white rounded-lg shadow-xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-slate-800">Edit Operating Days, Hours & Holidays</h2>
               {message?.source === 'hours' && (
                 <span className={`text-[10px] px-2 py-0.5 rounded ${message.type === 'success' ? 'bg-sky-50 text-sky-700' : 'bg-red-50 text-red-700'}`}>{message.text}</span>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-6">
               {/* Left: Operating Hours */}
               <div>
-                <p className="text-[10px] font-semibold text-slate-700 mb-1.5">Weekly Operating Hours</p>
-                <div className="space-y-1">
+                <p className="text-[11px] font-semibold text-slate-700 mb-2">Weekly Operating Hours</p>
+                <div className="space-y-1.5">
                   {DAYS.map(day => {
                     const d = (hospital.operatingHours || defaultHours)[day] || { open: '', close: '', closed: true };
+                    const timeOptions = (() => {
+                      const opts: string[] = [];
+                      for (let h = 0; h < 24; h++) {
+                        for (let m = 0; m < 60; m += 15) {
+                          opts.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+                        }
+                      }
+                      return opts;
+                    })();
+                    const formatTime12 = (t: string) => {
+                      if (!t) return '';
+                      const [hh, mm] = t.split(':').map(Number);
+                      const ampm = hh >= 12 ? 'PM' : 'AM';
+                      const h12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+                      return `${h12}:${String(mm).padStart(2, '0')} ${ampm}`;
+                    };
                     return (
-                      <div key={day} className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-medium text-slate-700 w-8 shrink-0">{DAY_LABELS[day]}</span>
-                        <label className="flex items-center gap-0.5 text-[9px] text-slate-400 shrink-0">
-                          <input type="checkbox" checked={d.closed} onChange={e => setDayHours(day, 'closed', e.target.checked as any)} className="w-3 h-3" />
-                          Closed
+                      <div key={day} className="flex items-center gap-2">
+                        <span className="text-[11px] font-medium text-slate-700 w-10 shrink-0">{DAY_LABELS[day]}</span>
+                        <label className="flex items-center gap-1 shrink-0 cursor-pointer">
+                          <input type="checkbox" checked={d.closed} onChange={e => setDayHours(day, 'closed', e.target.checked as any)} className="w-3.5 h-3.5 rounded border-slate-300 text-[#1e3a5f] focus:ring-[#1e3a5f]" />
+                          <span className="text-[10px] text-slate-500">Closed</span>
                         </label>
                         {!d.closed && (
-                          <div className="flex items-center gap-1 flex-1">
-                            <input type="time" value={d.open} onChange={e => setDayHours(day, 'open', e.target.value)} className="px-1 py-0.5 text-[10px] border border-slate-200 rounded w-[4.5rem]" />
-                            <span className="text-slate-400 text-[9px]">to</span>
-                            <input type="time" value={d.close} onChange={e => setDayHours(day, 'close', e.target.value)} className="px-1 py-0.5 text-[10px] border border-slate-200 rounded w-[4.5rem]" />
+                          <div className="flex items-center gap-2 flex-1">
+                            <select value={d.open} onChange={e => setDayHours(day, 'open', e.target.value)} className="px-2 py-1 text-[11px] border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-[#1e3a5f] focus:border-[#1e3a5f] appearance-none cursor-pointer min-w-[105px]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center', paddingRight: '24px' }}>
+                              {timeOptions.map(t => <option key={t} value={t}>{formatTime12(t)}</option>)}
+                            </select>
+                            <span className="text-slate-400 text-[10px] font-medium">to</span>
+                            <select value={d.close} onChange={e => setDayHours(day, 'close', e.target.value)} className="px-2 py-1 text-[11px] border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-[#1e3a5f] focus:border-[#1e3a5f] appearance-none cursor-pointer min-w-[105px]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center', paddingRight: '24px' }}>
+                              {timeOptions.map(t => <option key={t} value={t}>{formatTime12(t)}</option>)}
+                            </select>
                           </div>
                         )}
                       </div>
@@ -1876,27 +2212,27 @@ function HospitalAdministrationContent() {
               </div>
               {/* Right: Holidays Calendar */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[10px] font-semibold text-slate-700">Hospital Holidays ({holidays.length})</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-semibold text-slate-700">Hospital Holidays ({holidays.length})</p>
                   {holidays.length === 0 && (
-                    <button onClick={initDefaultHolidays} className="text-[9px] text-[#1e3a5f] hover:underline">Load Indian Holidays</button>
+                    <button onClick={initDefaultHolidays} className="text-[10px] text-[#1e3a5f] hover:underline font-medium">Load Indian Holidays</button>
                   )}
                 </div>
-                {/* Month tabs */}
-                <div className="flex items-center gap-0.5 mb-1.5">
-                  <button onClick={() => setHolidayMonth(m => m && m > 1 ? m - 1 : 12)} className="p-0.5 hover:bg-slate-100 rounded">
-                    <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                {/* Month navigation */}
+                <div className="flex items-center justify-between mb-2 bg-slate-50 rounded-md px-2 py-1">
+                  <button onClick={() => setHolidayMonth(m => m && m > 1 ? m - 1 : 12)} className="p-1 hover:bg-slate-200 rounded-md transition-colors">
+                    <svg className="w-3.5 h-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                   </button>
-                  <span className="text-[10px] font-semibold text-slate-700 flex-1 text-center">{MONTH_FULL[(holidayMonth || 1) - 1]}</span>
-                  <button onClick={() => setHolidayMonth(m => m && m < 12 ? m + 1 : 1)} className="p-0.5 hover:bg-slate-100 rounded">
-                    <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  <span className="text-[11px] font-semibold text-slate-700">{MONTH_FULL[(holidayMonth || 1) - 1]}</span>
+                  <button onClick={() => setHolidayMonth(m => m && m < 12 ? m + 1 : 1)} className="p-1 hover:bg-slate-200 rounded-md transition-colors">
+                    <svg className="w-3.5 h-3.5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                   </button>
                 </div>
                 {/* Calendar Grid */}
                 {(() => {
                   const cm = holidayMonth || 1;
                   const year = new Date().getFullYear();
-                  const firstDay = new Date(year, cm - 1, 1).getDay(); // 0=Sun
+                  const firstDay = new Date(year, cm - 1, 1).getDay();
                   const daysInMonth = new Date(year, cm, 0).getDate();
                   const holidaysInMonth = getHolidaysForMonth(cm);
                   const holidayDays = new Set(holidaysInMonth.map(h => h.day));
@@ -1905,52 +2241,63 @@ function HospitalAdministrationContent() {
                   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
                   return (
                     <div>
-                      <div className="grid grid-cols-7 gap-px mb-0.5">
+                      <div className="grid grid-cols-7 gap-px mb-1">
                         {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
-                          <div key={d} className="text-[8px] text-center text-slate-400 font-medium py-0.5">{d}</div>
+                          <div key={d} className="text-[9px] text-center text-slate-400 font-semibold py-1">{d}</div>
                         ))}
                       </div>
-                      <div className="grid grid-cols-7 gap-px">
-                        {cells.map((day, idx) => (
-                          <button
-                            key={idx}
-                            disabled={!day}
-                            onClick={() => {
-                              if (!day) return;
-                              if (holidayDays.has(day)) {
-                                const h = holidaysInMonth.find(h => h.day === day);
-                                if (h) removeHoliday(cm, day, h.name);
-                              } else {
-                                setCalSelectedDate(`${cm}-${day}`);
-                                setNewHolidayName('');
-                              }
-                            }}
-                            className={`text-[9px] py-1 rounded text-center ${
-                              !day ? '' :
-                              holidayDays.has(day) ? 'bg-red-100 text-red-700 font-bold hover:bg-red-200' :
-                              calSelectedDate === `${cm}-${day}` ? 'bg-[#1e3a5f] text-white' :
-                              'hover:bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {day || ''}
-                          </button>
-                        ))}
+                      <div className="grid grid-cols-7 gap-0.5">
+                        {cells.map((day, idx) => {
+                          const isHoliday = day ? holidayDays.has(day) : false;
+                          const isSelected = day ? calSelectedDate === `${cm}-${day}` : false;
+                          return (
+                            <button
+                              key={idx}
+                              disabled={!day}
+                              onClick={() => {
+                                if (!day) return;
+                                if (isSelected) {
+                                  setCalSelectedDate('');
+                                  setNewHolidayName('');
+                                } else if (isHoliday) {
+                                  const h = holidaysInMonth.find(h => h.day === day);
+                                  if (h) removeHoliday(cm, day, h.name);
+                                } else {
+                                  setCalSelectedDate(`${cm}-${day}`);
+                                  setNewHolidayName('');
+                                }
+                              }}
+                              title={isHoliday ? `${holidaysInMonth.find(h => h.day === day)?.name} (click to remove)` : isSelected ? 'Click to unselect' : undefined}
+                              className={`text-[10px] py-1.5 rounded-md text-center transition-colors ${
+                                !day ? '' :
+                                isHoliday ? 'bg-red-100 text-red-700 font-bold hover:bg-red-200 ring-1 ring-red-200' :
+                                isSelected ? 'bg-[#1e3a5f] text-white ring-1 ring-[#1e3a5f]' :
+                                'hover:bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {day || ''}
+                            </button>
+                          );
+                        })}
                       </div>
                       {/* Add holiday for selected date */}
                       {calSelectedDate.startsWith(`${cm}-`) && (
-                        <div className="flex gap-1 mt-1.5">
-                          <span className="text-[9px] text-slate-500 self-center shrink-0">{MONTH_FULL[cm - 1]} {calSelectedDate.split('-')[1]}:</span>
-                          <input type="text" value={newHolidayName} onChange={e => setNewHolidayName(e.target.value)} placeholder="Holiday name" className="flex-1 px-1.5 py-1 text-[10px] border border-slate-200 rounded" autoFocus onKeyDown={e => { if (e.key === 'Enter' && newHolidayName.trim()) { addHoliday(cm, parseInt(calSelectedDate.split('-')[1]), newHolidayName.trim()); setCalSelectedDate(''); setNewHolidayName(''); } }} />
-                          <button onClick={() => { if (newHolidayName.trim()) { addHoliday(cm, parseInt(calSelectedDate.split('-')[1]), newHolidayName.trim()); setCalSelectedDate(''); setNewHolidayName(''); } }} className="px-2 py-1 text-[9px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">Add</button>
+                        <div className="flex items-center gap-1.5 mt-2 bg-slate-50 rounded-md p-2">
+                          <span className="text-[10px] text-slate-600 font-medium shrink-0">{MONTH_FULL[cm - 1]} {calSelectedDate.split('-')[1]}:</span>
+                          <input type="text" value={newHolidayName} onChange={e => setNewHolidayName(e.target.value)} placeholder="Holiday name" className="flex-1 px-2 py-1 text-[11px] border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#1e3a5f]" autoFocus onKeyDown={e => { if (e.key === 'Enter' && newHolidayName.trim()) { addHoliday(cm, parseInt(calSelectedDate.split('-')[1]), newHolidayName.trim()); setCalSelectedDate(''); setNewHolidayName(''); } if (e.key === 'Escape') { setCalSelectedDate(''); setNewHolidayName(''); } }} />
+                          <button onClick={() => { if (newHolidayName.trim()) { addHoliday(cm, parseInt(calSelectedDate.split('-')[1]), newHolidayName.trim()); setCalSelectedDate(''); setNewHolidayName(''); } }} className="px-2.5 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded-md hover:bg-[#162f4d]">Add</button>
+                          <button onClick={() => { setCalSelectedDate(''); setNewHolidayName(''); }} className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-md transition-colors" title="Cancel selection">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                          </button>
                         </div>
                       )}
                       {/* List holidays for this month */}
                       {holidaysInMonth.length > 0 && (
-                        <div className="mt-1.5 space-y-0.5">
+                        <div className="mt-2 space-y-0.5 max-h-24 overflow-y-auto">
                           {holidaysInMonth.sort((a, b) => a.day - b.day).map((h, idx) => (
-                            <div key={idx} className="flex items-center justify-between text-[9px] px-1.5 py-0.5 bg-red-50 rounded">
-                              <span><span className="font-medium text-red-700">{h.day}</span> <span className="text-red-600">{h.name}</span></span>
-                              <button onClick={() => removeHoliday(h.month, h.day, h.name)} className="text-red-400 hover:text-red-600">
+                            <div key={idx} className="flex items-center justify-between text-[10px] px-2 py-1 bg-red-50 rounded-md">
+                              <span><span className="font-semibold text-red-700">{h.day}</span> <span className="text-red-600">{h.name}</span></span>
+                              <button onClick={() => removeHoliday(h.month, h.day, h.name)} className="text-red-400 hover:text-red-600 p-0.5 hover:bg-red-100 rounded transition-colors" title="Remove holiday">
                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                               </button>
                             </div>
@@ -1963,9 +2310,9 @@ function HospitalAdministrationContent() {
               </div>
             </div>
             {/* Footer */}
-            <div className="flex gap-2 pt-3 mt-3 border-t border-slate-100">
-              <button onClick={() => { setHoursEditMode(false); setHospital({ ...hospital, operatingHours: originalHospital.operatingHours, hospitalHolidays: originalHospital.hospitalHolidays }); }} className="flex-1 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">Cancel</button>
-              <button onClick={saveOperatingHours} disabled={hoursSaving} className="flex-1 py-1.5 text-xs font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] disabled:opacity-50">{hoursSaving ? 'Saving...' : 'Save Changes'}</button>
+            <div className="flex gap-2 pt-3 mt-4 border-t border-slate-100">
+              <button onClick={() => { setHoursEditMode(false); setCalSelectedDate(''); setHospital({ ...hospital, operatingHours: originalHospital.operatingHours, hospitalHolidays: originalHospital.hospitalHolidays }); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50">Cancel</button>
+              <button onClick={saveOperatingHours} disabled={hoursSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-md hover:bg-[#162f4d] disabled:opacity-50">{hoursSaving ? 'Saving...' : 'Save Changes'}</button>
             </div>
           </div>
         </div>

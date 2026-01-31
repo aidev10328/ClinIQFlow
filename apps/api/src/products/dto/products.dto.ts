@@ -32,8 +32,7 @@ export enum SubscriptionStatus {
 
 export enum LicenseStatus {
   ACTIVE = 'ACTIVE',
-  REVOKED = 'REVOKED',
-  EXPIRED = 'EXPIRED',
+  INACTIVE = 'INACTIVE',
 }
 
 export enum DiscountType {

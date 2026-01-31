@@ -30,6 +30,30 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Global navy scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(30, 58, 95, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(30, 58, 95, 0.35);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(30, 58, 95, 0.55);
+}
+
 /* Admin body - lock viewport scrolling (CSS-only, no JS class needed) */
 body:has(.admin-layout) {
   overflow: hidden;

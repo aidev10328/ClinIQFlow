@@ -155,4 +155,6 @@ export interface DailyQueueResponseDto {
     totalScheduled: number;
     totalCompleted: number;
   };
+  isHospitalHoliday: boolean;
+  holidayName?: string;
 }

@@ -12,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
 import { SupabaseGuard, AuthenticatedRequest } from '../supabase/supabase.guard';
+import { FeatureGateGuard, RequireProduct } from '../products/feature-gate.guard';
+import { ProductCode } from '../products/dto/products.dto';
 import {
   GenerateSlotsDto,
   GetSlotsQueryDto,
@@ -25,7 +27,8 @@ import {
 } from './dto/appointment.dto';
 
 @Controller('v1/appointments')
-@UseGuards(SupabaseGuard)
+@UseGuards(SupabaseGuard, FeatureGateGuard)
+@RequireProduct(ProductCode.APPOINTMENTS)
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 

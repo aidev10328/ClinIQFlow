@@ -108,6 +108,15 @@ export class AppointmentsService {
       endDate: t.end_date,
     }));
 
+    // Get hospital holidays
+    const { data: hospitalData } = await adminClient
+      .from('hospitals')
+      .select('hospital_holidays')
+      .eq('id', hospitalId)
+      .single();
+
+    const hospitalHolidays: { month: number; day: number; name: string }[] = hospitalData?.hospital_holidays || [];
+
     // Get existing slots to avoid duplicates
     const { data: existingSlots } = await adminClient
       .from('appointment_slots')
@@ -139,6 +148,11 @@ export class AppointmentsService {
 
       // Check if doctor is on time-off
       if (this.isDateInTimeOff(dateStr, timeOffRanges)) {
+        continue;
+      }
+
+      // Check if date is a hospital holiday
+      if (this.isHospitalHoliday(d, hospitalHolidays)) {
         continue;
       }
 
@@ -1032,6 +1046,12 @@ export class AppointmentsService {
       }
     }
     return false;
+  }
+
+  private isHospitalHoliday(date: Date, holidays: { month: number; day: number; name: string }[]): boolean {
+    const month = date.getMonth() + 1; // getMonth() is 0-indexed
+    const day = date.getDate();
+    return holidays.some(h => h.month === month && h.day === day);
   }
 
   private generateDaySlots(

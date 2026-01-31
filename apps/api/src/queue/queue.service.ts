@@ -36,6 +36,19 @@ export class QueueService {
   ): Promise<DailyQueueResponseDto> {
     const adminClient = this.getAdminClientOrThrow();
 
+    // Get hospital holidays
+    const { data: hospitalData } = await adminClient
+      .from('hospitals')
+      .select('hospital_holidays')
+      .eq('id', hospitalId)
+      .single();
+
+    const hospitalHolidays: { month: number; day: number; name: string }[] = hospitalData?.hospital_holidays || [];
+    const dateObj = new Date(date + 'T00:00:00');
+    const dateMonth = dateObj.getMonth() + 1;
+    const dateDay = dateObj.getDate();
+    const matchingHoliday = hospitalHolidays.find(h => h.month === dateMonth && h.day === dateDay);
+
     // Get doctor check-in status
     const { data: doctorCheckin } = await adminClient
       .from('doctor_daily_checkins')
@@ -160,6 +173,8 @@ export class QueueService {
         totalScheduled: scheduled.filter((s: any) => !s.isCheckedIn).length,
         totalCompleted: completed.length,
       },
+      isHospitalHoliday: !!matchingHoliday,
+      holidayName: matchingHoliday?.name,
     };
   }
 

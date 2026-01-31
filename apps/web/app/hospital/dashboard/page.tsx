@@ -597,6 +597,14 @@ export default function HospitalDashboardPage() {
     return set;
   }, [doctorSchedule]);
 
+  // Hospital holidays from DB
+  const { data: hospitalDetail } = useApiQuery<{ hospitalHolidays?: { month: number; day: number; name: string }[] }>(
+    ['hospital', 'detail', currentHospital?.id || ''],
+    currentHospital?.id ? `/v1/hospitals/${currentHospital.id}` : '',
+    { enabled: !!currentHospital?.id }
+  );
+  const hospitalHolidays: { month: number; day: number; name: string }[] = hospitalDetail?.hospitalHolidays || [];
+
   const calendarMonth = useMemo(() => {
     const cells = buildCalendarMonth(calYear, calMonth);
     const workDates = new Set<number>();
@@ -616,8 +624,13 @@ export default function HospitalDashboardPage() {
         c.setDate(c.getDate() + 1);
       }
     });
-    return { month: calMonth, year: calYear, cells, workDates, offDates };
-  }, [calMonth, calYear, workingDaysSet, doctorTimeOff]);
+    // Hospital holidays for this calendar month (calMonth is 0-indexed, holidays use 1-indexed)
+    const holidayDates = new Map<number, string>();
+    hospitalHolidays.forEach(h => {
+      if (h.month === calMonth + 1) holidayDates.set(h.day, h.name);
+    });
+    return { month: calMonth, year: calYear, cells, workDates, offDates, holidayDates };
+  }, [calMonth, calYear, workingDaysSet, doctorTimeOff, hospitalHolidays]);
 
   const prevMonth = () => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); } else setCalMonth(calMonth - 1); };
   const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); };
@@ -1035,9 +1048,12 @@ export default function HospitalDashboardPage() {
                           if (day === null) return <span key={idx} className="w-full aspect-square" />;
                           const isWork = calendarMonth.workDates.has(day);
                           const isOff = calendarMonth.offDates.has(day);
+                          const isHoliday = calendarMonth.holidayDates.has(day);
+                          const holidayName = calendarMonth.holidayDates.get(day);
                           const isToday = day === hospitalNow.getDate() && calendarMonth.month === hospitalNow.getMonth() && calendarMonth.year === hospitalNow.getFullYear();
                           return (
-                            <span key={idx} className={`w-full aspect-square flex items-center justify-center text-[9px] font-medium rounded ${
+                            <span key={idx} title={isHoliday ? holidayName : undefined} className={`w-full aspect-square flex items-center justify-center text-[9px] font-medium rounded ${
+                              isHoliday ? 'bg-red-100 text-red-700 font-bold' :
                               isOff ? 'bg-[#0a1a2e] text-white font-bold' :
                               isWork ? 'bg-navy-50 text-navy-700' :
                               'text-slate-400'
@@ -1054,6 +1070,9 @@ export default function HospitalDashboardPage() {
                         </span>
                         <span className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
                           <span className="w-2.5 h-2.5 rounded-sm bg-[#0a1a2e]" />Leave
+                        </span>
+                        <span className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
+                          <span className="w-2.5 h-2.5 rounded-sm bg-red-100 border border-red-200" />Holiday
                         </span>
                         <span className="flex items-center gap-1 text-[8px] text-slate-500 font-medium">
                           <span className="w-2.5 h-2.5 rounded-sm border border-navy-600" />Today

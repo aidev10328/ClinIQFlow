@@ -224,8 +224,8 @@ export class HospitalsService {
       .single();
 
     if (error) {
-      this.logger.error(`Failed to update hospital: ${error.message}`);
-      throw new BadRequestException('Failed to update hospital');
+      this.logger.error(`Failed to update hospital: ${error.message}`, { code: error.code, details: error.details, hint: error.hint });
+      throw new BadRequestException(`Failed to update hospital: ${error.message}`);
     }
 
     // Sync specialties if provided
