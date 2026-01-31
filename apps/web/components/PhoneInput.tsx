@@ -16,6 +16,7 @@ interface PhoneInputProps {
   showError?: boolean; // Show validation error
   minDigits?: number; // Minimum digits required (default 10)
   maxDigits?: number; // Maximum digits allowed (default 10)
+  compact?: boolean; // Use compact sizing to match small form fields
 }
 
 // Validate phone number
@@ -57,6 +58,7 @@ export default function PhoneInput({
   showError = true,
   minDigits = 10,
   maxDigits = 10,
+  compact = false,
 }: PhoneInputProps) {
   const { currentHospital } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -178,22 +180,22 @@ export default function PhoneInput({
 
   return (
     <div className={`relative ${className}`} ref={dropdownRef}>
-      <div className={`flex border rounded-lg overflow-hidden focus-within:ring-2 focus-within:border-transparent ${disabled ? 'bg-gray-50 border-gray-200' : hasError ? 'border-red-300 bg-white focus-within:ring-red-200' : 'border-gray-200 bg-white focus-within:ring-[var(--color-primary)]'}`}>
+      <div className={`flex border ${compact ? 'rounded' : 'rounded-lg'} overflow-hidden focus-within:ring-2 focus-within:border-transparent ${disabled ? 'bg-gray-50 border-gray-200' : hasError ? 'border-red-300 bg-white focus-within:ring-red-200' : 'border-gray-200 bg-white focus-within:ring-[var(--color-primary)]'}`}>
         {/* Country selector - locked or interactive */}
         {lockCountryCode ? (
-          <div className="flex items-center gap-1 px-2 py-2 border-r border-gray-200 bg-gray-50">
-            <span className="text-base">{selectedCountry.flag}</span>
-            <span className="text-xs font-medium text-gray-500">{selectedCountry.dialCode}</span>
+          <div className={`flex items-center gap-1 ${compact ? 'px-1.5 py-1' : 'px-2 py-2'} border-r border-gray-200 bg-gray-50`}>
+            <span className={compact ? 'text-sm' : 'text-base'}>{selectedCountry.flag}</span>
+            <span className={`${compact ? 'text-[10px]' : 'text-xs'} font-medium text-gray-500`}>{selectedCountry.dialCode}</span>
           </div>
         ) : (
           <button
             type="button"
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
-            className={`flex items-center gap-1 px-2 py-2 border-r border-gray-200 hover:bg-gray-50 transition-colors ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`flex items-center gap-1 ${compact ? 'px-1.5 py-1' : 'px-2 py-2'} border-r border-gray-200 hover:bg-gray-50 transition-colors ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
           >
-            <span className="text-base">{selectedCountry.flag}</span>
-            <span className="text-xs font-medium text-gray-600">{selectedCountry.dialCode}</span>
+            <span className={compact ? 'text-sm' : 'text-base'}>{selectedCountry.flag}</span>
+            <span className={`${compact ? 'text-[10px]' : 'text-xs'} font-medium text-gray-600`}>{selectedCountry.dialCode}</span>
             {!disabled && (
               <svg className={`w-3 h-3 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -212,7 +214,7 @@ export default function PhoneInput({
           onChange={handleLocalNumberChange}
           placeholder={placeholder}
           disabled={disabled}
-          className="flex-1 px-3 py-2 text-sm focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-50"
+          className={`flex-1 ${compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'} focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-50`}
         />
         {/* Digit counter */}
         {localNumber.length > 0 && (

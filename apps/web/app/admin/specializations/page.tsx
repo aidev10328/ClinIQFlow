@@ -14,7 +14,8 @@ interface Specialization {
 }
 
 export default function SpecializationsPage() {
-  const { accessToken } = useAuth();
+  const { session } = useAuth();
+  const accessToken = session?.access_token;
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

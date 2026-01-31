@@ -28,7 +28,8 @@ export function invalidateApiCache(pathPrefix?: string) {
     responseCache.clear();
     return;
   }
-  for (const key of responseCache.keys()) {
+  const keys = Array.from(responseCache.keys());
+  for (const key of keys) {
     if (key.startsWith(pathPrefix)) responseCache.delete(key);
   }
 }

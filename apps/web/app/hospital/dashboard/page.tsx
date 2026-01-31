@@ -671,7 +671,7 @@ export default function HospitalDashboardPage() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={licenseDonutData} cx="50%" cy="50%" innerRadius="55%" outerRadius="90%" paddingAngle={2} dataKey="value" stroke="none">
-                        {licenseDonutData.map((_, i: number) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
+                        {licenseDonutData.map((_entry: { name: string; value: number }, i: number) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>

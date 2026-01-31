@@ -678,7 +678,7 @@ function StaffPageContent() {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || !formData.displayName || (!editingStaff && (!formData.email || !formData.password))}
+                  disabled={saving || !formData.firstName || (!editingStaff && (!formData.email || !formData.password))}
                   className="btn-primary"
                 >
                   {saving ? 'Saving...' : editingStaff ? 'Update' : 'Create Staff'}

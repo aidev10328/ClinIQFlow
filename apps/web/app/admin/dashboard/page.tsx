@@ -584,7 +584,7 @@ export default function AdminDashboardPage() {
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-medium text-slate-900">{stats.pastDueSubscriptions} Past Due</p>
+                    <p className="text-xs font-medium text-slate-900">{stats?.pastDueSubscriptions} Past Due</p>
                     <p className="text-[10px] text-red-700">Subscriptions need attention</p>
                   </div>
                 </div>

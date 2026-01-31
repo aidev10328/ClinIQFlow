@@ -70,7 +70,7 @@ export class ResendProvider implements EmailProvider {
         replyTo: message.replyTo ? this.formatAddress(message.replyTo) : undefined,
         cc: message.cc ? this.formatAddresses(message.cc) : undefined,
         bcc: message.bcc ? this.formatAddresses(message.bcc) : undefined,
-      });
+      } as any);
 
       if (error) {
         console.error('[ResendProvider] Send error:', error);

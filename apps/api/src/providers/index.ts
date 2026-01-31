@@ -53,7 +53,6 @@ export {
   ChatMessage,
   ChatOptions,
   ChatResponse,
-  EmbeddingOptions,
 } from './ai';
 
 // Storage Providers
@@ -62,8 +61,8 @@ export {
   createStorageProvider,
   StorageProvider,
   StorageProviderType,
-  StorageObject,
-  StorageOptions,
+  UploadOptions,
+  UploadResult,
   ListOptions,
   ListResult,
 } from './storage';
@@ -75,7 +74,7 @@ export {
   EmailProvider,
   EmailProviderType,
   EmailMessage,
-  EmailResult,
+  SendResult,
 } from './email';
 
 // Cache Providers

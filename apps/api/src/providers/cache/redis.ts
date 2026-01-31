@@ -27,7 +27,8 @@ export class RedisCacheProvider implements CacheProvider {
 
     try {
       // Dynamic import to avoid requiring ioredis if not used
-      const IORedis = (await import('ioredis')).default;
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const IORedis = (await import('ioredis' as any)).default;
       this.client = new IORedis(this.url, {
         maxRetriesPerRequest: 3,
         lazyConnect: true,
