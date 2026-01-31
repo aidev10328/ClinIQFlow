@@ -205,6 +205,9 @@ export class HospitalsService {
     if (dto.accreditationExpiry !== undefined) updateData.accreditation_expiry = dto.accreditationExpiry || null;
     if (dto.licenseNumber !== undefined) updateData.license_number = dto.licenseNumber;
     if (dto.licenseExpiry !== undefined) updateData.license_expiry = dto.licenseExpiry || null;
+    if (dto.operatingHours !== undefined) updateData.operating_hours = dto.operatingHours;
+    if (dto.certifications !== undefined) updateData.certifications = dto.certifications;
+    if (dto.hospitalHolidays !== undefined) updateData.hospital_holidays = dto.hospitalHolidays;
 
     // Use admin client for the actual update to bypass RLS
     // (we've already verified the user has permission above)
@@ -554,6 +557,9 @@ export class HospitalsService {
       accreditationExpiry: hospital.accreditation_expiry,
       licenseNumber: hospital.license_number,
       licenseExpiry: hospital.license_expiry,
+      operatingHours: hospital.operating_hours,
+      certifications: hospital.certifications,
+      hospitalHolidays: hospital.hospital_holidays || [],
       createdAt: hospital.created_at,
       updatedAt: hospital.updated_at,
     };

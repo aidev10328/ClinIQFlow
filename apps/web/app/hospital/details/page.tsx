@@ -51,6 +51,9 @@ interface HospitalDetails {
   accreditationExpiry?: string;
   licenseNumber?: string;
   licenseExpiry?: string;
+  operatingHours?: Record<string, { open: string; close: string; closed: boolean }>;
+  certifications?: string;
+  hospitalHolidays?: { month: number; day: number; name: string }[];
 }
 
 interface Specialization {
@@ -166,6 +169,11 @@ function HospitalAdministrationContent() {
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
   const [selectedSpecialtyIds, setSelectedSpecialtyIds] = useState<string[]>([]);
   const [sameAsHospitalAddress, setSameAsHospitalAddress] = useState(false);
+  const [hoursEditMode, setHoursEditMode] = useState(false);
+  const [hoursSaving, setHoursSaving] = useState(false);
+  const [holidayMonth, setHolidayMonth] = useState<number | null>(null);
+  const [newHolidayName, setNewHolidayName] = useState('');
+  const [calSelectedDate, setCalSelectedDate] = useState<string>('');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [picturePreview, setPicturePreview] = useState<string | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -404,6 +412,25 @@ function HospitalAdministrationContent() {
       }
     } catch { setMessage({ type: 'error', text: 'Failed to update', source: 'legal' }); }
     finally { setLegalComplianceSaving(false); }
+  }
+
+  async function saveOperatingHours() {
+    if (!currentHospitalId) return;
+    setHoursSaving(true);
+    try {
+      const res = await apiFetch(`/v1/hospitals/${currentHospitalId}`, { method: 'PATCH', body: JSON.stringify({
+        operatingHours: hospital.operatingHours,
+        hospitalHolidays: hospital.hospitalHolidays,
+      })});
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Operating hours updated', source: 'hours' });
+        setHoursEditMode(false);
+        setOriginalHospital(hospital);
+      } else {
+        setMessage({ type: 'error', text: 'Failed to update', source: 'hours' });
+      }
+    } catch { setMessage({ type: 'error', text: 'Failed to update', source: 'hours' }); }
+    finally { setHoursSaving(false); }
   }
 
   async function saveClassification() {
@@ -720,13 +747,100 @@ function HospitalAdministrationContent() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur }).format(amt);
   }
 
+  const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+  const DAY_LABELS: Record<string, string> = { monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri', saturday: 'Sat', sunday: 'Sun' };
+  const defaultHours: Record<string, { open: string; close: string; closed: boolean }> = {
+    monday: { open: '08:00', close: '17:00', closed: false }, tuesday: { open: '08:00', close: '17:00', closed: false },
+    wednesday: { open: '08:00', close: '17:00', closed: false }, thursday: { open: '08:00', close: '17:00', closed: false },
+    friday: { open: '08:00', close: '17:00', closed: false }, saturday: { open: '09:00', close: '13:00', closed: false },
+    sunday: { open: '', close: '', closed: true },
+  };
+  function fmtTime(t: string) {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
+  }
+  const hours = hospital.operatingHours || defaultHours;
+  function setDayHours(day: string, field: string, val: string | boolean) {
+    const h = { ...(hospital.operatingHours || defaultHours) };
+    h[day] = { ...h[day], [field]: val };
+    if (field === 'closed' && val === true) { h[day].open = ''; h[day].close = ''; }
+    setHospital({ ...hospital, operatingHours: h });
+  }
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const MONTH_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  const DEFAULT_INDIAN_HOLIDAYS: { month: number; day: number; name: string }[] = [
+    { month: 1, day: 1, name: 'New Year\'s Day' },
+    { month: 1, day: 26, name: 'Republic Day' },
+    { month: 3, day: 29, name: 'Holi' },
+    { month: 4, day: 14, name: 'Ambedkar Jayanti' },
+    { month: 5, day: 1, name: 'May Day' },
+    { month: 8, day: 15, name: 'Independence Day' },
+    { month: 10, day: 2, name: 'Gandhi Jayanti' },
+    { month: 10, day: 24, name: 'Dussehra' },
+    { month: 11, day: 1, name: 'Diwali' },
+    { month: 12, day: 25, name: 'Christmas Day' },
+  ];
+
+  const holidays = hospital.hospitalHolidays || [];
+  function getHolidaysForMonth(m: number) { return holidays.filter(h => h.month === m); }
+  function addHoliday(month: number, day: number, name: string) {
+    const updated = [...holidays, { month, day, name }].sort((a, b) => a.month - b.month || a.day - b.day);
+    setHospital({ ...hospital, hospitalHolidays: updated });
+  }
+  function removeHoliday(month: number, day: number, name: string) {
+    const updated = holidays.filter(h => !(h.month === month && h.day === day && h.name === name));
+    setHospital({ ...hospital, hospitalHolidays: updated });
+  }
+  function initDefaultHolidays() {
+    setHospital({ ...hospital, hospitalHolidays: [...DEFAULT_INDIAN_HOLIDAYS] });
+  }
+
+  function markdownToHtml(md: string): string {
+    return md
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/^### (.+)$/gm, '<h3 style="font-size:14px;font-weight:600;margin:16px 0 8px;">$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2 style="font-size:16px;font-weight:600;margin:20px 0 8px;">$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1 style="font-size:18px;font-weight:700;margin:24px 0 10px;">$1</h1>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/^- (.+)$/gm, '<li style="margin-left:20px;list-style:disc;">$1</li>')
+      .replace(/^(\d+)\. (.+)$/gm, '<li style="margin-left:20px;list-style:decimal;">$2</li>')
+      .replace(/\n{2,}/g, '<br/><br/>')
+      .replace(/\n/g, '<br/>');
+  }
+
+  function downloadDocAsPdf(doc: any) {
+    const html = markdownToHtml(doc.contentMarkdown);
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${doc.docTitle}</title><style>
+      body{font-family:Georgia,serif;max-width:700px;margin:40px auto;padding:20px 40px;color:#1a1a1a;line-height:1.7;font-size:12px;}
+      h1{font-size:18px;border-bottom:1px solid #ccc;padding-bottom:8px;}
+      h2{font-size:16px;} h3{font-size:14px;}
+      .meta{color:#666;font-size:10px;margin-bottom:20px;border-bottom:1px solid #eee;padding-bottom:10px;}
+      @media print{body{margin:0;padding:20px;}}
+    </style></head><body>
+      <h1>${doc.docTitle}</h1>
+      <div class="meta">Version ${doc.version} &middot; Signed by ${doc.signerName} on ${new Date(doc.acceptedAt).toLocaleDateString()}</div>
+      ${html}
+    </body></html>`;
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write(fullHtml);
+      w.document.close();
+      setTimeout(() => w.print(), 300);
+    }
+  }
+
   // Consistent form field styles — prevents layout shift between view/edit modes
   const fieldClass = (editing: boolean) =>
     `w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded ${editing ? 'bg-white focus:outline-none focus:ring-1 focus:ring-navy-500' : 'bg-slate-50 text-slate-700 cursor-default'}`;
   const selectFieldClass = (editing: boolean) =>
     `w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded ${editing ? 'bg-white focus:outline-none focus:ring-1 focus:ring-navy-500' : 'bg-slate-50 text-slate-700 cursor-default opacity-100'}`;
   const cardMsg = (source: string) => message?.source === source ? (
-    <span className={`text-[9px] px-1.5 py-0.5 rounded animate-pulse ${message.type === 'success' ? 'bg-emerald-400/20 text-emerald-200' : 'bg-red-400/20 text-red-200'}`}>{message.text}</span>
+    <span className={`text-[9px] px-1.5 py-0.5 rounded ${message.type === 'success' ? 'bg-sky-400/20 text-sky-100' : 'bg-red-400/20 text-red-200'}`}>{message.text}</span>
   ) : null;
 
   const InfoRow = ({ label, value }: { label: string; value?: string | number | null }) => (
@@ -746,15 +860,15 @@ function HospitalAdministrationContent() {
   ];
 
   return (
-    <div className="space-y-2">
+    <div className="page-fullheight flex flex-col overflow-hidden p-2 gap-1">
       {/* Header */}
-      <div>
+      <div className="shrink-0">
         <h1 className="text-sm font-semibold text-slate-800">Hospital Administration</h1>
         <p className="text-[10px] text-slate-400">Manage hospital details, billing, subscriptions, hospital manager settings, staff, doctors &amp; patients</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200 sticky top-0 z-10 bg-white">
+      <div className="flex border-b border-slate-200 bg-white shrink-0">
         {tabs.map(t => (
           <button
             key={t.id}
@@ -775,11 +889,11 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL DETAILS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'details' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-2 gap-2">
 
-          {/* ── Card 1: Hospital Information ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
+          {/* ── Card 1: Hospital Information (compact) ── */}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-[11px] font-semibold text-white">Hospital Information</h3>
                 {cardMsg('general')}
@@ -791,35 +905,33 @@ function HospitalAdministrationContent() {
                 </button>
               )}
             </div>
-            <div className="p-2 text-[11px]">
-              <InfoRow label="Hospital Name" value={hospital.name} />
+            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+              <InfoRow label="Name" value={hospital.name} />
+              <InfoRow label="Type" value={hospitalTypeOptions.find(t => t.value === hospital.hospitalType)?.label || hospital.hospitalType} />
               <InfoRow label="Phone" value={hospital.phone} />
               <InfoRow label="Email" value={hospital.email} />
               <InfoRow label="Website" value={hospital.website} />
+              <InfoRow label="Specialties" value={(hospital.specialties || []).map(s => s.name).join(', ')} />
               <div className="border-t border-slate-100 pt-1 mt-1">
                 <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Address</p>
                 <InfoRow label="Street" value={hospital.addressLine1} />
                 {hospital.addressLine2 && <InfoRow label="Line 2" value={hospital.addressLine2} />}
-                <InfoRow label="Country" value={COUNTRIES.find(c => c.code === hospital.country)?.name || hospital.country} />
-                <InfoRow label="State" value={getStatesForCountry(hospital.country || '').find(s => s.code === hospital.state)?.name || hospital.state} />
                 <InfoRow label="City" value={hospital.city} />
-                <InfoRow label="Postal" value={hospital.postal} />
-              </div>
-              <div className="border-t border-slate-100 pt-1 mt-1">
-                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Classification</p>
-                <InfoRow label="Type" value={hospitalTypeOptions.find(t => t.value === hospital.hospitalType)?.label || hospital.hospitalType} />
-                <InfoRow label="Specialties" value={(hospital.specialties || []).map(s => s.name).join(', ')} />
+                <div className="flex justify-between gap-2 py-0.5">
+                  <span className="text-slate-900 text-[10px] shrink-0">State / Postal</span>
+                  <span className="text-slate-700 font-medium text-right truncate text-[11px]">{getStatesForCountry(hospital.country || '').find(s => s.code === hospital.state)?.name || hospital.state || '—'}{hospital.postal ? `, ${hospital.postal}` : ''}</span>
+                </div>
+                <InfoRow label="Country" value={COUNTRIES.find(c => c.code === hospital.country)?.name || hospital.country} />
               </div>
             </div>
           </div>
 
-          {/* ── Card 2: Payments, Billing, Subscriptions & Licenses ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
+          {/* ── Card 2: Billing & Subscriptions ── */}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-white">Billing & Subscriptions</h3>
+                <h3 className="text-[11px] font-semibold text-white">ClinIQ Flow Billing & Subscriptions</h3>
                 {cardMsg('billing')}
-                {cardMsg('license')}
               </div>
               {canEditSettings && (
                 <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
@@ -828,15 +940,17 @@ function HospitalAdministrationContent() {
                 </button>
               )}
             </div>
-            <div className="p-2 text-[11px]">
+            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
               <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Billing Address</p>
               {sameAsHospitalAddress && <span className="text-[9px] text-emerald-600 font-medium block mb-0.5">Same as hospital address</span>}
               <InfoRow label="Street" value={hospital.billingAddressLine1} />
               {hospital.billingAddressLine2 && <InfoRow label="Line 2" value={hospital.billingAddressLine2} />}
-              <InfoRow label="Country" value={COUNTRIES.find(c => c.code === hospital.billingCountry)?.name || hospital.billingCountry} />
-              <InfoRow label="State" value={getStatesForCountry(hospital.billingCountry || '').find(s => s.code === hospital.billingState)?.name || hospital.billingState} />
               <InfoRow label="City" value={hospital.billingCity} />
-              <InfoRow label="Postal" value={hospital.billingPostal} />
+              <div className="flex justify-between gap-2 py-0.5">
+                <span className="text-slate-900 text-[10px] shrink-0">State / Postal</span>
+                <span className="text-slate-700 font-medium text-right truncate text-[11px]">{getStatesForCountry(hospital.billingCountry || '').find(s => s.code === hospital.billingState)?.name || hospital.billingState || '—'}{hospital.billingPostal ? `, ${hospital.billingPostal}` : ''}</span>
+              </div>
+              <InfoRow label="Country" value={COUNTRIES.find(c => c.code === hospital.billingCountry)?.name || hospital.billingCountry} />
 
               <div className="border-t border-slate-100 pt-1 mt-1">
                 <div className="flex items-center justify-between mb-0.5">
@@ -869,48 +983,12 @@ function HospitalAdministrationContent() {
                   </>
                 ) : <p className="text-slate-400 py-0.5">No active subscription</p>}
               </div>
-
-              <div className="border-t border-slate-100 pt-1 mt-1">
-                <div className="flex items-center justify-between mb-0.5">
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">License Usage</p>
-                  <button onClick={() => setShowAssignModal(true)} disabled={!subscription || availableDoctorsForLicense.length === 0} className="px-1.5 py-0.5 text-[9px] font-medium text-[#1e3a5f] bg-[#1e3a5f]/10 rounded hover:bg-[#1e3a5f]/20 disabled:opacity-50">+ Assign</button>
-                </div>
-                {licenseStats && licenseStats.byProduct.length > 0 ? (
-                  <div className="space-y-1">
-                    {licenseStats.byProduct.map(p => (
-                      <div key={p.productCode}>
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-slate-600">{p.productName}</span>
-                          <span className="text-slate-500">{p.usedLicenses}/{p.totalLicenses}</span>
-                        </div>
-                        <div className="w-full bg-slate-200 rounded-full h-1">
-                          <div className="bg-[#1e3a5f] h-1 rounded-full" style={{ width: `${p.totalLicenses > 0 ? (p.usedLicenses / p.totalLicenses) * 100 : 0}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="text-slate-400 py-0.5">No license data</p>}
-              </div>
-
-              {licenses.filter(l => l.status === 'ACTIVE').length > 0 && (
-                <div className="border-t border-slate-100 pt-1 mt-1">
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Active Licenses</p>
-                  <div className="space-y-0.5">
-                    {licenses.filter(l => l.status === 'ACTIVE').map(lic => (
-                      <div key={lic.id} className="flex items-center justify-between py-0.5">
-                        <span className="text-slate-600">Dr. {lic.doctorName} <span className="text-slate-400">({lic.productName})</span></span>
-                        <button onClick={() => revokeLicense(lic.id)} className="text-[9px] text-red-500 hover:underline">Revoke</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
           {/* ── Card 3: Legal, Tax & Compliance ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden lg:row-span-2 flex flex-col min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-[11px] font-semibold text-white">Legal, Tax & Compliance</h3>
                 {cardMsg('legal')}
@@ -922,7 +1000,29 @@ function HospitalAdministrationContent() {
                 </button>
               )}
             </div>
-            <div className="p-2 text-[11px]">
+            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+              {signedDocs.length > 0 && (
+                <div className="mb-1 pb-1 border-b border-slate-100">
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Signed Documents</p>
+                  <div className="space-y-0.5">
+                    {signedDocs.map((doc: any) => (
+                      <div key={doc.id} className="flex items-center justify-between py-0.5">
+                        <div className="truncate">
+                          <span className="text-slate-700">{doc.docTitle}</span>
+                          <span className="text-slate-400 ml-1">({doc.version})</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-slate-400 text-[9px]">{new Date(doc.acceptedAt).toLocaleDateString()}</span>
+                          <button onClick={() => setViewingDoc(doc)} className="text-[9px] text-[#1e3a5f] hover:underline">View</button>
+                          <button onClick={() => downloadDocAsPdf(doc)} className="text-[#1e3a5f] hover:text-[#162f4d]" title="Download as PDF">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <InfoRow label="Legal Entity" value={hospital.legalEntityName} />
               <InfoRow label="Billing Contact" value={hospital.billingContactEmail} />
               <InfoRow label="Tax ID Type" value={availableTaxIdTypes.find(t => t.value === hospital.taxIdType)?.label || hospital.taxIdType} />
@@ -930,7 +1030,6 @@ function HospitalAdministrationContent() {
               <div className="border-t border-slate-100 pt-1 mt-1">
                 <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Compliance</p>
                 <InfoRow label="Stores PHI" value={hospital.storesPhi ? 'Yes' : 'No'} />
-                <InfoRow label="Patient Volume" value={hospital.estimatedPatientVolume ? `${hospital.estimatedPatientVolume}/mo` : undefined} />
                 <InfoRow label="Data Retention" value={hospital.dataRetentionDays ? `${hospital.dataRetentionDays} days` : undefined} />
               </div>
               <div className="border-t border-slate-100 pt-1 mt-1">
@@ -949,20 +1048,98 @@ function HospitalAdministrationContent() {
                 <InfoRow label="License No." value={hospital.licenseNumber} />
                 <InfoRow label="Expiry" value={hospital.licenseExpiry ? new Date(hospital.licenseExpiry).toLocaleDateString() : undefined} />
               </div>
-              {signedDocs.length > 0 && (
+            </div>
+          </div>
+
+          {/* ── Card 4: Operating Hours ── */}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-[11px] font-semibold text-white">Hospital Operating Days & Hours</h3>
+                {cardMsg('hours')}
+              </div>
+              {canEditSettings && (
+                <button onClick={() => { if (!hospital.operatingHours) setHospital({ ...hospital, operatingHours: defaultHours }); setHolidayMonth(new Date().getMonth() + 1); setHoursEditMode(true); }} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                  Edit
+                </button>
+              )}
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+              {DAYS.map(day => {
+                const d = hours[day] || { open: '', close: '', closed: true };
+                return (
+                  <div key={day} className="flex items-center justify-between py-0.5">
+                    <span className="text-slate-900 text-[10px] w-8 shrink-0">{DAY_LABELS[day]}</span>
+                    <span className={`text-[10px] ${d.closed ? 'text-red-400' : 'text-slate-600'}`}>
+                      {d.closed ? 'Closed' : `${fmtTime(d.open)} - ${fmtTime(d.close)}`}
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* Hospital Holidays — 6x2 Month Grid */}
+              <div className="border-t border-slate-100 pt-1.5 mt-1.5">
+                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Hospital Holidays ({holidays.length})</p>
+                <div className="grid grid-cols-6 gap-1">
+                  {MONTHS.map((m, i) => {
+                    const mHolidays = getHolidaysForMonth(i + 1);
+                    return (
+                      <div key={m} className="flex items-center justify-between px-1.5 py-1 rounded border border-slate-100 text-left">
+                        <span className="text-[9px] font-medium text-slate-700">{m}</span>
+                        <span className={`text-[8px] font-bold rounded-full w-4 h-4 flex items-center justify-center ${mHolidays.length > 0 ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-400'}`}>{mHolidays.length}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Card 5: License Management ── */}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col min-h-0">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f] shrink-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-[11px] font-semibold text-white">ClinIQ Flow License Management</h3>
+                {cardMsg('license')}
+              </div>
+              {canEditSettings && subscription && (
+                <button onClick={() => setShowAssignModal(true)} className="px-2 py-0.5 text-[10px] text-white bg-white/20 rounded hover:bg-white/30 flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  Assign
+                </button>
+              )}
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto p-2 text-[11px]">
+              {licenseStats && licenseStats.byProduct.length > 0 ? (
+                <>
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">License Usage</p>
+                  {licenseStats.byProduct.map(p => (
+                    <div key={p.productCode} className="mb-1.5">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-slate-600">{p.productName}</span>
+                        <span className="text-slate-500 text-[9px]">{p.usedLicenses}/{p.totalLicenses}</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-1.5">
+                        <div className="bg-[#1e3a5f] h-1.5 rounded-full transition-all" style={{ width: `${p.totalLicenses > 0 ? (p.usedLicenses / p.totalLicenses) * 100 : 0}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <p className="text-slate-400 py-0.5">No license data available</p>
+              )}
+              {licenses.filter(l => l.status === 'ACTIVE').length > 0 && (
                 <div className="border-t border-slate-100 pt-1 mt-1">
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Signed Documents</p>
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Active Licenses</p>
                   <div className="space-y-0.5">
-                    {signedDocs.map((doc: any) => (
-                      <div key={doc.id} className="flex items-center justify-between py-0.5">
+                    {licenses.filter(l => l.status === 'ACTIVE').map(l => (
+                      <div key={l.id} className="flex items-center justify-between py-0.5">
                         <div className="truncate">
-                          <span className="text-slate-700">{doc.docTitle}</span>
-                          <span className="text-slate-400 ml-1">({doc.version})</span>
+                          <span className="text-slate-700">Dr. {l.doctorName || l.doctorEmail}</span>
+                          <span className="text-slate-400 ml-1 text-[9px]">{l.productName}</span>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-slate-400 text-[9px]">{new Date(doc.acceptedAt).toLocaleDateString()}</span>
-                          <button onClick={() => setViewingDoc(doc)} className="text-[9px] text-[#1e3a5f] hover:underline">View</button>
-                        </div>
+                        <button onClick={() => revokeLicense(l.id)} className="text-[9px] text-red-500 hover:text-red-700 shrink-0 ml-2">Revoke</button>
                       </div>
                     ))}
                   </div>
@@ -977,7 +1154,7 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL MANAGER TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'manager' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="flex-1 min-h-0 overflow-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
           {/* Profile Card */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
             <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
@@ -1049,7 +1226,7 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL STAFF TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'staff' && (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-auto bg-white rounded-lg border border-slate-200">
           <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
             <div className="flex items-center gap-2">
               <h3 className="text-[11px] font-semibold text-white">Staff Members</h3>
@@ -1107,7 +1284,7 @@ function HospitalAdministrationContent() {
       {/* DOCTORS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'doctors' && (
-        <div className="space-y-2">
+        <div className="flex-1 min-h-0 overflow-auto space-y-2">
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -1196,7 +1373,7 @@ function HospitalAdministrationContent() {
       {/* PATIENTS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'patients' && (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-auto bg-white rounded-lg border border-slate-200">
           <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
             <div className="flex items-center gap-2">
               <div className="relative">
@@ -1272,7 +1449,7 @@ function HospitalAdministrationContent() {
       {/* Staff Modal */}
       {showStaffModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowStaffModal(false)}>
-          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">{editingStaff ? 'Edit Staff' : 'Add Staff'}</h2>
             <form onSubmit={saveStaff} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1397,7 +1574,7 @@ function HospitalAdministrationContent() {
       {/* Patient Modal */}
       {showPatientModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowPatientModal(false)}>
-          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-lg bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">{editingPatient ? 'Edit Patient' : 'Add Patient'}</h2>
             <form onSubmit={savePatient} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1429,85 +1606,73 @@ function HospitalAdministrationContent() {
       {/* Hospital Info Edit Modal */}
       {generalEditMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setGeneralEditMode(false); setHospital(originalHospital); setSelectedSpecialtyIds((originalHospital.specialties || []).map((s: any) => s.id)); }}>
-          <div className="w-full max-w-lg bg-white rounded-lg shadow-xl p-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-2xl bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">Edit Hospital Information</h2>
             {message?.source === 'general' && (
-              <div className={`mb-3 px-3 py-2 rounded text-xs ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>
+              <div className={`mb-3 px-3 py-2 rounded text-xs ${message.type === 'success' ? 'bg-sky-50 text-sky-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>
             )}
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">Hospital Name *</label>
-                <input value={hospital.name || ''} onChange={e => setHospital({ ...hospital, name: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {/* Left column */}
+              <div className="space-y-2">
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Phone</label>
-                  <PhoneInput value={hospital.phone || ''} onChange={(value) => setHospital({ ...hospital, phone: value })} placeholder="Phone number" />
+                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Hospital Name *</label>
+                  <input value={hospital.name || ''} onChange={e => setHospital({ ...hospital, name: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Email</label>
-                  <input type="email" value={hospital.email || ''} onChange={e => setHospital({ ...hospital, email: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">Website</label>
-                <input value={hospital.website || ''} onChange={e => setHospital({ ...hospital, website: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-              </div>
-
-              <div className="border-t pt-3">
-                <p className="text-[11px] font-semibold text-slate-700 mb-2">Address</p>
-                <div className="space-y-2">
-                  <input value={hospital.addressLine1 || ''} onChange={e => setHospital({ ...hospital, addressLine1: e.target.value })} placeholder="Address Line 1 *" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  <input value={hospital.addressLine2 || ''} onChange={e => setHospital({ ...hospital, addressLine2: e.target.value })} placeholder="Address Line 2" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select value={hospital.country || ''} onChange={e => setHospital({ ...hospital, country: e.target.value, state: '' })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
-                      <option value="">Country *</option>
-                      {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
-                    </select>
-                    <select value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
-                      <option value="">State *</option>
-                      {getStatesForCountry(hospital.country || '').map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
-                    </select>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Phone</label>
+                    <PhoneInput value={hospital.phone || ''} onChange={(value) => setHospital({ ...hospital, phone: value })} placeholder="Phone" compact />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input value={hospital.city || ''} onChange={e => setHospital({ ...hospital, city: e.target.value })} placeholder="City *" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                    <input value={hospital.postal || ''} onChange={e => setHospital({ ...hospital, postal: e.target.value })} placeholder="Postal Code *" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Email</label>
+                    <input type="email" value={hospital.email || ''} onChange={e => setHospital({ ...hospital, email: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                   </div>
                 </div>
-              </div>
-
-              <div className="border-t pt-3">
-                <p className="text-[11px] font-semibold text-slate-700 mb-2">Classification</p>
-                <div className="space-y-2">
-                  <select value={hospital.hospitalType || ''} onChange={e => setHospital({ ...hospital, hospitalType: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                <div>
+                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Website</label>
+                  <input value={hospital.website || ''} onChange={e => setHospital({ ...hospital, website: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                </div>
+                <div className="border-t pt-2">
+                  <p className="text-[10px] font-semibold text-slate-700 mb-1">Classification</p>
+                  <select value={hospital.hospitalType || ''} onChange={e => setHospital({ ...hospital, hospitalType: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white mb-1">
                     <option value="">Hospital Type *</option>
                     {hospitalTypeOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Specialties *</label>
-                    <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2 space-y-1">
-                      {specializations.map(s => (
-                        <label key={s.id} className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer hover:bg-slate-50 rounded px-1 py-0.5">
-                          <input
-                            type="checkbox"
-                            checked={selectedSpecialtyIds.includes(s.id)}
-                            onChange={e => {
-                              if (e.target.checked) setSelectedSpecialtyIds([...selectedSpecialtyIds, s.id]);
-                              else setSelectedSpecialtyIds(selectedSpecialtyIds.filter(id => id !== s.id));
-                            }}
-                            className="w-3 h-3"
-                          />
-                          {s.name}
-                        </label>
-                      ))}
-                    </div>
+                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Specialties *</label>
+                  <div className="max-h-24 overflow-y-auto border border-slate-200 rounded p-1.5 space-y-0.5">
+                    {specializations.map(s => (
+                      <label key={s.id} className="flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer hover:bg-slate-50 rounded px-1 py-0.5">
+                        <input type="checkbox" checked={selectedSpecialtyIds.includes(s.id)} onChange={e => { if (e.target.checked) setSelectedSpecialtyIds([...selectedSpecialtyIds, s.id]); else setSelectedSpecialtyIds(selectedSpecialtyIds.filter(id => id !== s.id)); }} className="w-3 h-3" />
+                        {s.name}
+                      </label>
+                    ))}
                   </div>
                 </div>
               </div>
-
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => { setGeneralEditMode(false); setHospital(originalHospital); setSelectedSpecialtyIds((originalHospital.specialties || []).map((s: any) => s.id)); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button type="button" onClick={saveHospitalInfoAll} disabled={generalSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{generalSaving ? 'Saving...' : 'Save Changes'}</button>
+              {/* Right column */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold text-slate-700 mb-0.5">Address</p>
+                <input value={hospital.addressLine1 || ''} onChange={e => setHospital({ ...hospital, addressLine1: e.target.value })} placeholder="Address Line 1 *" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <input value={hospital.addressLine2 || ''} onChange={e => setHospital({ ...hospital, addressLine2: e.target.value })} placeholder="Address Line 2" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <select value={hospital.country || ''} onChange={e => setHospital({ ...hospital, country: e.target.value, state: '' })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                    <option value="">Country *</option>
+                    {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
+                  </select>
+                  <select value={hospital.state || ''} onChange={e => setHospital({ ...hospital, state: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                    <option value="">State *</option>
+                    {getStatesForCountry(hospital.country || '').map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input value={hospital.city || ''} onChange={e => setHospital({ ...hospital, city: e.target.value })} placeholder="City *" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  <input value={hospital.postal || ''} onChange={e => setHospital({ ...hospital, postal: e.target.value })} placeholder="Postal Code *" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                </div>
+              </div>
+              {/* Footer spans both columns */}
+              <div className="col-span-2 flex gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onClick={() => { setGeneralEditMode(false); setHospital(originalHospital); setSelectedSpecialtyIds((originalHospital.specialties || []).map((s: any) => s.id)); }} className="flex-1 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">Cancel</button>
+                <button type="button" onClick={saveHospitalInfoAll} disabled={generalSaving} className="flex-1 py-1.5 text-xs font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] disabled:opacity-50">{generalSaving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             </div>
           </div>
@@ -1517,10 +1682,10 @@ function HospitalAdministrationContent() {
       {/* Billing Address Edit Modal */}
       {billingAddressEditMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setBillingAddressEditMode(false); setHospital(originalHospital); }}>
-          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-lg bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">Edit Billing Address</h2>
             {message?.source === 'billing' && (
-              <div className={`mb-3 px-3 py-2 rounded text-xs ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>
+              <div className={`mb-3 px-3 py-2 rounded text-xs ${message.type === 'success' ? 'bg-sky-50 text-sky-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>
             )}
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
@@ -1578,111 +1743,229 @@ function HospitalAdministrationContent() {
       {/* Legal, Tax & Compliance Edit Modal */}
       {legalComplianceEditMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setLegalComplianceEditMode(false); setHospital(originalHospital); }}>
-          <div className="w-full max-w-md bg-white rounded-lg shadow-xl p-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-2xl bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">Edit Legal, Tax & Compliance</h2>
             {message?.source === 'legal' && (
-              <div className={`mb-3 px-3 py-2 rounded text-xs ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>
+              <div className={`mb-3 px-3 py-2 rounded text-xs ${message.type === 'success' ? 'bg-sky-50 text-sky-700' : 'bg-red-50 text-red-700'}`}>{message.text}</div>
             )}
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">Legal Entity Name</label>
-                <input value={hospital.legalEntityName || ''} onChange={e => setHospital({ ...hospital, legalEntityName: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">Billing Contact Email</label>
-                <input type="email" value={hospital.billingContactEmail || ''} onChange={e => setHospital({ ...hospital, billingContactEmail: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {/* Left column */}
+              <div className="space-y-2">
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Tax ID Type</label>
-                  <select value={hospital.taxIdType || ''} onChange={e => setHospital({ ...hospital, taxIdType: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
-                    <option value="">Select...</option>
-                    {availableTaxIdTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </select>
+                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Legal Entity Name</label>
+                  <input value={hospital.legalEntityName || ''} onChange={e => setHospital({ ...hospital, legalEntityName: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Tax ID Value</label>
-                  <input value={hospital.taxIdValue || ''} onChange={e => setHospital({ ...hospital, taxIdValue: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Billing Contact Email</label>
+                  <input type="email" value={hospital.billingContactEmail || ''} onChange={e => setHospital({ ...hospital, billingContactEmail: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 </div>
-              </div>
-
-              <div className="border-t pt-3">
-                <p className="text-[11px] font-semibold text-slate-700 mb-2">Compliance</p>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={hospital.storesPhi || false}
-                      onChange={e => setHospital({ ...hospital, storesPhi: e.target.checked })}
-                      className="w-3 h-3"
-                    />
-                    Stores Protected Health Information (PHI)
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Tax ID Type</label>
+                    <select value={hospital.taxIdType || ''} onChange={e => setHospital({ ...hospital, taxIdType: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white">
+                      <option value="">Select...</option>
+                      {availableTaxIdTypes.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Tax ID Value</label>
+                    <input value={hospital.taxIdValue || ''} onChange={e => setHospital({ ...hospital, taxIdValue: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+                <div className="border-t pt-2">
+                  <p className="text-[10px] font-semibold text-slate-700 mb-1">Compliance</p>
+                  <label className="flex items-center gap-2 text-[10px] text-slate-600 cursor-pointer mb-1">
+                    <input type="checkbox" checked={hospital.storesPhi || false} onChange={e => setHospital({ ...hospital, storesPhi: e.target.checked })} className="w-3 h-3" />
+                    Stores PHI
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Data Retention (days)</label>
+                    <input type="number" value={hospital.dataRetentionDays || ''} onChange={e => setHospital({ ...hospital, dataRetentionDays: e.target.value ? Number(e.target.value) : undefined })} placeholder="e.g. 2555" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+              </div>
+              {/* Right column */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold text-slate-700 mb-0.5">Insurance</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Provider</label>
+                    <input value={hospital.insuranceProvider || ''} onChange={e => setHospital({ ...hospital, insuranceProvider: e.target.value })} placeholder="e.g. Blue Cross" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Policy Number</label>
+                    <input value={hospital.insurancePolicyNumber || ''} onChange={e => setHospital({ ...hospital, insurancePolicyNumber: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+                <div className="border-t pt-2">
+                  <p className="text-[10px] font-semibold text-slate-700 mb-1">Accreditation</p>
+                  <div className="grid grid-cols-2 gap-1.5 mb-1">
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Patient Volume / Month</label>
-                      <input type="number" value={hospital.estimatedPatientVolume || ''} onChange={e => setHospital({ ...hospital, estimatedPatientVolume: e.target.value ? Number(e.target.value) : undefined })} placeholder="e.g. 500" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Body</label>
+                      <input value={hospital.accreditationBody || ''} onChange={e => setHospital({ ...hospital, accreditationBody: e.target.value })} placeholder="e.g. Joint Commission" className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Data Retention (days)</label>
-                      <input type="number" value={hospital.dataRetentionDays || ''} onChange={e => setHospital({ ...hospital, dataRetentionDays: e.target.value ? Number(e.target.value) : undefined })} placeholder="e.g. 2555" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Number</label>
+                      <input value={hospital.accreditationNumber || ''} onChange={e => setHospital({ ...hospital, accreditationNumber: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Expiry</label>
+                    <input type="date" value={hospital.accreditationExpiry || ''} onChange={e => setHospital({ ...hospital, accreditationExpiry: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+                <div className="border-t pt-2">
+                  <p className="text-[10px] font-semibold text-slate-700 mb-1">Hospital License</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-600 mb-0.5">License Number</label>
+                      <input value={hospital.licenseNumber || ''} onChange={e => setHospital({ ...hospital, licenseNumber: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-600 mb-0.5">License Expiry</label>
+                      <input type="date" value={hospital.licenseExpiry || ''} onChange={e => setHospital({ ...hospital, licenseExpiry: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
                     </div>
                   </div>
                 </div>
               </div>
+              {/* Footer spans both columns */}
+              <div className="col-span-2 flex gap-2 pt-2 border-t border-slate-100">
+                <button type="button" onClick={() => { setLegalComplianceEditMode(false); setHospital(originalHospital); }} className="flex-1 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">Cancel</button>
+                <button type="button" onClick={saveLegalCompliance} disabled={legalComplianceSaving} className="flex-1 py-1.5 text-xs font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] disabled:opacity-50">{legalComplianceSaving ? 'Saving...' : 'Save Changes'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
-              <div className="border-t pt-3">
-                <p className="text-[11px] font-semibold text-slate-700 mb-2">Insurance</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Insurance Provider</label>
-                    <input value={hospital.insuranceProvider || ''} onChange={e => setHospital({ ...hospital, insuranceProvider: e.target.value })} placeholder="e.g. Blue Cross" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Policy Number</label>
-                    <input value={hospital.insurancePolicyNumber || ''} onChange={e => setHospital({ ...hospital, insurancePolicyNumber: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  </div>
+      {/* Operating Hours & Holidays Edit Modal */}
+      {hoursEditMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setHoursEditMode(false); setHospital({ ...hospital, operatingHours: originalHospital.operatingHours, hospitalHolidays: originalHospital.hospitalHolidays }); }}>
+          <div className="w-full max-w-2xl bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-slate-800">Edit Operating Days, Hours & Holidays</h2>
+              {message?.source === 'hours' && (
+                <span className={`text-[10px] px-2 py-0.5 rounded ${message.type === 'success' ? 'bg-sky-50 text-sky-700' : 'bg-red-50 text-red-700'}`}>{message.text}</span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {/* Left: Operating Hours */}
+              <div>
+                <p className="text-[10px] font-semibold text-slate-700 mb-1.5">Weekly Operating Hours</p>
+                <div className="space-y-1">
+                  {DAYS.map(day => {
+                    const d = (hospital.operatingHours || defaultHours)[day] || { open: '', close: '', closed: true };
+                    return (
+                      <div key={day} className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-medium text-slate-700 w-8 shrink-0">{DAY_LABELS[day]}</span>
+                        <label className="flex items-center gap-0.5 text-[9px] text-slate-400 shrink-0">
+                          <input type="checkbox" checked={d.closed} onChange={e => setDayHours(day, 'closed', e.target.checked as any)} className="w-3 h-3" />
+                          Closed
+                        </label>
+                        {!d.closed && (
+                          <div className="flex items-center gap-1 flex-1">
+                            <input type="time" value={d.open} onChange={e => setDayHours(day, 'open', e.target.value)} className="px-1 py-0.5 text-[10px] border border-slate-200 rounded w-[4.5rem]" />
+                            <span className="text-slate-400 text-[9px]">to</span>
+                            <input type="time" value={d.close} onChange={e => setDayHours(day, 'close', e.target.value)} className="px-1 py-0.5 text-[10px] border border-slate-200 rounded w-[4.5rem]" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-
-              <div className="border-t pt-3">
-                <p className="text-[11px] font-semibold text-slate-700 mb-2">Accreditation</p>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
+              {/* Right: Holidays Calendar */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-semibold text-slate-700">Hospital Holidays ({holidays.length})</p>
+                  {holidays.length === 0 && (
+                    <button onClick={initDefaultHolidays} className="text-[9px] text-[#1e3a5f] hover:underline">Load Indian Holidays</button>
+                  )}
+                </div>
+                {/* Month tabs */}
+                <div className="flex items-center gap-0.5 mb-1.5">
+                  <button onClick={() => setHolidayMonth(m => m && m > 1 ? m - 1 : 12)} className="p-0.5 hover:bg-slate-100 rounded">
+                    <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  </button>
+                  <span className="text-[10px] font-semibold text-slate-700 flex-1 text-center">{MONTH_FULL[(holidayMonth || 1) - 1]}</span>
+                  <button onClick={() => setHolidayMonth(m => m && m < 12 ? m + 1 : 1)} className="p-0.5 hover:bg-slate-100 rounded">
+                    <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                </div>
+                {/* Calendar Grid */}
+                {(() => {
+                  const cm = holidayMonth || 1;
+                  const year = new Date().getFullYear();
+                  const firstDay = new Date(year, cm - 1, 1).getDay(); // 0=Sun
+                  const daysInMonth = new Date(year, cm, 0).getDate();
+                  const holidaysInMonth = getHolidaysForMonth(cm);
+                  const holidayDays = new Set(holidaysInMonth.map(h => h.day));
+                  const cells: (number | null)[] = [];
+                  for (let i = 0; i < firstDay; i++) cells.push(null);
+                  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                  return (
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Accreditation Body</label>
-                      <input value={hospital.accreditationBody || ''} onChange={e => setHospital({ ...hospital, accreditationBody: e.target.value })} placeholder="e.g. Joint Commission" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                      <div className="grid grid-cols-7 gap-px mb-0.5">
+                        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+                          <div key={d} className="text-[8px] text-center text-slate-400 font-medium py-0.5">{d}</div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-px">
+                        {cells.map((day, idx) => (
+                          <button
+                            key={idx}
+                            disabled={!day}
+                            onClick={() => {
+                              if (!day) return;
+                              if (holidayDays.has(day)) {
+                                const h = holidaysInMonth.find(h => h.day === day);
+                                if (h) removeHoliday(cm, day, h.name);
+                              } else {
+                                setCalSelectedDate(`${cm}-${day}`);
+                                setNewHolidayName('');
+                              }
+                            }}
+                            className={`text-[9px] py-1 rounded text-center ${
+                              !day ? '' :
+                              holidayDays.has(day) ? 'bg-red-100 text-red-700 font-bold hover:bg-red-200' :
+                              calSelectedDate === `${cm}-${day}` ? 'bg-[#1e3a5f] text-white' :
+                              'hover:bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {day || ''}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Add holiday for selected date */}
+                      {calSelectedDate.startsWith(`${cm}-`) && (
+                        <div className="flex gap-1 mt-1.5">
+                          <span className="text-[9px] text-slate-500 self-center shrink-0">{MONTH_FULL[cm - 1]} {calSelectedDate.split('-')[1]}:</span>
+                          <input type="text" value={newHolidayName} onChange={e => setNewHolidayName(e.target.value)} placeholder="Holiday name" className="flex-1 px-1.5 py-1 text-[10px] border border-slate-200 rounded" autoFocus onKeyDown={e => { if (e.key === 'Enter' && newHolidayName.trim()) { addHoliday(cm, parseInt(calSelectedDate.split('-')[1]), newHolidayName.trim()); setCalSelectedDate(''); setNewHolidayName(''); } }} />
+                          <button onClick={() => { if (newHolidayName.trim()) { addHoliday(cm, parseInt(calSelectedDate.split('-')[1]), newHolidayName.trim()); setCalSelectedDate(''); setNewHolidayName(''); } }} className="px-2 py-1 text-[9px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">Add</button>
+                        </div>
+                      )}
+                      {/* List holidays for this month */}
+                      {holidaysInMonth.length > 0 && (
+                        <div className="mt-1.5 space-y-0.5">
+                          {holidaysInMonth.sort((a, b) => a.day - b.day).map((h, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-[9px] px-1.5 py-0.5 bg-red-50 rounded">
+                              <span><span className="font-medium text-red-700">{h.day}</span> <span className="text-red-600">{h.name}</span></span>
+                              <button onClick={() => removeHoliday(h.month, h.day, h.name)} className="text-red-400 hover:text-red-600">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Accreditation Number</label>
-                      <input value={hospital.accreditationNumber || ''} onChange={e => setHospital({ ...hospital, accreditationNumber: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Accreditation Expiry</label>
-                    <input type="date" value={hospital.accreditationExpiry || ''} onChange={e => setHospital({ ...hospital, accreditationExpiry: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
-
-              <div className="border-t pt-3">
-                <p className="text-[11px] font-semibold text-slate-700 mb-2">Hospital License</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">License Number</label>
-                    <input value={hospital.licenseNumber || ''} onChange={e => setHospital({ ...hospital, licenseNumber: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-600 mb-1">License Expiry</label>
-                    <input type="date" value={hospital.licenseExpiry || ''} onChange={e => setHospital({ ...hospital, licenseExpiry: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => { setLegalComplianceEditMode(false); setHospital(originalHospital); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button type="button" onClick={saveLegalCompliance} disabled={legalComplianceSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{legalComplianceSaving ? 'Saving...' : 'Save Changes'}</button>
-              </div>
+            </div>
+            {/* Footer */}
+            <div className="flex gap-2 pt-3 mt-3 border-t border-slate-100">
+              <button onClick={() => { setHoursEditMode(false); setHospital({ ...hospital, operatingHours: originalHospital.operatingHours, hospitalHolidays: originalHospital.hospitalHolidays }); }} className="flex-1 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50">Cancel</button>
+              <button onClick={saveOperatingHours} disabled={hoursSaving} className="flex-1 py-1.5 text-xs font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] disabled:opacity-50">{hoursSaving ? 'Saving...' : 'Save Changes'}</button>
             </div>
           </div>
         </div>
@@ -1702,37 +1985,42 @@ function HospitalAdministrationContent() {
         </div>
       )}
 
-      {/* Document Viewer Modal */}
+      {/* Document Viewer Modal (PDF-style) */}
       {viewingDoc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setViewingDoc(null)}>
-          <div className="w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">{viewingDoc.docTitle}</h3>
-                <p className="text-[10px] text-slate-400">Version {viewingDoc.version} &middot; Signed by {viewingDoc.signerName} on {new Date(viewingDoc.acceptedAt).toLocaleDateString()}</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setViewingDoc(null)}>
+          <div className="w-full max-w-2xl bg-slate-100 rounded-lg shadow-xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2.5 bg-[#1e3a5f]">
+              <div className="flex items-center gap-2 text-white">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                <div>
+                  <h3 className="text-xs font-semibold">{viewingDoc.docTitle}</h3>
+                  <p className="text-[9px] text-white/60">Version {viewingDoc.version}</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => {
-                    const blob = new Blob([viewingDoc.contentMarkdown], { type: 'text/markdown' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${viewingDoc.docTitle.replace(/\s+/g, '_')}_${viewingDoc.version}.md`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  className="px-2 py-1 text-[10px] font-medium text-[#1e3a5f] bg-[#1e3a5f]/10 rounded hover:bg-[#1e3a5f]/20"
+                  onClick={() => downloadDocAsPdf(viewingDoc)}
+                  className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded"
+                  title="Download as PDF"
                 >
-                  Download
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 </button>
-                <button onClick={() => setViewingDoc(null)} className="p-1 text-slate-400 hover:text-slate-600">
+                <button onClick={() => setViewingDoc(null)} className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
             </div>
-            <div className="p-4 overflow-y-auto flex-1 prose prose-sm max-w-none text-slate-700 text-xs leading-relaxed whitespace-pre-wrap">
-              {viewingDoc.contentMarkdown}
+            <div className="p-4 overflow-y-auto flex-1 bg-slate-200">
+              <div className="bg-white shadow-md mx-auto max-w-[600px] px-10 py-8 rounded min-h-[500px]">
+                <div className="border-b border-slate-200 pb-3 mb-4">
+                  <h2 className="text-base font-bold text-slate-800">{viewingDoc.docTitle}</h2>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Version {viewingDoc.version} &middot; Signed by {viewingDoc.signerName} on {new Date(viewingDoc.acceptedAt).toLocaleDateString()}</p>
+                </div>
+                <div
+                  className="prose prose-sm max-w-none text-slate-700 text-xs leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: markdownToHtml(viewingDoc.contentMarkdown) }}
+                />
+              </div>
             </div>
           </div>
         </div>

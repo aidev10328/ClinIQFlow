@@ -216,12 +216,6 @@ export default function PhoneInput({
           disabled={disabled}
           className={`flex-1 ${compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'} focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-50`}
         />
-        {/* Digit counter */}
-        {localNumber.length > 0 && (
-          <span className={`flex items-center pr-2 text-[10px] ${hasError ? 'text-red-500' : 'text-gray-400'}`}>
-            {localNumber.length}/{maxDigits}
-          </span>
-        )}
       </div>
 
       {/* Error message */}

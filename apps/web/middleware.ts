@@ -4,8 +4,16 @@ import type { NextRequest } from 'next/server';
 // Routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/logout', '/invite/accept', '/api'];
 
-// Routes that require authentication
-const PROTECTED_PREFIXES = ['/admin', '/hospital', '/dashboard', '/select-hospital'];
+// Routes that require authentication — redirect to /login if no session
+const PROTECTED_PREFIXES = [
+  '/admin',
+  '/hospital',
+  '/doctor',
+  '/dashboard',
+  '/select-hospital',
+  '/legal',
+  '/no-access',
+];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -24,33 +32,33 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Skip root page (public landing)
+  if (pathname === '/') {
+    return NextResponse.next();
+  }
+
   // For protected routes, check for auth tokens
   const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 
   if (isProtected) {
-    // Check for Supabase auth cookies or API token cookie
-    const supabaseAuthToken = request.cookies.getAll().find(
+    // Check for Supabase auth cookies (set by @supabase/ssr)
+    const hasAuthCookie = request.cookies.getAll().some(
       (c) => c.name.includes('auth-token') || c.name.includes('sb-')
     );
 
-    // If no auth cookie found, redirect to login
-    // Note: We also accept the case where auth is managed via localStorage
-    // (client-side only). The middleware provides a first line of defense,
-    // but the client-side guards remain the source of truth.
-    if (!supabaseAuthToken) {
-      // Check if this could be a client-side auth (localStorage-based)
-      // We can't read localStorage from middleware, so we allow through
-      // and let client-side guards handle it. The middleware primarily
-      // catches direct URL access without any session.
+    if (!hasAuthCookie) {
+      // Check if navigating within the app (referer from same origin)
+      // Client-side auth via localStorage can't be read in middleware,
+      // so in-app navigations are allowed through — client guards are
+      // the final source of truth for those cases.
       const referer = request.headers.get('referer');
       const isNavigationFromApp = referer && new URL(referer).origin === request.nextUrl.origin;
 
-      if (!isNavigationFromApp && !supabaseAuthToken) {
-        // Direct URL access without cookies - likely unauthenticated
-        // Let it through but add a header hint for the client
-        const response = NextResponse.next();
-        response.headers.set('x-auth-check', 'required');
-        return response;
+      if (!isNavigationFromApp) {
+        // Direct URL access without any auth cookie → redirect to login
+        const loginUrl = new URL('/login', request.url);
+        loginUrl.searchParams.set('redirect', pathname);
+        return NextResponse.redirect(loginUrl);
       }
     }
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../components/AuthProvider';
 
 export default function LoginPage() {
@@ -11,12 +11,21 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { signIn, user, profile, hospitals, currentHospitalId, loading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const idleLogout = searchParams.get('reason') === 'idle';
+  const redirectPath = searchParams.get('redirect');
 
   useEffect(() => {
     // Wait for auth to finish loading before redirecting
     if (authLoading) return;
 
     if (user) {
+      // If a redirect path was provided (e.g. from middleware), go there
+      if (redirectPath && redirectPath.startsWith('/')) {
+        router.push(redirectPath);
+        return;
+      }
+
       // Super admins go directly to admin console
       if (profile?.isSuperAdmin) {
         router.push('/admin/dashboard');
@@ -44,7 +53,7 @@ export default function LoginPage() {
       }
       // hospitals.length === 0: wait for hospitals to load from AuthProvider
     }
-  }, [user, profile?.isSuperAdmin, hospitals, currentHospitalId, router, authLoading]);
+  }, [user, profile?.isSuperAdmin, hospitals, currentHospitalId, router, authLoading, redirectPath]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -115,6 +124,12 @@ export default function LoginPage() {
                 required
               />
             </div>
+
+            {idleLogout && !error && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-700 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm">
+                Your session expired due to inactivity. Please sign in again.
+              </div>
+            )}
 
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm">

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsEmail, IsBoolean, IsInt, Min, IsArray, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsEmail, IsBoolean, IsInt, Min, IsArray, IsUUID, IsObject } from 'class-validator';
 
 export enum HospitalRegion {
   US = 'US',
@@ -332,6 +332,18 @@ export class UpdateHospitalDto {
   @IsOptional()
   @IsString()
   licenseExpiry?: string;
+
+  @IsOptional()
+  @IsObject()
+  operatingHours?: Record<string, { open: string; close: string; closed: boolean }>;
+
+  @IsOptional()
+  @IsString()
+  certifications?: string;
+
+  @IsOptional()
+  @IsArray()
+  hospitalHolidays?: { month: number; day: number; name: string }[];
 }
 
 export class HospitalResponseDto {
@@ -374,6 +386,9 @@ export class HospitalResponseDto {
   accreditationExpiry?: string;
   licenseNumber?: string;
   licenseExpiry?: string;
+  operatingHours?: Record<string, { open: string; close: string; closed: boolean }>;
+  certifications?: string;
+  hospitalHolidays?: { month: number; day: number; name: string }[];
   createdAt: string;
   updatedAt: string;
 }
