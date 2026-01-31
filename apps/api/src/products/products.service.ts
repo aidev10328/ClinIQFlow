@@ -476,6 +476,30 @@ export class ProductsService {
     return this.mapSubscription(subscription, items || []);
   }
 
+  async cancelHospitalSubscription(hospitalId: string): Promise<{ success: boolean }> {
+    const adminClient = this.getAdminClientOrThrow();
+
+    const subscription = await this.getHospitalSubscription(hospitalId);
+    if (!subscription) {
+      throw new NotFoundException('No active subscription found');
+    }
+
+    const { error } = await adminClient
+      .from('hospital_subscriptions')
+      .update({
+        status: 'CANCELED',
+        canceled_at: new Date().toISOString(),
+      })
+      .eq('id', subscription.id);
+
+    if (error) {
+      this.logger.error(`Failed to cancel subscription: ${error.message}`);
+      throw new BadRequestException('Failed to cancel subscription');
+    }
+
+    return { success: true };
+  }
+
   async createSubscription(dto: CreateSubscriptionDto): Promise<HospitalSubscriptionDto> {
     const adminClient = this.getAdminClientOrThrow();
 

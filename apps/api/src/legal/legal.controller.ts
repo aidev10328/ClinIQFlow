@@ -129,6 +129,28 @@ export class LegalController {
     );
   }
 
+  /**
+   * Get all signed documents for current hospital (manager)
+   * Requires x-hospital-id header
+   */
+  @Get('hospital-acceptances')
+  @UseGuards(SupabaseGuard)
+  async getHospitalAcceptances(@Req() req: AuthenticatedRequest) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException({
+        code: 'HOSPITAL_CONTEXT_REQUIRED',
+        message: 'x-hospital-id header is required',
+      });
+    }
+
+    return this.legalService.getHospitalAcceptances(
+      hospitalId,
+      req.user.id,
+      req.accessToken,
+    );
+  }
+
   // =========================================
   // Admin endpoints (Super Admin only)
   // =========================================

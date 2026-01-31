@@ -44,6 +44,13 @@ interface HospitalDetails {
   dataRetentionDays?: number;
   hospitalType?: string;
   specialties?: { id: string; name: string }[];
+  insuranceProvider?: string;
+  insurancePolicyNumber?: string;
+  accreditationBody?: string;
+  accreditationNumber?: string;
+  accreditationExpiry?: string;
+  licenseNumber?: string;
+  licenseExpiry?: string;
 }
 
 interface Specialization {
@@ -99,7 +106,11 @@ interface Invite {
 interface Subscription {
   id: string;
   status: 'ACTIVE' | 'TRIAL' | 'PAST_DUE' | 'CANCELLED' | 'EXPIRED';
+  billingCycleStart: string;
+  billingCycleEnd: string;
   trialEndsAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
   items: { productCode: string; productName: string; doctorLimit: number; pricePerDoctor: number; currency: string; monthlyTotal: number }[];
   totalMonthly: number;
 }
@@ -135,6 +146,11 @@ function HospitalAdministrationContent() {
   // ─── STATE ───────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabType>('details');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string; source: string } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; destructive?: boolean } | null>(null);
+
+  // Signed documents
+  const [signedDocs, setSignedDocs] = useState<any[]>([]);
+  const [viewingDoc, setViewingDoc] = useState<any | null>(null);
 
   // Hospital
   const [generalEditMode, setGeneralEditMode] = useState(false);
@@ -264,6 +280,12 @@ function HospitalAdministrationContent() {
         if (statsRes.ok) setLicenseStats(await statsRes.json());
         if (licRes.ok) setLicenses(await licRes.json());
         if (patientsRes.ok) setPatients(await patientsRes.json());
+
+        // Fetch signed documents
+        try {
+          const docsRes = await apiFetch('/v1/legal/hospital-acceptances');
+          if (docsRes.ok) setSignedDocs(await docsRes.json());
+        } catch {}
       } catch (e) {
         console.error('Fetch error:', e);
       }
@@ -365,6 +387,13 @@ function HospitalAdministrationContent() {
         storesPhi: hospital.storesPhi,
         estimatedPatientVolume: hospital.estimatedPatientVolume ? Number(hospital.estimatedPatientVolume) : undefined,
         dataRetentionDays: hospital.dataRetentionDays ? Number(hospital.dataRetentionDays) : undefined,
+        insuranceProvider: hospital.insuranceProvider || undefined,
+        insurancePolicyNumber: hospital.insurancePolicyNumber || undefined,
+        accreditationBody: hospital.accreditationBody || undefined,
+        accreditationNumber: hospital.accreditationNumber || undefined,
+        accreditationExpiry: hospital.accreditationExpiry || undefined,
+        licenseNumber: hospital.licenseNumber || undefined,
+        licenseExpiry: hospital.licenseExpiry || undefined,
       })});
       if (res.ok) {
         setMessage({ type: 'success', text: 'Legal & compliance info updated', source: 'legal' });
@@ -530,11 +559,17 @@ function HospitalAdministrationContent() {
     finally { setResettingPassword(false); }
   }
 
-  async function deleteStaff(id: string) {
-    if (!confirm('Delete this staff member?')) return;
-    await apiFetch(`/v1/staff/${id}`, { method: 'DELETE' });
-    const r = await apiFetch('/v1/staff');
-    if (r.ok) setStaff(await r.json());
+  function deleteStaff(id: string) {
+    setConfirmDialog({
+      title: 'Delete Staff Member',
+      message: 'Are you sure you want to delete this staff member? This action cannot be undone.',
+      destructive: true,
+      onConfirm: async () => {
+        await apiFetch(`/v1/staff/${id}`, { method: 'DELETE' });
+        const r = await apiFetch('/v1/staff');
+        if (r.ok) setStaff(await r.json());
+      },
+    });
   }
 
   async function toggleStaffStatus(s: StaffMember) {
@@ -565,14 +600,20 @@ function HospitalAdministrationContent() {
     finally { setInviting(false); }
   }
 
-  async function revokeInvite(id: string) {
-    if (!confirm('Revoke this invite?')) return;
-    await apiFetch(`/v1/invites/${id}`, { method: 'DELETE' });
-    const inv = await apiFetch('/v1/invites/pending');
-    if (inv.ok) {
-      const data = await inv.json();
-      setPendingInvites(data.filter((i: Invite) => i.status === 'PENDING' && i.role === 'DOCTOR'));
-    }
+  function revokeInvite(id: string) {
+    setConfirmDialog({
+      title: 'Revoke Invite',
+      message: 'Are you sure you want to revoke this invitation?',
+      destructive: true,
+      onConfirm: async () => {
+        await apiFetch(`/v1/invites/${id}`, { method: 'DELETE' });
+        const inv = await apiFetch('/v1/invites/pending');
+        if (inv.ok) {
+          const data = await inv.json();
+          setPendingInvites(data.filter((i: Invite) => i.status === 'PENDING' && i.role === 'DOCTOR'));
+        }
+      },
+    });
   }
 
   async function assignLicense(e: React.FormEvent) {
@@ -598,15 +639,44 @@ function HospitalAdministrationContent() {
     finally { setAssigning(false); }
   }
 
-  async function revokeLicense(id: string) {
-    if (!confirm('Revoke this license?')) return;
-    await apiFetch(`/v1/products/licenses/${id}`, { method: 'DELETE' });
-    const [statsRes, licRes] = await Promise.all([
-      apiFetch('/v1/products/subscription/license-stats'),
-      apiFetch('/v1/products/licenses'),
-    ]);
-    if (statsRes.ok) setLicenseStats(await statsRes.json());
-    if (licRes.ok) setLicenses(await licRes.json());
+  function revokeLicense(id: string) {
+    setConfirmDialog({
+      title: 'Revoke License',
+      message: 'Are you sure you want to revoke this license? The doctor will lose access to this product.',
+      destructive: true,
+      onConfirm: async () => {
+        await apiFetch(`/v1/products/licenses/${id}`, { method: 'DELETE' });
+        const [statsRes, licRes] = await Promise.all([
+          apiFetch('/v1/products/subscription/license-stats'),
+          apiFetch('/v1/products/licenses'),
+        ]);
+        if (statsRes.ok) setLicenseStats(await statsRes.json());
+        if (licRes.ok) setLicenses(await licRes.json());
+      },
+    });
+  }
+
+  function cancelSubscription() {
+    setConfirmDialog({
+      title: 'Cancel Subscription',
+      message: 'Are you sure you want to cancel your subscription? Your access will continue until the end of the current billing period.',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const res = await apiFetch('/v1/products/subscription/cancel', { method: 'POST' });
+          if (res.ok) {
+            setMessage({ type: 'success', text: 'Subscription cancelled', source: 'billing' });
+            const subRes = await apiFetch('/v1/products/subscription');
+            if (subRes.ok) setSubscription(await subRes.json());
+            else setSubscription(null);
+          } else {
+            setMessage({ type: 'error', text: 'Failed to cancel subscription', source: 'billing' });
+          }
+        } catch {
+          setMessage({ type: 'error', text: 'Failed to cancel subscription', source: 'billing' });
+        }
+      },
+    });
   }
 
   async function savePatient(e: React.FormEvent) {
@@ -661,7 +731,7 @@ function HospitalAdministrationContent() {
 
   const InfoRow = ({ label, value }: { label: string; value?: string | number | null }) => (
     <div className="flex justify-between gap-2 py-0.5">
-      <span className="text-slate-400 text-[10px] shrink-0">{label}</span>
+      <span className="text-slate-900 text-[10px] shrink-0">{label}</span>
       <span className="text-slate-700 font-medium text-right truncate">{value || '—'}</span>
     </div>
   );
@@ -684,19 +754,19 @@ function HospitalAdministrationContent() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg sticky top-0 z-10">
+      <div className="flex border-b border-slate-200 sticky top-0 z-10 bg-white">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
-            className={`flex-1 py-1.5 text-[10px] sm:text-[11px] font-semibold rounded-md transition-all text-center ${
+            className={`px-3 py-2 text-[10px] sm:text-[11px] font-semibold transition-all text-center border-b-2 -mb-px ${
               activeTab === t.id
-                ? 'bg-white text-[#4A90D9] shadow-sm'
-                : 'text-slate-400 hover:text-slate-600'
+                ? 'border-[#1e3a5f] text-[#1e3a5f]'
+                : 'border-transparent text-slate-400 hover:text-slate-600'
             }`}
           >
             {t.label}
-            {t.count !== undefined && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${activeTab === t.id ? 'bg-[#4A90D9]/10 text-[#4A90D9]' : 'bg-slate-200/70 text-slate-500'}`}>{t.count}</span>}
+            {t.count !== undefined && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${activeTab === t.id ? 'bg-[#1e3a5f]/10 text-[#1e3a5f]' : 'bg-slate-200/70 text-slate-500'}`}>{t.count}</span>}
           </button>
         ))}
       </div>
@@ -709,7 +779,7 @@ function HospitalAdministrationContent() {
 
           {/* ── Card 1: Hospital Information ── */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#4A90D9]">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
               <div className="flex items-center gap-2">
                 <h3 className="text-[11px] font-semibold text-white">Hospital Information</h3>
                 {cardMsg('general')}
@@ -745,7 +815,7 @@ function HospitalAdministrationContent() {
 
           {/* ── Card 2: Payments, Billing, Subscriptions & Licenses ── */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#4A90D9]">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
               <div className="flex items-center gap-2">
                 <h3 className="text-[11px] font-semibold text-white">Billing & Subscriptions</h3>
                 {cardMsg('billing')}
@@ -775,16 +845,27 @@ function HospitalAdministrationContent() {
                 </div>
                 {subscription ? (
                   <>
-                    {subscription.items.map(item => (
-                      <div key={item.productCode} className="flex items-center justify-between py-0.5">
-                        <span className="text-slate-600">{item.productName} <span className="text-slate-400">({item.doctorLimit} lic)</span></span>
-                        <span className="font-medium text-slate-700">{fmt(item.monthlyTotal, item.currency)}/mo</span>
+                    <InfoRow label="Started" value={new Date(subscription.billingCycleStart).toLocaleDateString()} />
+                    <InfoRow label="Next Billing" value={new Date(subscription.billingCycleEnd).toLocaleDateString()} />
+                    {subscription.trialEndsAt && <InfoRow label="Trial Ends" value={new Date(subscription.trialEndsAt).toLocaleDateString()} />}
+                    {subscription.cancelledAt && <InfoRow label="Cancelled" value={new Date(subscription.cancelledAt).toLocaleDateString()} />}
+                    <div className="mt-1 pt-1 border-t border-slate-100">
+                      {subscription.items.map(item => (
+                        <div key={item.productCode} className="flex items-center justify-between py-0.5">
+                          <span className="text-slate-600">{item.productName} <span className="text-slate-400">({item.doctorLimit} lic)</span></span>
+                          <span className="font-medium text-slate-700">{fmt(item.monthlyTotal, item.currency)}/mo</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-100 font-medium">
+                        <span className="text-slate-600">Total</span>
+                        <span className="text-slate-800">{fmt(subscription.totalMonthly)}/mo</span>
                       </div>
-                    ))}
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-100 font-medium">
-                      <span className="text-slate-600">Total</span>
-                      <span className="text-slate-800">{fmt(subscription.totalMonthly)}/mo</span>
                     </div>
+                    {subscription.status !== 'CANCELLED' && (
+                      <div className="flex gap-2 mt-2">
+                        <button onClick={cancelSubscription} className="px-2 py-1 text-[9px] font-medium text-red-600 bg-red-50 rounded hover:bg-red-100">Cancel Subscription</button>
+                      </div>
+                    )}
                   </>
                 ) : <p className="text-slate-400 py-0.5">No active subscription</p>}
               </div>
@@ -792,7 +873,7 @@ function HospitalAdministrationContent() {
               <div className="border-t border-slate-100 pt-1 mt-1">
                 <div className="flex items-center justify-between mb-0.5">
                   <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">License Usage</p>
-                  <button onClick={() => setShowAssignModal(true)} disabled={!subscription || availableDoctorsForLicense.length === 0} className="px-1.5 py-0.5 text-[9px] font-medium text-[#4A90D9] bg-[#4A90D9]/10 rounded hover:bg-[#4A90D9]/20 disabled:opacity-50">+ Assign</button>
+                  <button onClick={() => setShowAssignModal(true)} disabled={!subscription || availableDoctorsForLicense.length === 0} className="px-1.5 py-0.5 text-[9px] font-medium text-[#1e3a5f] bg-[#1e3a5f]/10 rounded hover:bg-[#1e3a5f]/20 disabled:opacity-50">+ Assign</button>
                 </div>
                 {licenseStats && licenseStats.byProduct.length > 0 ? (
                   <div className="space-y-1">
@@ -803,7 +884,7 @@ function HospitalAdministrationContent() {
                           <span className="text-slate-500">{p.usedLicenses}/{p.totalLicenses}</span>
                         </div>
                         <div className="w-full bg-slate-200 rounded-full h-1">
-                          <div className="bg-[#4A90D9] h-1 rounded-full" style={{ width: `${p.totalLicenses > 0 ? (p.usedLicenses / p.totalLicenses) * 100 : 0}%` }} />
+                          <div className="bg-[#1e3a5f] h-1 rounded-full" style={{ width: `${p.totalLicenses > 0 ? (p.usedLicenses / p.totalLicenses) * 100 : 0}%` }} />
                         </div>
                       </div>
                     ))}
@@ -829,7 +910,7 @@ function HospitalAdministrationContent() {
 
           {/* ── Card 3: Legal, Tax & Compliance ── */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#4A90D9]">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
               <div className="flex items-center gap-2">
                 <h3 className="text-[11px] font-semibold text-white">Legal, Tax & Compliance</h3>
                 {cardMsg('legal')}
@@ -847,10 +928,46 @@ function HospitalAdministrationContent() {
               <InfoRow label="Tax ID Type" value={availableTaxIdTypes.find(t => t.value === hospital.taxIdType)?.label || hospital.taxIdType} />
               <InfoRow label="Tax ID Value" value={hospital.taxIdValue} />
               <div className="border-t border-slate-100 pt-1 mt-1">
+                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Compliance</p>
                 <InfoRow label="Stores PHI" value={hospital.storesPhi ? 'Yes' : 'No'} />
                 <InfoRow label="Patient Volume" value={hospital.estimatedPatientVolume ? `${hospital.estimatedPatientVolume}/mo` : undefined} />
                 <InfoRow label="Data Retention" value={hospital.dataRetentionDays ? `${hospital.dataRetentionDays} days` : undefined} />
               </div>
+              <div className="border-t border-slate-100 pt-1 mt-1">
+                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Insurance</p>
+                <InfoRow label="Provider" value={hospital.insuranceProvider} />
+                <InfoRow label="Policy Number" value={hospital.insurancePolicyNumber} />
+              </div>
+              <div className="border-t border-slate-100 pt-1 mt-1">
+                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Accreditation</p>
+                <InfoRow label="Body" value={hospital.accreditationBody} />
+                <InfoRow label="Number" value={hospital.accreditationNumber} />
+                <InfoRow label="Expiry" value={hospital.accreditationExpiry ? new Date(hospital.accreditationExpiry).toLocaleDateString() : undefined} />
+              </div>
+              <div className="border-t border-slate-100 pt-1 mt-1">
+                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Hospital License</p>
+                <InfoRow label="License No." value={hospital.licenseNumber} />
+                <InfoRow label="Expiry" value={hospital.licenseExpiry ? new Date(hospital.licenseExpiry).toLocaleDateString() : undefined} />
+              </div>
+              {signedDocs.length > 0 && (
+                <div className="border-t border-slate-100 pt-1 mt-1">
+                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Signed Documents</p>
+                  <div className="space-y-0.5">
+                    {signedDocs.map((doc: any) => (
+                      <div key={doc.id} className="flex items-center justify-between py-0.5">
+                        <div className="truncate">
+                          <span className="text-slate-700">{doc.docTitle}</span>
+                          <span className="text-slate-400 ml-1">({doc.version})</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-slate-400 text-[9px]">{new Date(doc.acceptedAt).toLocaleDateString()}</span>
+                          <button onClick={() => setViewingDoc(doc)} className="text-[9px] text-[#1e3a5f] hover:underline">View</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -863,7 +980,7 @@ function HospitalAdministrationContent() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {/* Profile Card */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#4A90D9]">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
               <div className="flex items-center gap-2">
                 <h3 className="text-[11px] font-semibold text-white">My Profile</h3>
                 {cardMsg('profile')}
@@ -903,7 +1020,7 @@ function HospitalAdministrationContent() {
 
           {/* Account & Security Card */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="px-2 py-1.5 bg-[#4A90D9]">
+            <div className="px-2 py-1.5 bg-[#1e3a5f]">
               <h3 className="text-[11px] font-semibold text-white">Account & Security</h3>
             </div>
             <div className="p-2">
@@ -933,7 +1050,7 @@ function HospitalAdministrationContent() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'staff' && (
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <div className="flex items-center justify-between px-2 py-1.5 bg-[#4A90D9]">
+          <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
             <div className="flex items-center gap-2">
               <h3 className="text-[11px] font-semibold text-white">Staff Members</h3>
               <span className="px-1.5 py-0.5 bg-emerald-400/30 text-emerald-200 text-[9px] font-medium rounded">{activeStaff} active</span>
@@ -1080,7 +1197,7 @@ function HospitalAdministrationContent() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'patients' && (
         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-          <div className="flex items-center justify-between px-2 py-1.5 bg-[#4A90D9]">
+          <div className="flex items-center justify-between px-2 py-1.5 bg-[#1e3a5f]">
             <div className="flex items-center gap-2">
               <div className="relative">
                 <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1390,7 +1507,7 @@ function HospitalAdministrationContent() {
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => { setGeneralEditMode(false); setHospital(originalHospital); setSelectedSpecialtyIds((originalHospital.specialties || []).map((s: any) => s.id)); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button type="button" onClick={saveHospitalInfoAll} disabled={generalSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#4A90D9] rounded-lg hover:bg-[#3a7bc8] disabled:opacity-50">{generalSaving ? 'Saving...' : 'Save Changes'}</button>
+                <button type="button" onClick={saveHospitalInfoAll} disabled={generalSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{generalSaving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             </div>
           </div>
@@ -1451,7 +1568,7 @@ function HospitalAdministrationContent() {
 
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => { setBillingAddressEditMode(false); setHospital(originalHospital); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button type="button" onClick={saveBillingAddress} disabled={billingAddressSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#4A90D9] rounded-lg hover:bg-[#3a7bc8] disabled:opacity-50">{billingAddressSaving ? 'Saving...' : 'Save Changes'}</button>
+                <button type="button" onClick={saveBillingAddress} disabled={billingAddressSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{billingAddressSaving ? 'Saving...' : 'Save Changes'}</button>
               </div>
             </div>
           </div>
@@ -1514,10 +1631,108 @@ function HospitalAdministrationContent() {
                 </div>
               </div>
 
+              <div className="border-t pt-3">
+                <p className="text-[11px] font-semibold text-slate-700 mb-2">Insurance</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Insurance Provider</label>
+                    <input value={hospital.insuranceProvider || ''} onChange={e => setHospital({ ...hospital, insuranceProvider: e.target.value })} placeholder="e.g. Blue Cross" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Policy Number</label>
+                    <input value={hospital.insurancePolicyNumber || ''} onChange={e => setHospital({ ...hospital, insurancePolicyNumber: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-3">
+                <p className="text-[11px] font-semibold text-slate-700 mb-2">Accreditation</p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Accreditation Body</label>
+                      <input value={hospital.accreditationBody || ''} onChange={e => setHospital({ ...hospital, accreditationBody: e.target.value })} placeholder="e.g. Joint Commission" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">Accreditation Number</label>
+                      <input value={hospital.accreditationNumber || ''} onChange={e => setHospital({ ...hospital, accreditationNumber: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Accreditation Expiry</label>
+                    <input type="date" value={hospital.accreditationExpiry || ''} onChange={e => setHospital({ ...hospital, accreditationExpiry: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-3">
+                <p className="text-[11px] font-semibold text-slate-700 mb-2">Hospital License</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">License Number</label>
+                    <input value={hospital.licenseNumber || ''} onChange={e => setHospital({ ...hospital, licenseNumber: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">License Expiry</label>
+                    <input type="date" value={hospital.licenseExpiry || ''} onChange={e => setHospital({ ...hospital, licenseExpiry: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => { setLegalComplianceEditMode(false); setHospital(originalHospital); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button type="button" onClick={saveLegalCompliance} disabled={legalComplianceSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#4A90D9] rounded-lg hover:bg-[#3a7bc8] disabled:opacity-50">{legalComplianceSaving ? 'Saving...' : 'Save Changes'}</button>
+                <button type="button" onClick={saveLegalCompliance} disabled={legalComplianceSaving} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{legalComplianceSaving ? 'Saving...' : 'Save Changes'}</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmDialog(null)}>
+          <div className="w-full max-w-xs bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-slate-800 mb-1">{confirmDialog.title}</h3>
+            <p className="text-[11px] text-slate-500 mb-4">{confirmDialog.message}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDialog(null)} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+              <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }} className={`flex-1 py-2 text-xs font-medium text-white rounded-lg ${confirmDialog.destructive ? 'bg-red-600 hover:bg-red-700' : 'bg-[#1e3a5f] hover:bg-[#162f4d]'}`}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Viewer Modal */}
+      {viewingDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setViewingDoc(null)}>
+          <div className="w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">{viewingDoc.docTitle}</h3>
+                <p className="text-[10px] text-slate-400">Version {viewingDoc.version} &middot; Signed by {viewingDoc.signerName} on {new Date(viewingDoc.acceptedAt).toLocaleDateString()}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const blob = new Blob([viewingDoc.contentMarkdown], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${viewingDoc.docTitle.replace(/\s+/g, '_')}_${viewingDoc.version}.md`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-2 py-1 text-[10px] font-medium text-[#1e3a5f] bg-[#1e3a5f]/10 rounded hover:bg-[#1e3a5f]/20"
+                >
+                  Download
+                </button>
+                <button onClick={() => setViewingDoc(null)} className="p-1 text-slate-400 hover:text-slate-600">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 prose prose-sm max-w-none text-slate-700 text-xs leading-relaxed whitespace-pre-wrap">
+              {viewingDoc.contentMarkdown}
             </div>
           </div>
         </div>

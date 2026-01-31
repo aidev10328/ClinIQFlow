@@ -198,6 +198,13 @@ export class HospitalsService {
     if (dto.estimatedPatientVolume !== undefined) updateData.estimated_patient_volume = dto.estimatedPatientVolume;
     if (dto.dataRetentionDays !== undefined) updateData.data_retention_days = dto.dataRetentionDays;
     if (dto.hospitalType !== undefined) updateData.hospital_type = dto.hospitalType;
+    if (dto.insuranceProvider !== undefined) updateData.insurance_provider = dto.insuranceProvider;
+    if (dto.insurancePolicyNumber !== undefined) updateData.insurance_policy_number = dto.insurancePolicyNumber;
+    if (dto.accreditationBody !== undefined) updateData.accreditation_body = dto.accreditationBody;
+    if (dto.accreditationNumber !== undefined) updateData.accreditation_number = dto.accreditationNumber;
+    if (dto.accreditationExpiry !== undefined) updateData.accreditation_expiry = dto.accreditationExpiry || null;
+    if (dto.licenseNumber !== undefined) updateData.license_number = dto.licenseNumber;
+    if (dto.licenseExpiry !== undefined) updateData.license_expiry = dto.licenseExpiry || null;
 
     // Use admin client for the actual update to bypass RLS
     // (we've already verified the user has permission above)
@@ -540,6 +547,13 @@ export class HospitalsService {
       estimatedPatientVolume: hospital.estimated_patient_volume,
       dataRetentionDays: hospital.data_retention_days,
       hospitalType: hospital.hospital_type,
+      insuranceProvider: hospital.insurance_provider,
+      insurancePolicyNumber: hospital.insurance_policy_number,
+      accreditationBody: hospital.accreditation_body,
+      accreditationNumber: hospital.accreditation_number,
+      accreditationExpiry: hospital.accreditation_expiry,
+      licenseNumber: hospital.license_number,
+      licenseExpiry: hospital.license_expiry,
       createdAt: hospital.created_at,
       updatedAt: hospital.updated_at,
     };

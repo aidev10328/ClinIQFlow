@@ -147,6 +147,34 @@ export class CreateHospitalDto {
   @IsArray()
   @IsUUID('4', { each: true })
   specialtyIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  insuranceProvider?: string;
+
+  @IsOptional()
+  @IsString()
+  insurancePolicyNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  accreditationBody?: string;
+
+  @IsOptional()
+  @IsString()
+  accreditationNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  accreditationExpiry?: string;
+
+  @IsOptional()
+  @IsString()
+  licenseNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  licenseExpiry?: string;
 }
 
 export class UpdateHospitalDto {
@@ -276,6 +304,34 @@ export class UpdateHospitalDto {
   @IsArray()
   @IsUUID('4', { each: true })
   specialtyIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  insuranceProvider?: string;
+
+  @IsOptional()
+  @IsString()
+  insurancePolicyNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  accreditationBody?: string;
+
+  @IsOptional()
+  @IsString()
+  accreditationNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  accreditationExpiry?: string;
+
+  @IsOptional()
+  @IsString()
+  licenseNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  licenseExpiry?: string;
 }
 
 export class HospitalResponseDto {
@@ -311,6 +367,13 @@ export class HospitalResponseDto {
   dataRetentionDays?: number;
   hospitalType?: string;
   specialties?: { id: string; name: string }[];
+  insuranceProvider?: string;
+  insurancePolicyNumber?: string;
+  accreditationBody?: string;
+  accreditationNumber?: string;
+  accreditationExpiry?: string;
+  licenseNumber?: string;
+  licenseExpiry?: string;
   createdAt: string;
   updatedAt: string;
 }

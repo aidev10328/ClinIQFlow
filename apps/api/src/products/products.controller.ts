@@ -365,6 +365,21 @@ export class ProductsController {
     return this.productsService.getLicenseStats(hospitalId);
   }
 
+  /**
+   * Cancel current hospital's subscription (manager)
+   */
+  @Post('subscription/cancel')
+  @UseGuards(SupabaseGuard)
+  async cancelSubscription(@Req() req: AuthenticatedRequest) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException('x-hospital-id header required');
+    }
+
+    await this.requireHospitalManager(req.user.id, hospitalId);
+    return this.productsService.cancelHospitalSubscription(hospitalId);
+  }
+
   // =========================================
   // Manager: License Management
   // =========================================

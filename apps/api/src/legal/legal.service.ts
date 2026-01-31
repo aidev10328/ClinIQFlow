@@ -145,6 +145,92 @@ export class LegalService {
   }
 
   /**
+   * Get all signed documents for a hospital (manager endpoint)
+   */
+  async getHospitalAcceptances(
+    hospitalId: string,
+    userId: string,
+    accessToken: string,
+  ): Promise<any[]> {
+    const adminClient = this.getAdminClientOrThrow();
+
+    // Verify user is manager or super admin
+    const { data: membership } = await adminClient
+      .from('hospital_memberships')
+      .select('role')
+      .eq('user_id', userId)
+      .eq('hospital_id', hospitalId)
+      .eq('status', 'ACTIVE')
+      .single();
+
+    const { data: profile } = await adminClient
+      .from('profiles')
+      .select('is_super_admin')
+      .eq('user_id', userId)
+      .single();
+
+    if (!profile?.is_super_admin && membership?.role !== 'HOSPITAL_MANAGER') {
+      throw new ForbiddenException('Only hospital managers can view signed documents');
+    }
+
+    const { data, error } = await adminClient
+      .from('document_acceptances')
+      .select(`
+        id,
+        doc_id,
+        user_id,
+        role_at_acceptance,
+        accepted_at,
+        acceptance_method,
+        signature_name,
+        legal_documents (
+          title,
+          doc_type,
+          version,
+          region,
+          content_markdown
+        )
+      `)
+      .eq('hospital_id', hospitalId)
+      .order('accepted_at', { ascending: false });
+
+    if (error) {
+      this.logger.error(`Failed to get hospital acceptances: ${error.message}`);
+      throw new BadRequestException('Failed to get signed documents');
+    }
+
+    // Get signer profiles
+    const userIds = [...new Set((data || []).map((d) => d.user_id))];
+    const { data: profiles } = await adminClient
+      .from('profiles')
+      .select('user_id, full_name, email')
+      .in('user_id', userIds.length > 0 ? userIds : ['none']);
+
+    const profileMap = new Map(
+      (profiles || []).map((p) => [p.user_id, p])
+    );
+
+    return (data || []).map((d) => {
+      const doc = d.legal_documents as any;
+      const signer = profileMap.get(d.user_id);
+      return {
+        id: d.id,
+        docId: d.doc_id,
+        docTitle: doc?.title || '',
+        docType: doc?.doc_type || '',
+        version: doc?.version || '',
+        region: doc?.region || '',
+        contentMarkdown: doc?.content_markdown || '',
+        signerName: signer?.full_name || d.signature_name || '',
+        signerEmail: signer?.email || '',
+        roleAtAcceptance: d.role_at_acceptance,
+        acceptedAt: d.accepted_at,
+        acceptanceMethod: d.acceptance_method,
+      };
+    });
+  }
+
+  /**
    * Check if user has pending requirements (used by guard)
    */
   async hasPendingRequirements(
