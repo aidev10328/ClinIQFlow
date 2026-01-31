@@ -180,9 +180,10 @@ function buildBuckets(filter: TimeFilter) {
 
   if (type === 'hours') {
     // 24 hour buckets for today
+    const dateKey = bKey(start);
     for (let i = 0; i < 24; i += 2) {
       const h = i.toString().padStart(2, '0');
-      out.push({ key: `${start.toISOString().split('T')[0]}-${h}`, label: `${i % 12 || 12}${i < 12 ? 'a' : 'p'}` });
+      out.push({ key: `${dateKey}-${h}`, label: `${i % 12 || 12}${i < 12 ? 'a' : 'p'}` });
     }
   } else if (type === 'months') {
     for (let i = 0; i < count; i++) {
@@ -195,14 +196,14 @@ function buildBuckets(filter: TimeFilter) {
     for (let i = 0; i < count; i++) {
       const d = new Date(start);
       d.setDate(d.getDate() + i);
-      out.push({ key: d.toISOString().split('T')[0], label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
+      out.push({ key: bKey(d), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) });
     }
   }
   return out;
 }
 
 function bKey(date: Date): string {
-  return date.toISOString().split('T')[0];
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function buildCalendarMonth(year: number, month: number) {
@@ -262,8 +263,8 @@ export default function HospitalDashboardPage() {
   const { data: patients = [], isLoading: pl } = useApiQuery<any[]>(['hospital', 'patients'], '/v1/patients');
   const { data: licenseStats } = useApiQuery<any>(['hospital', 'license-stats'], '/v1/products/subscription/license-stats');
 
-  const apptStart = useMemo(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString().split('T')[0]; }, []);
-  const apptEnd = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const apptStart = useMemo(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return bKey(d); }, []);
+  const apptEnd = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() + 3); return bKey(d); }, []);
   const { data: appointments = [] } = useApiQuery<any[]>(['hospital', 'appointments', 'all', apptStart, apptEnd], `/v1/appointments?startDate=${apptStart}&endDate=${apptEnd}`);
 
   // Queue stats for walk-in trends
@@ -377,17 +378,20 @@ export default function HospitalDashboardPage() {
       : appointments;
 
     relevantAppts.forEach((a: any) => {
-      const d = new Date(a.appointmentDate || a.createdAt);
+      const dateStr = a.appointmentDate || a.createdAt?.split('T')[0];
+      if (!dateStr) return;
+      const d = new Date(dateStr + 'T00:00:00');
       if (d < start) return;
 
       let k: string;
       if (type === 'hours') {
-        const h = Math.floor(d.getHours() / 2) * 2;
-        k = `${d.toISOString().split('T')[0]}-${h.toString().padStart(2, '0')}`;
+        const timeParts = (a.startTime || '').split(':');
+        const h = timeParts.length >= 1 ? Math.floor(parseInt(timeParts[0], 10) / 2) * 2 : 0;
+        k = `${dateStr}-${h.toString().padStart(2, '0')}`;
       } else if (type === 'months') {
         k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       } else {
-        k = bKey(d);
+        k = dateStr;
       }
 
       if (scheduledMap[k] !== undefined) scheduledMap[k]++;
@@ -432,19 +436,22 @@ export default function HospitalDashboardPage() {
       : appointments;
 
     relevantAppts.forEach((a: any) => {
-      const d = new Date(a.appointmentDate || a.createdAt);
+      const dateStr = a.appointmentDate || a.createdAt?.split('T')[0];
+      if (!dateStr) return;
+      const d = new Date(dateStr + 'T00:00:00');
       if (d < start) return;
       const pid = a.patientId;
       if (!pid) return;
 
       let k: string;
       if (type === 'hours') {
-        const h = Math.floor(d.getHours() / 2) * 2;
-        k = `${d.toISOString().split('T')[0]}-${h.toString().padStart(2, '0')}`;
+        const timeParts = (a.startTime || '').split(':');
+        const h = timeParts.length >= 1 ? Math.floor(parseInt(timeParts[0], 10) / 2) * 2 : 0;
+        k = `${dateStr}-${h.toString().padStart(2, '0')}`;
       } else if (type === 'months') {
         k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       } else {
-        k = bKey(d);
+        k = dateStr;
       }
       if (!newMap[k]) return;
 
@@ -507,7 +514,8 @@ export default function HospitalDashboardPage() {
     const existingPatientIds = new Set(
       appointments
         .filter((a: any) => {
-          const apptDate = new Date(a.appointmentDate || a.createdAt);
+          const dateStr = a.appointmentDate || a.createdAt?.split('T')[0];
+          const apptDate = new Date(dateStr + 'T00:00:00');
           return apptDate >= periodStart;
         })
         .map((a: any) => a.patientId)
@@ -838,10 +846,10 @@ export default function HospitalDashboardPage() {
             {selectedDocProfile && (
               <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold border ${
                 doctorCheckin.status === 'CHECKED_IN'
-                  ? 'bg-lime-100 text-lime-700 border-lime-300'
+                  ? 'bg-[#ecf5e7] text-[#4d7c43] border-[#b8d4af]'
                   : 'bg-amber-100 text-amber-700 border-amber-300'
               }`}>
-                <span className={`w-2 h-2 rounded-full ${doctorCheckin.status === 'CHECKED_IN' ? 'bg-lime-500 animate-pulse' : 'bg-amber-500'}`} />
+                <span className={`w-2 h-2 rounded-full ${doctorCheckin.status === 'CHECKED_IN' ? 'bg-[#4d7c43] animate-pulse' : 'bg-amber-500'}`} />
                 {doctorCheckin.status === 'CHECKED_IN' ? 'ONLINE' : 'OFFLINE'}
               </span>
             )}
