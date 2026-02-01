@@ -1,16 +1,26 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { WhatsAppService } from '../providers/whatsapp/whatsapp.service';
+import { N8nService } from '../providers/n8n/n8n.service';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 import { DataScopingContext } from '../data-scoping/dto/data-scoping.dto';
 import { getVisibleDoctorProfileIds, getScopeType } from '../data-scoping/scoping.utils';
 
 @Injectable()
 export class PatientsService {
-  constructor(private readonly supabase: SupabaseService) {}
+  private readonly logger = new Logger(PatientsService.name);
+
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly whatsapp: WhatsAppService,
+    private readonly n8n: N8nService,
+  ) {}
 
   /**
    * Get all patients for a hospital, filtered by data scoping context
@@ -44,8 +54,7 @@ export class PatientsService {
       .from('patients')
       .select('*')
       .eq('hospital_id', hospitalId)
-      .order('last_name', { ascending: true })
-      .order('first_name', { ascending: true });
+      .order('created_at', { ascending: false });
 
     if (error) {
       throw new ForbiddenException(error.message);
@@ -79,8 +88,7 @@ export class PatientsService {
       .select('*')
       .eq('hospital_id', hospitalId)
       .in('id', patientIds)
-      .order('last_name', { ascending: true })
-      .order('first_name', { ascending: true });
+      .order('created_at', { ascending: false });
 
     if (error) {
       throw new ForbiddenException(error.message);
@@ -119,6 +127,20 @@ export class PatientsService {
   ) {
     const client = this.supabase.getClientWithToken(accessToken);
 
+    // Check phone uniqueness within the hospital
+    if (dto.phone) {
+      const { data: existing } = await client
+        .from('patients')
+        .select('id')
+        .eq('hospital_id', hospitalId)
+        .eq('phone', dto.phone)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        throw new ConflictException('This phone number already exists for another patient');
+      }
+    }
+
     const { data, error } = await client
       .from('patients')
       .insert({
@@ -147,7 +169,103 @@ export class PatientsService {
       throw new ForbiddenException(error.message);
     }
 
-    return this.mapPatient(data);
+    const patient = this.mapPatient(data);
+
+    // Send WhatsApp welcome notification (non-blocking)
+    if (dto.phone && this.whatsapp.isEnabled()) {
+      this.sendPatientWhatsAppNotification(dto.phone, patient, hospitalId).catch(err => {
+        this.logger.error(`Failed to send WhatsApp notification: ${err.message}`);
+      });
+    }
+
+    // Trigger n8n webhook (non-blocking)
+    this.triggerN8nPatientCreated(patient, hospitalId).catch(err => {
+      this.logger.error(`Failed to trigger n8n webhook: ${err.message}`);
+    });
+
+    return patient;
+  }
+
+  /**
+   * Send WhatsApp welcome message to newly created patient
+   */
+  private async sendPatientWhatsAppNotification(
+    phone: string,
+    patient: any,
+    hospitalId: string,
+  ) {
+    try {
+      // Fetch hospital name for the message
+      const adminClient = this.supabase.getAdminClient();
+      const { data: hospital } = await adminClient
+        .from('hospitals')
+        .select('name')
+        .eq('id', hospitalId)
+        .single();
+
+      const hospitalName = hospital?.name || 'our hospital';
+      const patientName = `${patient.firstName} ${patient.lastName}`.trim();
+
+      const result = await this.whatsapp.sendPatientWelcome(
+        phone,
+        patientName,
+        hospitalName,
+      );
+
+      if (result.success) {
+        this.logger.log(`WhatsApp welcome sent to patient ${patient.id} (${phone})`);
+
+        // Log notification in database
+        await adminClient.from('whatsapp_notifications').insert({
+          hospital_id: hospitalId,
+          patient_id: patient.id,
+          recipient_phone: phone,
+          template_name: 'patient_welcome',
+          status: 'sent',
+          wa_message_id: result.messageId,
+        });
+      } else {
+        this.logger.warn(`WhatsApp welcome failed for patient ${patient.id}: ${result.error}`);
+
+        await adminClient.from('whatsapp_notifications').insert({
+          hospital_id: hospitalId,
+          patient_id: patient.id,
+          recipient_phone: phone,
+          template_name: 'patient_welcome',
+          status: 'failed',
+          error_message: result.error,
+        });
+      }
+    } catch (err) {
+      this.logger.error(`WhatsApp notification error for patient in hospital ${hospitalId}: ${err}`);
+    }
+  }
+
+  private async triggerN8nPatientCreated(patient: any, hospitalId: string) {
+    try {
+      const adminClient = this.supabase.getAdminClient();
+      let hospitalName = '';
+      if (adminClient) {
+        const { data: hospital } = await adminClient
+          .from('hospitals')
+          .select('name')
+          .eq('id', hospitalId)
+          .single();
+        hospitalName = hospital?.name || '';
+      }
+
+      await this.n8n.onPatientCreated({
+        id: patient.id,
+        firstName: patient.firstName,
+        lastName: patient.lastName,
+        phone: patient.phone,
+        email: patient.email,
+        hospitalId,
+        hospitalName,
+      });
+    } catch (err) {
+      this.logger.error(`n8n webhook error for patient ${patient.id}: ${err}`);
+    }
   }
 
   /**
@@ -160,6 +278,21 @@ export class PatientsService {
     accessToken: string,
   ) {
     const client = this.supabase.getClientWithToken(accessToken);
+
+    // Check phone uniqueness within the hospital (exclude current patient)
+    if (dto.phone) {
+      const { data: existing } = await client
+        .from('patients')
+        .select('id')
+        .eq('hospital_id', hospitalId)
+        .eq('phone', dto.phone)
+        .neq('id', patientId)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        throw new ConflictException('This phone number already exists for another patient');
+      }
+    }
 
     // Build update object with only provided fields
     const updateData: Record<string, any> = {};

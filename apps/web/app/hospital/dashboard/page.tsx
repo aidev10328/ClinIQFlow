@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import { useAuth } from '../../../components/AuthProvider';
 import { useApiQuery } from '../../../lib/hooks/useApiQuery';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
+import { toDateKeyInTimezone } from '../../../lib/timezone';
 
 const DoctorDashboard = dynamic(
   () => import('../../../components/hospital/DoctorDashboard').then((m) => m.DoctorDashboard),
@@ -164,8 +165,7 @@ function CustomSelect({ value, onChange, options, placeholder }: {
 }
 
 // ─── Date helpers ────────────────────────────────────────────────────────────
-function getDateRange(filter: TimeFilter) {
-  const now = new Date();
+function getDateRange(filter: TimeFilter, now: Date) {
   switch (filter) {
     case 'day': { const s = new Date(now); s.setHours(0, 0, 0, 0); return { start: s, count: 1, type: 'hours' as const }; }
     case 'week': { const s = new Date(now); s.setDate(s.getDate() - 6); s.setHours(0, 0, 0, 0); return { start: s, count: 7, type: 'days' as const }; }
@@ -174,8 +174,8 @@ function getDateRange(filter: TimeFilter) {
   }
 }
 
-function buildBuckets(filter: TimeFilter) {
-  const { start, count, type } = getDateRange(filter);
+function buildBuckets(filter: TimeFilter, now: Date) {
+  const { start, count, type } = getDateRange(filter, now);
   const out: { key: string; label: string }[] = [];
 
   if (type === 'hours') {
@@ -233,7 +233,8 @@ const DONUT_COLORS = [chartColors.primary, chartColors.secondary, chartColors.li
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function HospitalDashboardPage() {
   const { currentHospital, profile } = useAuth();
-  const { getCurrentTime } = useHospitalTimezone();
+  const { getCurrentTime, timezone } = useHospitalTimezone();
+  const hospitalNow = useMemo(() => getCurrentTime(), []);
 
   const [apptTrendFilter, setApptTrendFilter] = useState<TimeFilter>('week');
   const [patientTrendFilter, setPatientTrendFilter] = useState<TimeFilter>('week');
@@ -263,8 +264,8 @@ export default function HospitalDashboardPage() {
   const { data: patients = [], isLoading: pl } = useApiQuery<any[]>(['hospital', 'patients'], '/v1/patients');
   const { data: licenseStats } = useApiQuery<any>(['hospital', 'license-stats'], '/v1/products/subscription/license-stats');
 
-  const apptStart = useMemo(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return bKey(d); }, []);
-  const apptEnd = useMemo(() => { const d = new Date(); d.setMonth(d.getMonth() + 3); return bKey(d); }, []);
+  const apptStart = useMemo(() => { const d = new Date(hospitalNow); d.setFullYear(d.getFullYear() - 1); return bKey(d); }, [hospitalNow]);
+  const apptEnd = useMemo(() => { const d = new Date(hospitalNow); d.setMonth(d.getMonth() + 3); return bKey(d); }, [hospitalNow]);
   const { data: appointments = [] } = useApiQuery<any[]>(['hospital', 'appointments', 'all', apptStart, apptEnd], `/v1/appointments?startDate=${apptStart}&endDate=${apptEnd}`);
 
   // Queue stats for walk-in trends
@@ -321,8 +322,6 @@ export default function HospitalDashboardPage() {
     );
   }, [members, scopingContext, hasFullDoctorAccess]);
 
-  const hospitalNow = useMemo(() => getCurrentTime(), []);
-
   const weekDates = useMemo(() => {
     const startOfWeek = new Date(hospitalNow);
     startOfWeek.setDate(hospitalNow.getDate() - hospitalNow.getDay() + (weekOffset * 7));
@@ -340,7 +339,7 @@ export default function HospitalDashboardPage() {
     const d = String(hospitalNow.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }, [hospitalNow]);
-  const todayPatients = useMemo(() => patients.filter((p: any) => new Date(p.createdAt).toISOString().split('T')[0] === todayStr).length, [patients, todayStr]);
+  const todayPatients = useMemo(() => patients.filter((p: any) => toDateKeyInTimezone(p.createdAt, timezone) === todayStr).length, [patients, todayStr, timezone]);
   const todayAppts = useMemo(() => appointments.filter((a: any) => (a.appointmentDate || '').startsWith(todayStr)).length, [appointments, todayStr]);
 
   const selectedDocProfile = useMemo(() => doctorList.find((d: any) => d.userId === selectedDoctorId), [doctorList, selectedDoctorId]);
@@ -365,8 +364,8 @@ export default function HospitalDashboardPage() {
 
   // ─── Chart data ──────────────────────────────────────────────────────────
   const apptTrendData = useMemo(() => {
-    const { start, type } = getDateRange(apptTrendFilter);
-    const buckets = buildBuckets(apptTrendFilter);
+    const { start, type } = getDateRange(apptTrendFilter, hospitalNow);
+    const buckets = buildBuckets(apptTrendFilter, hospitalNow);
 
     const scheduledMap: Record<string, number> = {};
     const walkInMap: Record<string, number> = {};
@@ -418,12 +417,12 @@ export default function HospitalDashboardPage() {
       'Scheduled Appointments': scheduledMap[b.key] || 0,
       'Walk-ins': walkInMap[b.key] || 0,
     }));
-  }, [appointments, apptTrendFilter, chartDoctorFilter, queueStats]);
+  }, [appointments, apptTrendFilter, chartDoctorFilter, queueStats, hospitalNow]);
 
   // New vs Returning patients per time bucket
   const patientNewVsReturningData = useMemo(() => {
-    const { start, type } = getDateRange(patientTrendFilter);
-    const buckets = buildBuckets(patientTrendFilter);
+    const { start, type } = getDateRange(patientTrendFilter, hospitalNow);
+    const buckets = buildBuckets(patientTrendFilter, hospitalNow);
     const newMap: Record<string, Set<string>> = {};
     const retMap: Record<string, Set<string>> = {};
     buckets.forEach((b) => { newMap[b.key] = new Set(); retMap[b.key] = new Set(); });
@@ -468,7 +467,7 @@ export default function HospitalDashboardPage() {
       'New Patients': newMap[b.key].size,
       'Returning Patients': retMap[b.key].size,
     }));
-  }, [patients, appointments, patientTrendFilter, chartDoctorFilter]);
+  }, [patients, appointments, patientTrendFilter, chartDoctorFilter, hospitalNow]);
 
   const licenseDonutData = useMemo(() => {
     const products = licenseStats?.products;
@@ -483,7 +482,7 @@ export default function HospitalDashboardPage() {
 
   // Patient Bar Chart data (new vs existing)
   const patientBarData = useMemo(() => {
-    const now = new Date();
+    const now = hospitalNow;
     let periodStart: Date;
     let periodLabel: string;
 
@@ -527,7 +526,7 @@ export default function HospitalDashboardPage() {
     }).length;
 
     return { newPatients, existingPatients, periodLabel };
-  }, [patients, appointments, patientBarFilter]);
+  }, [patients, appointments, patientBarFilter, hospitalNow]);
 
   // Derive shift types (AM/PM/NT) from the time range
   const scheduleByDay = useMemo(() => {
@@ -559,7 +558,7 @@ export default function HospitalDashboardPage() {
     return m;
   }, [doctorSchedule]);
   const upcomingLeave = useMemo(() => {
-    const today = new Date();
+    const today = new Date(hospitalNow);
     today.setHours(0, 0, 0, 0);
     return doctorTimeOff
       .filter((t: any) => {
@@ -569,23 +568,23 @@ export default function HospitalDashboardPage() {
       })
       .sort((a: any, b: any) => (a.start_date || '').localeCompare(b.start_date || ''))
       .slice(0, 4);
-  }, [doctorTimeOff]);
+  }, [doctorTimeOff, hospitalNow]);
 
   const totalUpcomingLeaves = useMemo(() => {
-    const today = new Date();
+    const today = new Date(hospitalNow);
     today.setHours(0, 0, 0, 0);
     return doctorTimeOff.filter((t: any) => {
       const ep = (t.end_date || '').split('-').map(Number);
       if (ep.length < 3) return false;
       return new Date(ep[0], ep[1] - 1, ep[2]) >= today;
     }).length;
-  }, [doctorTimeOff]);
+  }, [doctorTimeOff, hospitalNow]);
 
   const workingDaysPerWeek = useMemo(() => Object.keys(scheduleByDay).length, [scheduleByDay]);
 
   const doctorPatientsThisWeek = useMemo(() => {
     if (!actualDoctorProfileId) return 0;
-    const now = new Date();
+    const now = hospitalNow;
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - now.getDay());
     weekStart.setHours(0, 0, 0, 0);
@@ -597,7 +596,7 @@ export default function HospitalDashboardPage() {
       }
     });
     return seen.size;
-  }, [appointments, actualDoctorProfileId]);
+  }, [appointments, actualDoctorProfileId, hospitalNow]);
 
   const workingDaysSet = useMemo(() => {
     const set = new Set<number>();
@@ -986,7 +985,7 @@ export default function HospitalDashboardPage() {
                         let dayName = '';
                         let dateStr = '';
                         if (startDate) {
-                          const today = new Date();
+                          const today = new Date(hospitalNow);
                           today.setHours(0, 0, 0, 0);
                           const diffDays = Math.round((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                           dayName = DAY_FULL[startDate.getDay()];

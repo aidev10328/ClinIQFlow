@@ -65,6 +65,20 @@ body:has(.admin-layout) > div {
   overflow: hidden;
 }
 
+/* Navy blue select option styling */
+select option:checked {
+  background: #1e3a5f !important;
+  color: white !important;
+}
+
+select option:hover {
+  background: #e8f4fc;
+}
+
+select {
+  accent-color: #1e3a5f;
+}
+
 /* Layout - Responsive container */
 .container {
   @apply max-w-6xl mx-auto px-4 py-6;

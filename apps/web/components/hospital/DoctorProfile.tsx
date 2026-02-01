@@ -86,7 +86,7 @@ export function DoctorProfile() {
   const [newTimeOff, setNewTimeOff] = useState({ startDate: '', endDate: '', reason: '' });
 
   // Calendar state
-  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [calendarDate, setCalendarDate] = useState(() => getCurrentTime());
 
   // Appointment duration
   const [appointmentDuration, setAppointmentDuration] = useState(30);
@@ -751,7 +751,7 @@ export function DoctorProfile() {
                         <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Date of Birth</p>
                         <p className="text-sm font-medium text-gray-900">
                           {doctor?.dateOfBirth
-                            ? new Date(doctor.dateOfBirth).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            ? new Date(doctor.dateOfBirth + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                             : '—'}
                         </p>
                       </div>

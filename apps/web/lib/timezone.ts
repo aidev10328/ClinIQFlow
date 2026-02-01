@@ -282,3 +282,21 @@ export function getTimezoneOffset(timezone: string): string {
 
   return '';
 }
+
+/**
+ * Get a YYYY-MM-DD date key string for a date in hospital timezone.
+ * Useful for chart bucket keys and date comparisons.
+ */
+export function toDateKeyInTimezone(date: Date | string, timezone: string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const year = parts.find(p => p.type === 'year')?.value || '';
+  const month = parts.find(p => p.type === 'month')?.value || '';
+  const day = parts.find(p => p.type === 'day')?.value || '';
+  return `${year}-${month}-${day}`;
+}

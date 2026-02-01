@@ -93,18 +93,11 @@ function formatTime12h(time24: string): string {
   return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
 }
 
-function formatTimeFromISO(isoString: string): string {
-  const date = new Date(isoString);
-  const hours = date.getHours();
-  const mins = date.getMinutes();
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const hours12 = hours % 12 || 12;
-  return `${hours12}:${String(mins).padStart(2, '0')} ${period}`;
-}
-
 export default function QueuePage() {
   const { currentHospital, user, profile } = useAuth();
-  const { getCurrentTime, formatDate } = useHospitalTimezone();
+  const { getCurrentTime, formatDate, formatTime: formatTimeHospital } = useHospitalTimezone();
+
+  const formatTimeFromISO = (isoString: string) => formatTimeHospital(isoString);
 
   // Determine user role
   const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');

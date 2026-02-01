@@ -854,7 +854,7 @@ function DoctorScheduleTab({
               </div>
               {slotsEndDate && (
                 <div className="text-[10px] text-slate-500">
-                  Slots till <span className="font-medium text-slate-700">{new Date(slotsEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  Slots till <span className="font-medium text-slate-700">{new Date(slotsEndDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                 </div>
               )}
             </div>
@@ -992,13 +992,13 @@ function DoctorScheduleTab({
                     const start = new Date(timeOff.startDate);
                     const end = new Date(timeOff.endDate);
                     const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-                    const isPast = end < new Date();
+                    const isPast = timeOff.endDate < formatDateString(getHospitalToday());
                     return (
                       <div key={timeOff.id} className={`flex items-center justify-between p-2 rounded border ${isPast ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-amber-50 border-amber-100'}`}>
                         <div>
                           <p className="text-[10px] font-medium text-slate-700">
-                            {start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            {timeOff.startDate !== timeOff.endDate && <> - {end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>}
+                            {new Date(timeOff.startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            {timeOff.startDate !== timeOff.endDate && <> - {new Date(timeOff.endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>}
                           </p>
                           <p className="text-[9px] text-slate-400">{days} day{days > 1 ? 's' : ''}{timeOff.reason && ` · ${timeOff.reason}`}</p>
                         </div>
@@ -1451,6 +1451,7 @@ function HospitalCalendarTab({ doctors, formatDateString, getHospitalToday }: an
 // QUEUE TAB
 // ============================================================================
 function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAddPatient }: any) {
+  const { formatTime: formatTimeHospital } = useHospitalTimezone();
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(doctors[0] || null);
   const [queueData, setQueueData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -1611,14 +1612,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
     return appointments.filter((a: any) => a.patientName.toLowerCase().includes(lower) || a.patientPhone?.includes(search));
   };
 
-  const formatTimeFromISO = (isoString: string) => {
-    const date = new Date(isoString);
-    const hours = date.getHours();
-    const mins = date.getMinutes();
-    const period = hours >= 12 ? 'PM' : 'AM';
-    const hours12 = hours % 12 || 12;
-    return `${hours12}:${String(mins).padStart(2, '0')} ${period}`;
-  };
+  const formatTimeFromISO = (isoString: string) => formatTimeHospital(isoString);
 
   const doctorStatus = queueData?.doctorCheckin?.status || 'NOT_CHECKED_IN';
   const isCheckedIn = doctorStatus === 'CHECKED_IN';
@@ -2071,7 +2065,7 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
                     <div>{p.phone || '—'}</div>
                     <div className="text-[9px] text-slate-400 truncate max-w-[140px]">{p.email || '—'}</div>
                   </td>
-                  <td className="px-3 py-2 text-slate-500 hidden sm:table-cell">{p.dateOfBirth ? new Date(p.dateOfBirth).toLocaleDateString() : '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 hidden sm:table-cell">{p.dateOfBirth ? new Date(p.dateOfBirth + 'T00:00:00').toLocaleDateString() : '—'}</td>
                   <td className="px-3 py-2 text-slate-500 capitalize hidden sm:table-cell">{p.gender || '—'}</td>
                   <td className="px-3 py-2">
                     <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${(p as any).status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
@@ -2247,7 +2241,7 @@ function BookingModal({ selectedSlot, patientSearch, setPatientSearch, filteredP
             <div>
               <p className="font-medium text-slate-900 text-xs">Dr. {selectedSlot.doctorName}</p>
               <p className="text-[10px] text-slate-500">
-                {new Date(selectedSlot.slotDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatTime12h(selectedSlot.startTime)} - {formatTime12h(selectedSlot.endTime)}
+                {new Date(selectedSlot.slotDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatTime12h(selectedSlot.startTime)} - {formatTime12h(selectedSlot.endTime)}
               </p>
             </div>
           </div>

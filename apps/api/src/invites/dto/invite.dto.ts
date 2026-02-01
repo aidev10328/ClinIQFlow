@@ -23,6 +23,14 @@ export class CreateDoctorInviteDto {
 
   @IsOptional()
   @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
+  @IsString()
   message?: string;
 }
 

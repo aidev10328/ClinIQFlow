@@ -189,7 +189,11 @@ export class InvitesService {
         role: InviteRole.DOCTOR,
         invited_by_user_id: invitedByUserId,
         token_hash: tokenHash,
-        metadata: dto.message ? { message: dto.message } : null,
+        metadata: {
+          ...(dto.firstName ? { firstName: dto.firstName } : {}),
+          ...(dto.lastName ? { lastName: dto.lastName } : {}),
+          ...(dto.message ? { message: dto.message } : {}),
+        },
       })
       .select('id, hospital_id, invited_email, role, status, expires_at, created_at')
       .single();

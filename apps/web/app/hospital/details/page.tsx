@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
 import { useRbac } from '../../../lib/rbac/RbacContext';
 import { COUNTRIES, COUNTRY_NAME_TO_CODE } from '../../../lib/countries';
 import { getStatesForCountry, getStateName } from '../../../lib/countryStateData';
 import PhoneInput from '../../../components/PhoneInput';
+import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -115,6 +115,54 @@ function formatTime12(time24: string): string {
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+const TIME_OPTIONS = (() => {
+  const opts: string[] = [];
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 30) opts.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  return opts;
+})();
+
+function shortTime(t: string): string {
+  const [h, m] = t.split(':').map(Number);
+  const h12 = h % 12 || 12;
+  const p = h >= 12 ? 'PM' : 'AM';
+  return m === 0 ? `${h12}${p}` : `${h12}:${String(m).padStart(2, '0')}${p}`;
+}
+
+const APPT_DURATIONS = [10, 15, 20, 30, 45, 60];
+
+// Custom dropdown matching dashboard chart select style
+function ScheduleSelect({ value, onChange, options }: { value: string; onChange: (val: string) => void; options: { value: string; label: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selectedLabel = options.find(o => o.value === value)?.label || '';
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(!open)} className={`w-full flex items-center justify-between px-2 py-1.5 text-[11px] bg-white border rounded-md font-medium cursor-pointer transition-all ${open ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200 hover:border-[#2b5a8a]'} text-[#1e3a5f]`}>
+        <span>{selectedLabel}</span>
+        <svg className={`w-3 h-3 text-[#1e3a5f]/40 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-auto">
+          {options.map(opt => (
+            <button key={opt.value} type="button" onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${opt.value === value ? 'bg-[#1e3a5f] text-white font-medium' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const DEPARTMENTS = [
   'Emergency Medicine', 'Internal Medicine', 'Surgery', 'Pediatrics',
   'Obstetrics & Gynecology', 'Cardiology', 'Neurology', 'Orthopedics',
@@ -194,6 +242,7 @@ function HospitalAdministrationContent() {
   const searchParams = useSearchParams();
   const { currentHospital, currentHospitalId, profile, refreshProfile } = useAuth();
   const { canEdit } = useRbac();
+  const { getCurrentTime, formatShortDate } = useHospitalTimezone();
   const canEditSettings = canEdit('hospital.settings');
   const isManager = profile?.isSuperAdmin || currentHospital?.role === 'HOSPITAL_MANAGER';
 
@@ -266,6 +315,8 @@ function HospitalAdministrationContent() {
   const [pendingInvites, setPendingInvites] = useState<Invite[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteFirstName, setInviteFirstName] = useState('');
+  const [inviteLastName, setInviteLastName] = useState('');
   const [inviting, setInviting] = useState(false);
 
   // Doctor Edit Modal
@@ -283,6 +334,8 @@ function HospitalAdministrationContent() {
   const [doctorScheduleSaving, setDoctorScheduleSaving] = useState(false);
   const [doctorScheduleLoading, setDoctorScheduleLoading] = useState(false);
   const [scheduleShiftTimings, setScheduleShiftTimings] = useState<ShiftTimingConfig>({ ...DEFAULT_SHIFT_TIMINGS });
+  const [scheduleApptDuration, setScheduleApptDuration] = useState(30);
+  const [doctorCheckins, setDoctorCheckins] = useState<Record<string, string>>({});
 
   // Revoke License Modal
   const [showRevokeLicenseModal, setShowRevokeLicenseModal] = useState(false);
@@ -310,6 +363,16 @@ function HospitalAdministrationContent() {
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [patientSaving, setPatientSaving] = useState(false);
   const [patientForm, setPatientForm] = useState({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '' });
+
+  // Search & Pagination
+  const [managerSearch, setManagerSearch] = useState('');
+  const [staffSearch, setStaffSearch] = useState('');
+  const [doctorSearch, setDoctorSearch] = useState('');
+  const [managerPage, setManagerPage] = useState(1);
+  const [staffPage, setStaffPage] = useState(1);
+  const [doctorPage, setDoctorPage] = useState(1);
+  const [patientPage, setPatientPage] = useState(1);
+  const ROWS_PER_PAGE = 10;
 
   // ─── AUTO-DISMISS BANNERS AFTER 10 SECONDS ──────────────────────────────────
   useEffect(() => {
@@ -421,6 +484,22 @@ function HospitalAdministrationContent() {
     const tab = searchParams.get('tab');
     if (tab && ['details', 'manager', 'staff', 'doctors', 'patients'].includes(tab)) setActiveTab(tab as TabType);
   }, [currentHospitalId, profile, searchParams]);
+
+  // Fetch doctor checkin statuses (online/offline)
+  useEffect(() => {
+    if (doctors.length === 0) return;
+    const now = getCurrentTime();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    Promise.all(
+      doctors.map(d => apiFetch(`/v1/queue/daily?doctorProfileId=${d.id}&date=${today}`).then(r => r.ok ? r.json() : null).catch(() => null))
+    ).then(results => {
+      const statuses: Record<string, string> = {};
+      results.forEach((r, i) => {
+        if (r?.doctorCheckin?.status) statuses[doctors[i].id] = r.doctorCheckin.status;
+      });
+      setDoctorCheckins(statuses);
+    });
+  }, [doctors]);
 
   // ─── HANDLERS ────────────────────────────────────────────────────────────────
   // Helper: resolve country code for display
@@ -733,20 +812,31 @@ function HospitalAdministrationContent() {
     });
   }
 
-  async function toggleStaffStatus(s: StaffMember) {
-    await apiFetch(`/v1/staff/${s.id}`, { method: 'PATCH', body: JSON.stringify({ status: s.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }) });
-    const r = await apiFetch('/v1/staff');
-    if (r.ok) setStaff(await r.json());
+  function toggleStaffStatus(s: StaffMember) {
+    const newStatus = s.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const action = s.status === 'ACTIVE' ? 'deactivate' : 'activate';
+    setConfirmDialog({
+      title: `${s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'} Staff Member`,
+      message: `Are you sure you want to ${action} ${s.displayName || s.email}?`,
+      destructive: s.status === 'ACTIVE',
+      onConfirm: async () => {
+        await apiFetch(`/v1/staff/${s.id}`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+        const r = await apiFetch('/v1/staff');
+        if (r.ok) setStaff(await r.json());
+      },
+    });
   }
 
   async function inviteDoctor(e: React.FormEvent) {
     e.preventDefault();
     setInviting(true);
     try {
-      const res = await apiFetch('/v1/invites/create-doctor', { method: 'POST', body: JSON.stringify({ email: inviteEmail }) });
+      const res = await apiFetch('/v1/invites/create-doctor', { method: 'POST', body: JSON.stringify({ email: inviteEmail, firstName: inviteFirstName, lastName: inviteLastName }) });
       if (res.ok) {
         setShowInviteModal(false);
         setInviteEmail('');
+        setInviteFirstName('');
+        setInviteLastName('');
         const inv = await apiFetch('/v1/invites/pending');
         if (inv.ok) {
           const data = await inv.json();
@@ -764,7 +854,6 @@ function HospitalAdministrationContent() {
   async function openDoctorEditModal(d: Doctor) {
     setEditingDoctorId(d.userId);
     setDoctorEditLoading(true);
-    setShowDoctorEditModal(true);
     try {
       const res = await apiFetch(`/v1/doctors/${d.userId}/profile`);
       if (res.ok) {
@@ -802,7 +891,7 @@ function HospitalAdministrationContent() {
         setDoctorFormData({ firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || '', phone: d.phone || '', specialization: d.specialty || '', licenseNumber: d.licenseNumber || '' });
       }
     } catch { setDoctorFormData({}); }
-    finally { setDoctorEditLoading(false); }
+    finally { setDoctorEditLoading(false); setShowDoctorEditModal(true); }
   }
 
   async function saveDoctorEdit(e: React.FormEvent) {
@@ -860,9 +949,11 @@ function HospitalAdministrationContent() {
     setScheduleDoctorId(d.userId);
     setScheduleDoctorName(d.fullName || d.email);
     setDoctorScheduleLoading(true);
-    setShowDoctorScheduleModal(true);
     try {
-      const res = await apiFetch(`/v1/doctors/${d.userId}/schedules`);
+      const [res, durRes] = await Promise.all([
+        apiFetch(`/v1/doctors/${d.userId}/schedules`),
+        apiFetch(`/v1/doctors/${d.userId}/appointment-duration`),
+      ]);
       if (res.ok) {
         const data = await res.json();
         const sched = DAYS_OF_WEEK.map((_, idx) => {
@@ -878,9 +969,16 @@ function HospitalAdministrationContent() {
       } else {
         setDoctorSchedule(DAYS_OF_WEEK.map((_, idx) => ({ dayOfWeek: idx, isWorking: idx >= 1 && idx <= 5, morningShift: idx >= 1 && idx <= 5, eveningShift: false, nightShift: false })));
       }
+      if (durRes.ok) {
+        const durData = await durRes.json();
+        setScheduleApptDuration(durData.appointmentDurationMinutes || 30);
+      } else {
+        setScheduleApptDuration(30);
+      }
     } catch {
       setDoctorSchedule(DAYS_OF_WEEK.map((_, idx) => ({ dayOfWeek: idx, isWorking: idx >= 1 && idx <= 5, morningShift: idx >= 1 && idx <= 5, eveningShift: false, nightShift: false })));
-    } finally { setDoctorScheduleLoading(false); }
+      setScheduleApptDuration(30);
+    } finally { setDoctorScheduleLoading(false); setShowDoctorScheduleModal(true); }
   }
 
   function handleDoctorScheduleChange(dayIndex: number, field: string, value: boolean) {
@@ -912,10 +1010,16 @@ function HospitalAdministrationContent() {
         if (day.nightShift) { if (!shiftStart) shiftStart = scheduleShiftTimings.night.start + ':00'; shiftEnd = scheduleShiftTimings.night.end + ':00'; }
         return { dayOfWeek: day.dayOfWeek, isWorking: true, shiftStart, shiftEnd };
       });
-      const res = await apiFetch(`/v1/doctors/${scheduleDoctorId}/schedules`, {
-        method: 'PATCH',
-        body: JSON.stringify({ schedules: schedulesToSave }),
-      });
+      const [res] = await Promise.all([
+        apiFetch(`/v1/doctors/${scheduleDoctorId}/schedules`, {
+          method: 'PATCH',
+          body: JSON.stringify({ schedules: schedulesToSave }),
+        }),
+        apiFetch(`/v1/doctors/${scheduleDoctorId}/appointment-duration`, {
+          method: 'PATCH',
+          body: JSON.stringify({ appointmentDurationMinutes: scheduleApptDuration }),
+        }),
+      ]);
       if (res.ok) {
         setShowDoctorScheduleModal(false);
         setScheduleDoctorId(null);
@@ -1104,11 +1208,41 @@ function HospitalAdministrationContent() {
   const activeStaff = staff.filter(s => s.status === 'ACTIVE').length;
   const activeDoctors = doctors.filter(d => d.complianceStatus === 'compliant' || !d.complianceStatus).length;
   const availableDoctorsForLicense = doctors.filter(d => !licenses.some(l => l.doctorId === d.userId && l.productCode === assignForm.productCode && l.status === 'ACTIVE'));
+  const assignTargetDoctor = assignForm.doctorId ? doctors.find(d => d.userId === assignForm.doctorId) : null;
+  const assignTargetLicenses = assignForm.doctorId ? licenses.filter(l => l.doctorId === assignForm.doctorId && l.status === 'ACTIVE') : [];
+  const unassignedProducts = subscription ? subscription.items.filter(i => !assignTargetLicenses.some(l => l.productCode === i.productCode)) : [];
   const activePatients = patients.filter(p => p.status === 'active').length;
+
+  // Filtered lists
+  const filteredManagers = managers.filter(m => {
+    if (!managerSearch) return true;
+    const q = managerSearch.toLowerCase();
+    return (m.fullName || '').toLowerCase().includes(q) || m.email.toLowerCase().includes(q);
+  });
+  const filteredStaffMembers = staff.filter(s => {
+    if (!staffSearch) return true;
+    const q = staffSearch.toLowerCase();
+    return s.displayName.toLowerCase().includes(q) || s.email.toLowerCase().includes(q);
+  });
+  const filteredDoctors = doctors.filter(d => {
+    if (!doctorSearch) return true;
+    const q = doctorSearch.toLowerCase();
+    return (d.fullName || '').toLowerCase().includes(q) || d.email.toLowerCase().includes(q) || (d.specialty || '').toLowerCase().includes(q);
+  });
   const filteredPatients = patients.filter(p => {
     const name = `${p.firstName} ${p.lastName}`.toLowerCase();
     return name.includes(patientSearch.toLowerCase()) || p.email?.toLowerCase().includes(patientSearch.toLowerCase()) || p.phone?.includes(patientSearch);
   });
+
+  // Paginated slices
+  const pagedManagers = filteredManagers.slice((managerPage - 1) * ROWS_PER_PAGE, managerPage * ROWS_PER_PAGE);
+  const managerTotalPages = Math.max(1, Math.ceil(filteredManagers.length / ROWS_PER_PAGE));
+  const pagedStaff = filteredStaffMembers.slice((staffPage - 1) * ROWS_PER_PAGE, staffPage * ROWS_PER_PAGE);
+  const staffTotalPages = Math.max(1, Math.ceil(filteredStaffMembers.length / ROWS_PER_PAGE));
+  const pagedDoctors = filteredDoctors.slice((doctorPage - 1) * ROWS_PER_PAGE, doctorPage * ROWS_PER_PAGE);
+  const doctorTotalPages = Math.max(1, Math.ceil(filteredDoctors.length / ROWS_PER_PAGE));
+  const pagedPatients = filteredPatients.slice((patientPage - 1) * ROWS_PER_PAGE, patientPage * ROWS_PER_PAGE);
+  const patientTotalPages = Math.max(1, Math.ceil(filteredPatients.length / ROWS_PER_PAGE));
 
   function fmt(amt: number, cur = 'USD') {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur }).format(amt);
@@ -1196,7 +1330,7 @@ function HospitalAdministrationContent() {
       @media print{body{margin:0;padding:20px;}}
     </style></head><body>
       <h1>${doc.docTitle}</h1>
-      <div class="meta">Version ${doc.version} &middot; Signed by ${doc.signerName} on ${new Date(doc.acceptedAt).toLocaleDateString()}</div>
+      <div class="meta">Version ${doc.version} &middot; Signed by ${doc.signerName} on ${formatShortDate(doc.acceptedAt)}</div>
       ${html}
     </body></html>`;
     const w = window.open('', '_blank');
@@ -1215,6 +1349,25 @@ function HospitalAdministrationContent() {
   const cardMsg = (source: string) => message?.source === source ? (
     <span className={`text-[9px] px-1.5 py-0.5 rounded ${message.type === 'success' ? 'bg-sky-400/20 text-sky-100' : 'bg-red-400/20 text-red-200'}`}>{message.text}</span>
   ) : null;
+
+  const Pagination = ({ page, totalPages, setPage }: { page: number; totalPages: number; setPage: (p: number) => void }) => totalPages <= 1 ? null : (
+    <div className="flex items-center justify-between px-3 py-1.5 border-t border-slate-100 bg-slate-50/50 shrink-0">
+      <span className="text-[10px] text-slate-400">Page {page} of {totalPages}</span>
+      <div className="flex gap-1">
+        <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1} className="px-2 py-0.5 text-[10px] rounded border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">Prev</button>
+        <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages} className="px-2 py-0.5 text-[10px] rounded border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">Next</button>
+      </div>
+    </div>
+  );
+
+  const SearchInput = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) => (
+    <div className="relative">
+      <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="pl-7 pr-2 py-1 text-[10px] border border-slate-300 rounded bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#a3cbef] w-40" />
+    </div>
+  );
 
   const InfoRow = ({ label, value }: { label: string; value?: string | number | null }) => (
     <div className="flex justify-between gap-2 py-0.5">
@@ -1242,11 +1395,11 @@ function HospitalAdministrationContent() {
 
   // ─── RENDER ──────────────────────────────────────────────────────────────────
   const countBadge = (n: number, active: boolean) => (
-    <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${active ? 'bg-[#1e3a5f]/10 text-[#1e3a5f]' : 'bg-slate-200/70 text-slate-500'}`}>{n}</span>
+    <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${active ? 'bg-white/20 text-white' : 'bg-[#1e3a5f]/10 text-[#1e3a5f]/60'}`}>{n}</span>
   );
   const tabs: { id: TabType; label: string; count?: number; renderLabel?: (active: boolean) => React.ReactNode }[] = [
     { id: 'details', label: 'Hospital Details' },
-    { id: 'manager', label: 'Hospital Managers & Staff', renderLabel: (active) => (<>Hospital Managers {countBadge(managers.length, active)} &amp; Staff {countBadge(staff.length, active)}</>) },
+    { id: 'manager', label: 'Staff', count: managers.length + staff.length },
     { id: 'doctors', label: 'Doctors', count: doctors.length },
     { id: 'patients', label: 'Patients', count: patients.length },
   ];
@@ -1260,19 +1413,19 @@ function HospitalAdministrationContent() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200 bg-white shrink-0">
+      <div className="flex shrink-0 gap-1">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
-            className={`px-3 py-2 text-[10px] sm:text-[11px] font-semibold transition-all text-center border-b-2 -mb-px ${
+            className={`flex-1 px-3 py-1.5 text-[10px] sm:text-[11px] font-semibold transition-all text-center rounded-md ${
               activeTab === t.id
-                ? 'border-[#1e3a5f] text-[#1e3a5f]'
-                : 'border-transparent text-slate-400 hover:text-slate-600'
+                ? 'bg-[#1e3a5f] text-white shadow-sm'
+                : 'bg-white border border-[#1e3a5f]/30 text-[#1e3a5f]/70 hover:text-[#1e3a5f] hover:border-[#1e3a5f]/50'
             }`}
           >
             {t.renderLabel ? t.renderLabel(activeTab === t.id) : t.label}
-            {t.count !== undefined && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${activeTab === t.id ? 'bg-[#1e3a5f]/10 text-[#1e3a5f]' : 'bg-slate-200/70 text-slate-500'}`}>{t.count}</span>}
+            {t.count !== undefined && <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${activeTab === t.id ? 'bg-white/20 text-white' : 'bg-[#1e3a5f]/10 text-[#1e3a5f]/60'}`}>{t.count}</span>}
           </button>
         ))}
       </div>
@@ -1318,19 +1471,27 @@ function HospitalAdministrationContent() {
             </div>
           </div>
 
-          {/* ── Card 2: Billing & Subscriptions ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col lg:min-h-0">
+          {/* ── Card 2: Billing & Subscriptions + Licenses ── */}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden lg:row-span-2 flex flex-col lg:min-h-0">
             <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-slate-800">CLINIQ FLOW Billing & Subscriptions</h3>
+                <h3 className="text-[11px] font-semibold text-slate-800">Billing and Subscriptions</h3>
                 {cardMsg('billing')}
               </div>
-              {canEditSettings && (
-                <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                  Edit
-                </button>
-              )}
+              <div className="flex items-center gap-1">
+                {canEditSettings && subscription && (
+                  <button onClick={() => setShowAssignModal(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                    Assign License
+                  </button>
+                )}
+                {canEditSettings && (
+                  <button onClick={() => setBillingAddressEditMode(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                    Edit
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
               <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Billing Address</p>
@@ -1347,7 +1508,7 @@ function HospitalAdministrationContent() {
               <div className="border-t border-slate-100 pt-1 mt-1">
                 <div className="flex items-center justify-between mb-0.5">
                   <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">Subscription</p>
-                  {subscription && <span className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${subscription.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : subscription.status === 'TRIAL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{subscription.status}</span>}
+                  {subscription && <span className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${subscription.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : subscription.status === 'TRIAL' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{subscription.status}</span>}
                 </div>
                 {!dataLoaded ? (
                   <div className="space-y-1">
@@ -1360,10 +1521,10 @@ function HospitalAdministrationContent() {
                   </div>
                 ) : subscription ? (
                   <>
-                    <InfoRow label="Started" value={new Date(subscription.billingCycleStart).toLocaleDateString()} />
-                    <InfoRow label="Next Billing" value={new Date(subscription.billingCycleEnd).toLocaleDateString()} />
-                    {subscription.trialEndsAt && <InfoRow label="Trial Ends" value={new Date(subscription.trialEndsAt).toLocaleDateString()} />}
-                    {subscription.cancelledAt && <InfoRow label="Cancelled" value={new Date(subscription.cancelledAt).toLocaleDateString()} />}
+                    <InfoRow label="Started" value={formatShortDate(subscription.billingCycleStart)} />
+                    <InfoRow label="Next Billing" value={formatShortDate(subscription.billingCycleEnd)} />
+                    {subscription.trialEndsAt && <InfoRow label="Trial Ends" value={formatShortDate(subscription.trialEndsAt)} />}
+                    {subscription.cancelledAt && <InfoRow label="Cancelled" value={formatShortDate(subscription.cancelledAt)} />}
                     <div className="mt-1 pt-1 border-t border-slate-100">
                       {subscription.items.map(item => (
                         <div key={item.productCode} className="flex items-center justify-between py-0.5">
@@ -1376,13 +1537,57 @@ function HospitalAdministrationContent() {
                         <span className="text-slate-800">{fmt(subscription.totalMonthly)}/mo</span>
                       </div>
                     </div>
-                    {subscription.status !== 'CANCELLED' && (
-                      <div className="flex gap-2 mt-2">
-                        <button onClick={cancelSubscription} className="px-2 py-1 text-[9px] font-medium text-red-600 bg-red-50 rounded hover:bg-red-100">Cancel Subscription</button>
-                      </div>
-                    )}
                   </>
                 ) : <p className="text-slate-400 py-0.5">No active subscription</p>}
+              </div>
+
+              {/* ── Licenses Section ── */}
+              <div className="border-t border-slate-100 pt-1 mt-1">
+                {!dataLoaded ? (
+                  <div className="space-y-2 animate-pulse">
+                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">License Usage</p>
+                    <div className="space-y-1.5">
+                      <div className="h-3 bg-slate-100 rounded w-3/4" />
+                      <div className="w-full bg-slate-100 rounded-full h-1.5" />
+                    </div>
+                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mt-2 mb-0.5">Active Licenses</p>
+                    <div className="h-3 bg-slate-100 rounded w-full" />
+                    <div className="h-3 bg-slate-100 rounded w-2/3" />
+                  </div>
+                ) : licenseStats && licenseStats.byProduct.length > 0 ? (
+                  <>
+                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">License Usage</p>
+                    {licenseStats.byProduct.map(p => (
+                      <div key={p.productCode} className="mb-1.5">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-slate-600">{p.productName}</span>
+                          <span className="text-slate-500 text-[9px]">{p.usedLicenses}/{p.totalLicenses}</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-1.5">
+                          <div className="bg-[#1e3a5f] h-1.5 rounded-full transition-all" style={{ width: `${p.totalLicenses > 0 ? (p.usedLicenses / p.totalLicenses) * 100 : 0}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <p className="text-slate-400 py-0.5">No license data available</p>
+                )}
+                {licenses.filter(l => l.status === 'ACTIVE').length > 0 && (
+                  <div className="border-t border-slate-100 pt-1 mt-1">
+                    <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Active Licenses</p>
+                    <div className="space-y-0.5">
+                      {licenses.filter(l => l.status === 'ACTIVE').map(l => (
+                        <div key={l.id} className="flex items-center justify-between py-0.5">
+                          <div className="truncate">
+                            <span className="text-slate-700">Dr. {l.doctorName || l.doctorEmail}</span>
+                            <span className="text-slate-400 ml-1 text-[9px]">{l.productName}</span>
+                          </div>
+                          <button onClick={() => revokeLicense(l.id)} className="text-[9px] text-red-500 hover:text-red-700 shrink-0 ml-2">Revoke License</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1413,7 +1618,7 @@ function HospitalAdministrationContent() {
                           <span className="text-slate-400 ml-1">({doc.version})</span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-slate-400 text-[9px]">{new Date(doc.acceptedAt).toLocaleDateString()}</span>
+                          <span className="text-slate-400 text-[9px]">{formatShortDate(doc.acceptedAt)}</span>
                           <button onClick={() => setViewingDoc(doc)} className="text-[9px] text-[#1e3a5f] hover:underline">View</button>
                           <button onClick={() => downloadDocAsPdf(doc)} className="text-[#1e3a5f] hover:text-[#162f4d]" title="Download as PDF">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
@@ -1442,12 +1647,12 @@ function HospitalAdministrationContent() {
                 <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Accreditation</p>
                 <InfoRow label="Body" value={hospital.accreditationBody} />
                 <InfoRow label="Number" value={hospital.accreditationNumber} />
-                <InfoRow label="Expiry" value={hospital.accreditationExpiry ? new Date(hospital.accreditationExpiry).toLocaleDateString() : undefined} />
+                <InfoRow label="Expiry" value={hospital.accreditationExpiry ? formatShortDate(hospital.accreditationExpiry + 'T12:00:00') : undefined} />
               </div>
               <div className="border-t border-slate-100 pt-1 mt-1">
                 <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Hospital License</p>
                 <InfoRow label="License No." value={hospital.licenseNumber} />
-                <InfoRow label="Expiry" value={hospital.licenseExpiry ? new Date(hospital.licenseExpiry).toLocaleDateString() : undefined} />
+                <InfoRow label="Expiry" value={hospital.licenseExpiry ? formatShortDate(hospital.licenseExpiry + 'T12:00:00') : undefined} />
               </div>
             </div>
           </div>
@@ -1460,7 +1665,7 @@ function HospitalAdministrationContent() {
                 {cardMsg('hours')}
               </div>
               {canEditSettings && (
-                <button onClick={() => { setHospital(h => h.operatingHours ? h : { ...h, operatingHours: defaultHours }); setHolidayMonth(new Date().getMonth() + 1); setHoursEditMode(true); }} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
+                <button onClick={() => { setHospital(h => h.operatingHours ? h : { ...h, operatingHours: defaultHours }); setHolidayMonth(getCurrentTime().getMonth() + 1); setHoursEditMode(true); }} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   Edit
                 </button>
@@ -1511,68 +1716,6 @@ function HospitalAdministrationContent() {
             </div>
           </div>
 
-          {/* ── Card 5: License Management ── */}
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col lg:min-h-0">
-            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
-              <div className="flex items-center gap-2">
-                <h3 className="text-[11px] font-semibold text-slate-800">CLINIQ FLOW Licenses</h3>
-                {cardMsg('license')}
-              </div>
-              {canEditSettings && subscription && (
-                <button onClick={() => setShowAssignModal(true)} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] flex items-center gap-1">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                  Assign
-                </button>
-              )}
-            </div>
-            <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
-              {!dataLoaded ? (
-                <div className="space-y-2 animate-pulse">
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">License Usage</p>
-                  <div className="space-y-1.5">
-                    <div className="h-3 bg-slate-100 rounded w-3/4" />
-                    <div className="w-full bg-slate-100 rounded-full h-1.5" />
-                  </div>
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mt-2 mb-0.5">Active Licenses</p>
-                  <div className="h-3 bg-slate-100 rounded w-full" />
-                  <div className="h-3 bg-slate-100 rounded w-2/3" />
-                </div>
-              ) : licenseStats && licenseStats.byProduct.length > 0 ? (
-                <>
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-1">License Usage</p>
-                  {licenseStats.byProduct.map(p => (
-                    <div key={p.productCode} className="mb-1.5">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-slate-600">{p.productName}</span>
-                        <span className="text-slate-500 text-[9px]">{p.usedLicenses}/{p.totalLicenses}</span>
-                      </div>
-                      <div className="w-full bg-slate-100 rounded-full h-1.5">
-                        <div className="bg-[#1e3a5f] h-1.5 rounded-full transition-all" style={{ width: `${p.totalLicenses > 0 ? (p.usedLicenses / p.totalLicenses) * 100 : 0}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <p className="text-slate-400 py-0.5">No license data available</p>
-              )}
-              {licenses.filter(l => l.status === 'ACTIVE').length > 0 && (
-                <div className="border-t border-slate-100 pt-1 mt-1">
-                  <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Active Licenses</p>
-                  <div className="space-y-0.5">
-                    {licenses.filter(l => l.status === 'ACTIVE').map(l => (
-                      <div key={l.id} className="flex items-center justify-between py-0.5">
-                        <div className="truncate">
-                          <span className="text-slate-700">Dr. {l.doctorName || l.doctorEmail}</span>
-                          <span className="text-slate-400 ml-1 text-[9px]">{l.productName}</span>
-                        </div>
-                        <button onClick={() => revokeLicense(l.id)} className="text-[9px] text-red-500 hover:text-red-700 shrink-0 ml-2">Revoke License</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
 
@@ -1580,154 +1723,153 @@ function HospitalAdministrationContent() {
       {/* HOSPITAL MANAGERS & STAFF TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'manager' && (
-        <div className="flex-1 lg:min-h-0 lg:overflow-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-            {/* Hospital Managers Table */}
-            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[11px] font-semibold text-slate-800">Hospital Managers</h3>
-                  <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{managers.filter(m => m.status === 'ACTIVE').length} active</span>
-                  {cardMsg('profile')}
-                </div>
-                <button onClick={() => { setInviteManagerEmail(''); setInviteManagerFirstName(''); setInviteManagerLastName(''); setShowInviteManagerModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Hospital Manager</button>
+        <div className="flex-1 lg:min-h-0 flex flex-col gap-2">
+          {/* Hospital Managers Table — top half */}
+          <div className="flex-1 min-h-0 bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-[11px] font-semibold text-slate-800">Hospital Managers</h3>
+                <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{managers.filter(m => m.status === 'ACTIVE').length} active</span>
+                <SearchInput value={managerSearch} onChange={v => { setManagerSearch(v); setManagerPage(1); }} placeholder="Search managers..." />
+                {cardMsg('profile')}
               </div>
-              <div className="flex-1 lg:overflow-auto">
-                {!dataLoaded ? (
-                  <div className="overflow-x-auto">
-                  <table className="w-full text-[11px]">
-                    <thead className="bg-slate-50 sticky top-0">
-                      <tr>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
-                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
-                      </tr>
-                    </thead>
-                    <TableSkeleton cols={3} rows={2} />
-                  </table>
-                  </div>
-                ) : (managers.length > 0 || pendingManagerInvites.length > 0) ? (
-                  <div className="overflow-x-auto">
-                  <table className="w-full text-[11px]">
-                    <thead className="bg-slate-50 sticky top-0">
-                      <tr>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
-                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {managers.map(m => (
-                        <tr key={m.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-medium text-slate-700">{m.fullName || '—'}</span>
-                              {m.isPrimary && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[9px] font-medium rounded">Primary</span>}
-                            </div>
-                            <div className="text-[10px] text-slate-400">{m.email}</div>
-                          </td>
-                          <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${m.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{m.status}</span></td>
-                          <td className="px-3 py-1.5 text-right">
-                            <button onClick={() => { setEditingManager(m); const nameParts = (m.fullName || '').split(' '); setProfileForm({ firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || '', phone: '' }); setShowEditManagerModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
-                          </td>
-                        </tr>
-                      ))}
-                      {pendingManagerInvites.map(inv => (
-                        <tr key={inv.id} className="hover:bg-amber-50/30 bg-amber-50/20">
-                          <td className="px-3 py-1.5">
-                            <div className="font-medium text-slate-500">{inv.invitedEmail}</div>
-                          </td>
-                          <td className="px-3 py-1.5"><span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-700">PENDING INVITE</span></td>
-                          <td className="px-3 py-1.5 text-right">
-                            <button onClick={() => revokeManagerInvite(inv.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50">Revoke Invite</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  </div>
-                ) : (
-                  <div className="py-6 text-center text-slate-400 text-xs">No hospital managers found</div>
-                )}
-              </div>
+              <button onClick={() => { setInviteManagerEmail(''); setInviteManagerFirstName(''); setInviteManagerLastName(''); setShowInviteManagerModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Hospital Manager</button>
             </div>
-
-            {/* Staff Members Table */}
-            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[11px] font-semibold text-slate-800">Staff Members</h3>
-                  <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{activeStaff} active</span>
-                  {cardMsg('staff')}
-                </div>
-                <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' }); setStaffAssignAll(true); setStaffSelectedDoctorIds([]); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Staff</button>
-              </div>
-              <div className="flex-1 lg:overflow-auto">
-                {!dataLoaded ? (
-                  <div className="overflow-x-auto">
-                  <table className="w-full text-[11px]">
-                    <thead className="bg-slate-50 sticky top-0">
-                      <tr>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
-                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+            <div className="flex-1 min-h-0 overflow-auto">
+              {!dataLoaded ? (
+                <table className="w-full text-[11px]">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                      <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <TableSkeleton cols={3} rows={2} />
+                </table>
+              ) : (pagedManagers.length > 0 || pendingManagerInvites.length > 0) ? (
+                <table className="w-full text-[11px]">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                      <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pagedManagers.map(m => (
+                      <tr key={m.id} className="hover:bg-slate-50">
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-slate-700">{m.fullName || '—'}</span>
+                            {m.isPrimary && <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[9px] font-medium rounded">Primary</span>}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{m.email}</div>
+                        </td>
+                        <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${m.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{m.status}</span></td>
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button onClick={() => { setEditingManager(m); const nameParts = (m.fullName || '').split(' '); setProfileForm({ firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || '', phone: '' }); setShowEditManagerModal(true); }} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-sky-200 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>Edit</button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <TableSkeleton cols={4} rows={3} />
-                  </table>
-                  </div>
-                ) : staff.length > 0 ? (
-                  <div className="overflow-x-auto">
-                  <table className="w-full text-[11px]">
-                    <thead className="bg-slate-50 sticky top-0">
-                      <tr>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
-                        <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                    ))}
+                    {managerPage === managerTotalPages && pendingManagerInvites.map(inv => (
+                      <tr key={inv.id} className="hover:bg-amber-50/30 bg-amber-50/20">
+                        <td className="px-3 py-1.5">
+                          <div className="font-medium text-slate-500">{inv.invitedEmail}</div>
+                        </td>
+                        <td className="px-3 py-1.5"><span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-700">PENDING INVITE</span></td>
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button onClick={() => revokeManagerInvite(inv.id)} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>Revoke</button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {staff.map(s => (
-                        <tr key={s.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-1.5">
-                            <div className="font-medium text-slate-700">{s.displayName}</div>
-                            <div className="text-[10px] text-slate-400">{s.email}</div>
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <div className="relative group inline-block">
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 cursor-default">
-                                {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'All' : `${s.assignedDoctorIds.length}`}
-                              </span>
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 pointer-events-none">
-                                <div className="bg-slate-800 text-white text-[10px] rounded-md px-2.5 py-1.5 whitespace-nowrap shadow-lg">
-                                  {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0
-                                    ? 'Assigned to all doctors'
-                                    : s.assignedDoctorIds.map(id => { const doc = doctors.find(d => d.userId === id); return doc ? `Dr. ${doc.fullName || doc.email}` : id; }).join(', ')}
-                                </div>
-                                <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-slate-800 rotate-45" />
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${s.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
-                          <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                            <button onClick={() => { setEditingStaff(s); const nameParts = (s.displayName || '').split(' '); const firstName = nameParts[0] || ''; const lastName = nameParts.slice(1).join(' ') || ''; setStaffForm({ email: s.email, password: '', firstName, lastName, title: s.title || '', phone: s.phone || '' }); if (s.assignedDoctorIds && s.assignedDoctorIds.length > 0) { setStaffAssignAll(false); setStaffSelectedDoctorIds(s.assignedDoctorIds); } else { setStaffAssignAll(true); setStaffSelectedDoctorIds([]); } setShowStaffModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
-                            <button onClick={() => { setPasswordResetStaff(s); setResetPassword(''); setShowPasswordResetModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200 rounded hover:bg-amber-50 mr-1">Reset Pwd</button>
-                            <button onClick={() => toggleStaffStatus(s)} className={`px-2 py-0.5 text-[10px] font-medium rounded mr-1 ${s.status === 'ACTIVE' ? 'text-orange-700 border border-orange-200 hover:bg-orange-50' : 'text-[#4d7c43] border border-[#b8d4af] hover:bg-[#ecf5e7]'}`}>{s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  </div>
-                ) : (
-                  <div className="py-6 text-center text-slate-400 text-xs">No staff members yet</div>
-                )}
-              </div>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="py-6 text-center text-slate-400 text-xs">{managerSearch ? 'No managers match your search' : 'No hospital managers found'}</div>
+              )}
             </div>
+            <Pagination page={managerPage} totalPages={managerTotalPages} setPage={setManagerPage} />
           </div>
 
+          {/* Staff Members Table — bottom half */}
+          <div className="flex-1 min-h-0 bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-[11px] font-semibold text-slate-800">Staff Members</h3>
+                <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{activeStaff} active</span>
+                <SearchInput value={staffSearch} onChange={v => { setStaffSearch(v); setStaffPage(1); }} placeholder="Search staff..." />
+                {cardMsg('staff')}
+              </div>
+              <button onClick={() => { setEditingStaff(null); setStaffForm({ email: '', password: '', firstName: '', lastName: '', title: '', phone: '' }); setStaffAssignAll(true); setStaffSelectedDoctorIds([]); setShowStaffModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Staff</button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto">
+              {!dataLoaded ? (
+                <table className="w-full text-[11px]">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                      <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <TableSkeleton cols={4} rows={3} />
+                </table>
+              ) : pagedStaff.length > 0 ? (
+                <table className="w-full text-[11px]">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
+                      <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pagedStaff.map(s => (
+                      <tr key={s.id} className="hover:bg-slate-50">
+                        <td className="px-3 py-1.5">
+                          <div className="font-medium text-slate-700">{s.displayName}</div>
+                          <div className="text-[10px] text-slate-400">{s.email}</div>
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <div className="relative group inline-block">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-sky-50 text-sky-700 cursor-default">
+                              {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'All' : `${s.assignedDoctorIds.length}`}
+                            </span>
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 pointer-events-none">
+                              <div className="bg-slate-800 text-white text-[10px] rounded-md px-2.5 py-1.5 whitespace-nowrap shadow-lg">
+                                {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0
+                                  ? 'Assigned to all doctors'
+                                  : s.assignedDoctorIds.map(id => { const doc = doctors.find(d => d.userId === id); return doc ? `Dr. ${doc.fullName || doc.email}` : id; }).join(', ')}
+                              </div>
+                              <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-slate-800 rotate-45" />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${s.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button onClick={() => { setEditingStaff(s); const nameParts = (s.displayName || '').split(' '); const firstName = nameParts[0] || ''; const lastName = nameParts.slice(1).join(' ') || ''; setStaffForm({ email: s.email, password: '', firstName, lastName, title: s.title || '', phone: s.phone || '' }); if (s.assignedDoctorIds && s.assignedDoctorIds.length > 0) { setStaffAssignAll(false); setStaffSelectedDoctorIds(s.assignedDoctorIds); } else { setStaffAssignAll(true); setStaffSelectedDoctorIds([]); } setShowStaffModal(true); }} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-sky-200 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>Edit</button>
+                            <button onClick={() => { setPasswordResetStaff(s); setResetPassword(''); setShowPasswordResetModal(true); }} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-amber-200 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>Reset</button>
+                            <button onClick={() => toggleStaffStatus(s)} className={`min-w-[68px] inline-flex items-center justify-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border transition-colors ${s.status === 'ACTIVE' ? 'border-red-200 text-red-600 bg-red-50 hover:bg-red-100' : 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'}`}>{s.status === 'ACTIVE' ? <><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>Deactivate</> : <><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Activate</>}</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="py-6 text-center text-slate-400 text-xs">{staffSearch ? 'No staff match your search' : 'No staff members yet'}</div>
+              )}
+            </div>
+            <Pagination page={staffPage} totalPages={staffTotalPages} setPage={setStaffPage} />
+          </div>
         </div>
       )}
 
@@ -1735,18 +1877,18 @@ function HospitalAdministrationContent() {
       {/* DOCTORS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'doctors' && (
-        <div className="flex-1 lg:min-h-0 lg:overflow-auto bg-white rounded-lg border border-slate-200">
+        <div className="flex-1 lg:min-h-0 bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
           <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
             <div className="flex items-center gap-2">
               <h3 className="text-[11px] font-semibold text-slate-800">Doctors</h3>
-              <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{activeDoctors} active</span>
+              <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{activeDoctors} active</span>
+              <SearchInput value={doctorSearch} onChange={v => { setDoctorSearch(v); setDoctorPage(1); }} placeholder="Search doctors..." />
               {cardMsg('doctors')}
             </div>
             <button onClick={() => setShowInviteModal(true)} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Doctor</button>
           </div>
-          <div className="lg:overflow-auto">
+          <div className="flex-1 min-h-0 overflow-auto">
             {!dataLoaded ? (
-              <div className="overflow-x-auto">
               <table className="w-full text-[11px]">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
@@ -1760,9 +1902,7 @@ function HospitalAdministrationContent() {
                 </thead>
                 <TableSkeleton cols={6} rows={3} />
               </table>
-              </div>
-            ) : (doctors.length > 0 || pendingInvites.length > 0) ? (
-              <div className="overflow-x-auto">
+            ) : (pagedDoctors.length > 0 || pendingInvites.length > 0) ? (
               <table className="w-full text-[11px]">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
@@ -1775,32 +1915,41 @@ function HospitalAdministrationContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {doctors.map(d => (
+                  {pagedDoctors.map(d => (
                     <tr key={d.id} className="hover:bg-slate-50">
                       <td className="px-3 py-1.5">
-                        <div className="font-medium text-slate-700">Dr. {d.fullName || d.email.split('@')[0]}</div>
-                        <div className="text-[10px] text-slate-400">{d.email}</div>
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <div className="font-medium text-slate-700">Dr. {d.fullName || d.email.split('@')[0]}</div>
+                            <div className="text-[10px] text-slate-400">{d.email}</div>
+                          </div>
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-semibold ${doctorCheckins[d.id] === 'CHECKED_IN' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${doctorCheckins[d.id] === 'CHECKED_IN' ? 'bg-[#4d7c43]' : 'bg-slate-300'}`} />
+                            {doctorCheckins[d.id] === 'CHECKED_IN' ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-3 py-1.5 text-slate-500 hidden sm:table-cell">{d.specialty || '—'}</td>
                       <td className="px-3 py-1.5 text-slate-500 hidden sm:table-cell">{d.phone || '—'}</td>
                       <td className="px-3 py-1.5 text-slate-500 hidden sm:table-cell">{d.licenseNumber || '—'}</td>
                       <td className="px-3 py-1.5">
                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
-                          d.complianceStatus === 'compliant' || !d.complianceStatus ? 'bg-[#f0f7eb] text-[#4d7c43]' :
+                          d.complianceStatus === 'compliant' || !d.complianceStatus ? 'bg-emerald-50 text-emerald-700' :
                           d.complianceStatus === 'pending_signatures' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'
                         }`}>
                           {d.complianceStatus === 'compliant' || !d.complianceStatus ? 'Active' : d.complianceStatus === 'pending_signatures' ? 'Pending' : 'Not Logged In'}
                         </span>
                       </td>
-                      <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                        <button onClick={() => openDoctorEditModal(d)} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit Profile</button>
-                        <button onClick={() => openDoctorScheduleModal(d)} className="px-2 py-0.5 text-[10px] font-medium text-[#1e3a5f] border border-[#1e3a5f]/30 rounded hover:bg-[#1e3a5f]/5 ml-1">Schedule</button>
-                        <button onClick={() => { setAssignForm({ doctorId: d.userId, productCode: 'APPOINTMENTS' }); setShowAssignModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-[#4d7c43] border border-[#b8d4af] rounded hover:bg-[#ecf5e7] ml-1">Assign License</button>
-                        <button onClick={() => openRevokeLicenseModal(d)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 ml-1">Revoke License</button>
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => openDoctorEditModal(d)} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-sky-200 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>Edit</button>
+                          <button onClick={() => openDoctorScheduleModal(d)} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>Weekly Shifts</button>
+                          <button onClick={() => { const dl = licenses.filter(l => l.doctorId === d.userId && l.status === 'ACTIVE'); const fp = subscription?.items.find(i => !dl.some(l => l.productCode === i.productCode)); setAssignForm({ doctorId: d.userId, productCode: fp?.productCode || '' }); setShowAssignModal(true); }} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>Licenses</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {pendingInvites.map(inv => (
+                  {doctorPage === doctorTotalPages && pendingInvites.map(inv => (
                     <tr key={inv.id} className="hover:bg-amber-50/30 bg-amber-50/20">
                       <td className="px-3 py-1.5">
                         <div className="font-medium text-slate-500">{inv.invitedEmail}</div>
@@ -1809,22 +1958,24 @@ function HospitalAdministrationContent() {
                       <td className="px-3 py-1.5 text-slate-400 hidden sm:table-cell">—</td>
                       <td className="px-3 py-1.5 text-slate-400 hidden sm:table-cell">—</td>
                       <td className="px-3 py-1.5"><span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-700">PENDING INVITE</span></td>
-                      <td className="px-3 py-1.5 text-right">
-                        <button onClick={() => revokeInvite(inv.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50">Revoke Invite</button>
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => revokeInvite(inv.id)} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>Revoke</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              </div>
             ) : (
               <div className="py-8 text-center">
                 <svg className="w-10 h-10 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <p className="text-xs text-slate-500">No doctors yet</p>
-                <p className="text-[10px] text-slate-400">Invite doctors to join your hospital</p>
+                <p className="text-xs text-slate-500">{doctorSearch ? 'No doctors match your search' : 'No doctors yet'}</p>
+                <p className="text-[10px] text-slate-400">{doctorSearch ? 'Try a different search' : 'Invite doctors to join your hospital'}</p>
               </div>
             )}
           </div>
+          <Pagination page={doctorPage} totalPages={doctorTotalPages} setPage={setDoctorPage} />
         </div>
       )}
 
@@ -1832,23 +1983,18 @@ function HospitalAdministrationContent() {
       {/* PATIENTS TAB */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'patients' && (
-        <div className="flex-1 lg:min-h-0 lg:overflow-auto bg-white rounded-lg border border-slate-200">
-          <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff]">
+        <div className="flex-1 lg:min-h-0 bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff] shrink-0">
             <div className="flex items-center gap-2">
-              <div className="relative">
-                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input value={patientSearch} onChange={e => setPatientSearch(e.target.value)} placeholder="Search patients..." className="pl-7 pr-2 py-1 text-[10px] border border-slate-300 rounded bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#a3cbef] w-40" />
-              </div>
-              <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{activePatients} active</span>
+              <h3 className="text-[11px] font-semibold text-slate-800">Patients</h3>
+              <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-medium rounded">{activePatients} active</span>
+              <SearchInput value={patientSearch} onChange={v => { setPatientSearch(v); setPatientPage(1); }} placeholder="Search patients..." />
               {cardMsg('patients')}
             </div>
             <button onClick={() => { setEditingPatient(null); setPatientForm({ firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '' }); setShowPatientModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Add Patient</button>
           </div>
-          <div className="lg:max-h-[220px] lg:overflow-auto">
+          <div className="flex-1 min-h-0 overflow-auto">
             {!dataLoaded ? (
-              <div className="overflow-x-auto">
               <table className="w-full text-[11px] min-w-[500px]">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
@@ -1862,9 +2008,7 @@ function HospitalAdministrationContent() {
                 </thead>
                 <TableSkeleton cols={6} rows={4} />
               </table>
-              </div>
-            ) : filteredPatients.length > 0 ? (
-              <div className="overflow-x-auto">
+            ) : pagedPatients.length > 0 ? (
               <table className="w-full text-[11px] min-w-[500px]">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
@@ -1877,13 +2021,13 @@ function HospitalAdministrationContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredPatients.map(p => {
-                    const age = p.dateOfBirth ? Math.floor((Date.now() - new Date(p.dateOfBirth).getTime()) / 31557600000) : null;
+                  {pagedPatients.map(p => {
+                    const age = p.dateOfBirth ? Math.floor((getCurrentTime().getTime() - new Date(p.dateOfBirth + 'T00:00:00').getTime()) / 31557600000) : null;
                     return (
                     <tr key={p.id} className="hover:bg-slate-50">
                       <td className="px-3 py-1.5">
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-[9px] font-semibold">
+                          <div className="w-6 h-6 rounded-full bg-sky-50 flex items-center justify-center text-sky-700 text-[9px] font-semibold">
                             {p.firstName.charAt(0)}{p.lastName.charAt(0)}
                           </div>
                           <span className="font-medium text-slate-700">{p.firstName} {p.lastName}</span>
@@ -1896,19 +2040,19 @@ function HospitalAdministrationContent() {
                       <td className="px-3 py-1.5 text-slate-500 hidden sm:table-cell">{age !== null ? `${age} yrs` : '—'}</td>
                       <td className="px-3 py-1.5 text-slate-500 capitalize hidden sm:table-cell">{p.gender || '—'}</td>
                       <td className="px-3 py-1.5">
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${p.status === 'active' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{p.status}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{p.status}</span>
                       </td>
-                      <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                        <button onClick={() => { setEditingPatient(p); setPatientForm({ firstName: p.firstName, lastName: p.lastName, email: p.email || '', phone: p.phone || '', dateOfBirth: p.dateOfBirth || '', gender: p.gender || '' }); setShowPatientModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
-                        <button onClick={() => togglePatientStatus(p)} className={`px-2 py-0.5 text-[10px] font-medium rounded ml-1 ${p.status === 'active' ? 'text-orange-700 border border-orange-200 hover:bg-orange-50' : 'text-[#4d7c43] border border-[#b8d4af] hover:bg-[#ecf5e7]'}`}>{p.status === 'active' ? 'Deactivate' : 'Activate'}</button>
-                        <Link href={`/hospital/patients?id=${p.id}`} className="inline-block px-2 py-0.5 text-[10px] font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-50 ml-1">View</Link>
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button onClick={() => { setEditingPatient(p); setPatientForm({ firstName: p.firstName, lastName: p.lastName, email: p.email || '', phone: p.phone || '', dateOfBirth: p.dateOfBirth || '', gender: p.gender || '' }); setShowPatientModal(true); }} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-sky-200 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>Edit</button>
+                          <button onClick={() => togglePatientStatus(p)} className={`min-w-[68px] inline-flex items-center justify-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border transition-colors ${p.status === 'active' ? 'border-red-200 text-red-600 bg-red-50 hover:bg-red-100' : 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'}`}>{p.status === 'active' ? <><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>Deactivate</> : <><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Activate</>}</button>
+                        </div>
                       </td>
                     </tr>
                     );
                   })}
                 </tbody>
               </table>
-              </div>
             ) : (
               <div className="py-8 text-center">
                 <svg className="w-10 h-10 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -1917,6 +2061,7 @@ function HospitalAdministrationContent() {
               </div>
             )}
           </div>
+          <Pagination page={patientPage} totalPages={patientTotalPages} setPage={setPatientPage} />
         </div>
       )}
 
@@ -2055,6 +2200,10 @@ function HospitalAdministrationContent() {
           <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-semibold text-slate-800 mb-3">Invite Doctor</h2>
             <form onSubmit={inviteDoctor} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" value={inviteFirstName} onChange={e => setInviteFirstName(e.target.value)} placeholder="First Name" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <input type="text" value={inviteLastName} onChange={e => setInviteLastName(e.target.value)} placeholder="Last Name" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              </div>
               <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="Email *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowInviteModal(false)} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
@@ -2238,9 +2387,9 @@ function HospitalAdministrationContent() {
       {/* Doctor Schedule Modal */}
       {showDoctorScheduleModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setShowDoctorScheduleModal(false); setScheduleDoctorId(null); }}>
-          <div className="w-full max-w-4xl bg-white rounded-xl shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-6xl bg-white rounded-xl shadow-xl" onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+            <div className="flex items-center justify-between px-6 py-3 border-b border-slate-200">
               <div>
                 <h2 className="text-base font-semibold text-slate-800">Weekly Schedule</h2>
                 <p className="text-xs text-slate-400 mt-0.5">{scheduleDoctorName}</p>
@@ -2254,120 +2403,113 @@ function HospitalAdministrationContent() {
               <div className="py-16 flex justify-center"><div className="w-6 h-6 border-2 border-slate-200 border-t-navy-600 rounded-full animate-spin" /></div>
             ) : (
               <>
-                <div className="grid grid-cols-[1fr_2fr] gap-6 px-6 py-5">
-                  {/* Left: Shift Timing Definitions */}
-                  <div>
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-3">Shift Timings</p>
-                    <div className="space-y-3">
+                <div className="px-6 py-4">
+                  <div className="flex gap-4">
+                    {/* Left Side — Shift Timings + Appointment Duration stacked */}
+                    <div className="w-[220px] flex-shrink-0 flex flex-col gap-3">
                       {([
-                        { key: 'morning' as const, label: 'Morning Shift', badge: 'AM', badgeCls: 'bg-yellow-100 text-yellow-700' },
-                        { key: 'evening' as const, label: 'Evening Shift', badge: 'PM', badgeCls: 'bg-orange-100 text-orange-700' },
-                        { key: 'night' as const, label: 'Night Shift', badge: 'NT', badgeCls: 'bg-navy-700 text-white' },
+                        { key: 'morning' as const, label: 'Morning', icon: <svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" strokeWidth={2} /><path strokeLinecap="round" strokeWidth={2} d="M12 1v2m0 18v2m11-11h-2M3 12H1m16.36-7.36l-1.41 1.41M7.05 16.95l-1.41 1.41m12.72 0l-1.41-1.41M7.05 7.05L5.64 5.64" /></svg> },
+                        { key: 'evening' as const, label: 'Afternoon', icon: <svg className="w-3.5 h-3.5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth={2} d="M12 3v1m0 16v1m8.66-13.66l-.71.71M4.05 19.95l-.71.71M21 12h-1M4 12H3m16.66 7.66l-.71-.71M4.05 4.05l-.71-.71" /><path strokeWidth={2} d="M16 12a4 4 0 11-8 0" /></svg> },
+                        { key: 'night' as const, label: 'Night', icon: <svg className="w-3.5 h-3.5 text-[#1e3a5f]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg> },
                       ]).map(shift => (
-                        <div key={shift.key} className="p-3 border border-slate-200 rounded-lg bg-slate-50/50">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${shift.badgeCls}`}>{shift.badge}</span>
-                            <span className="text-[11px] font-medium text-slate-700">{shift.label}</span>
+                        <div key={shift.key} className={`p-3 rounded-lg border ${
+                          shift.key === 'morning' ? 'bg-amber-100 border-amber-200' :
+                          shift.key === 'evening' ? 'bg-orange-100 border-orange-200' :
+                          'bg-[#e2eaf3] border-[#1e3a5f]/15'
+                        }`}>
+                          <div className="flex items-center gap-1.5 mb-2">
+                            {shift.icon}
+                            <span className="text-[11px] font-semibold text-slate-700">{shift.label}</span>
                           </div>
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <label className="block text-[9px] text-slate-400 mb-0.5">Start</label>
-                              <input type="time" value={scheduleShiftTimings[shift.key].start} onChange={e => setScheduleShiftTimings(prev => ({ ...prev, [shift.key]: { ...prev[shift.key], start: e.target.value } }))} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                              <label className="block text-[9px] font-medium text-slate-700 mb-0.5">Start</label>
+                              <ScheduleSelect
+                                value={scheduleShiftTimings[shift.key].start}
+                                onChange={val => setScheduleShiftTimings(prev => ({ ...prev, [shift.key]: { ...prev[shift.key], start: val } }))}
+                                options={TIME_OPTIONS.map(t => ({ value: t, label: formatTime12(t) }))}
+                              />
                             </div>
                             <div>
-                              <label className="block text-[9px] text-slate-400 mb-0.5">End</label>
-                              <input type="time" value={scheduleShiftTimings[shift.key].end} onChange={e => setScheduleShiftTimings(prev => ({ ...prev, [shift.key]: { ...prev[shift.key], end: e.target.value } }))} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                              <label className="block text-[9px] font-medium text-slate-700 mb-0.5">End</label>
+                              <ScheduleSelect
+                                value={scheduleShiftTimings[shift.key].end}
+                                onChange={val => setScheduleShiftTimings(prev => ({ ...prev, [shift.key]: { ...prev[shift.key], end: val } }))}
+                                options={TIME_OPTIONS.map(t => ({ value: t, label: formatTime12(t) }))}
+                              />
                             </div>
                           </div>
-                          <p className="text-[9px] text-slate-400 mt-1">{formatTime12(scheduleShiftTimings[shift.key].start)} - {formatTime12(scheduleShiftTimings[shift.key].end)}</p>
                         </div>
                       ))}
+                      {/* Appointment Duration */}
+                      <div className="p-3 bg-white border border-slate-200 rounded-lg">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <svg className="w-3.5 h-3.5 text-[#1e3a5f]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          <span className="text-[11px] font-semibold text-slate-700">Appointment Duration</span>
+                        </div>
+                        <ScheduleSelect
+                          value={String(scheduleApptDuration)}
+                          onChange={val => setScheduleApptDuration(Number(val))}
+                          options={APPT_DURATIONS.map(d => ({ value: String(d), label: `${d} minutes` }))}
+                        />
+                      </div>
                     </div>
 
-                    {/* Quick Actions */}
-                    <div className="mt-4 space-y-1.5">
-                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Quick Actions</p>
-                      <button type="button" onClick={() => setDoctorSchedule(prev => prev.map((d, i) => i >= 1 && i <= 5 ? { ...d, isWorking: true, morningShift: true, eveningShift: false, nightShift: false } : { ...d, isWorking: false, morningShift: false, eveningShift: false, nightShift: false }))} className="w-full px-3 py-1.5 text-[10px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">Set Weekdays Morning Only</button>
-                      <button type="button" onClick={() => setDoctorSchedule(prev => prev.map((d, i) => i >= 1 && i <= 5 ? { ...d, isWorking: true, morningShift: true, eveningShift: true, nightShift: false } : { ...d, isWorking: false, morningShift: false, eveningShift: false, nightShift: false }))} className="w-full px-3 py-1.5 text-[10px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">Set Weekdays AM + PM</button>
-                      <button type="button" onClick={() => setDoctorSchedule(prev => prev.map(d => ({ ...d, isWorking: true, morningShift: true, eveningShift: true, nightShift: true })))} className="w-full px-3 py-1.5 text-[10px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 text-left">Select All Shifts</button>
-                      <button type="button" onClick={() => setDoctorSchedule(prev => prev.map(d => ({ ...d, isWorking: false, morningShift: false, eveningShift: false, nightShift: false })))} className="w-full px-3 py-1.5 text-[10px] font-medium text-red-500 border border-red-200 rounded-lg hover:bg-red-50 text-left">Clear All</button>
-                    </div>
-                  </div>
-
-                  {/* Right: Weekly Schedule Table */}
-                  <div>
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-3">Weekly Shifts</p>
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-slate-200">
-                          <th className="py-2 text-left text-[10px] font-semibold text-slate-500 uppercase">Day</th>
-                          <th className="py-2 text-center text-[10px] font-semibold text-slate-500 uppercase">
-                            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400"></span>Morning</span>
-                          </th>
-                          <th className="py-2 text-center text-[10px] font-semibold text-slate-500 uppercase">
-                            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span>Evening</span>
-                          </th>
-                          <th className="py-2 text-center text-[10px] font-semibold text-slate-500 uppercase">
-                            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-navy-600"></span>Night</span>
-                          </th>
-                          <th className="py-2 text-right text-[10px] font-semibold text-slate-500 uppercase">Shift Hours</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {doctorSchedule.map((day, idx) => {
-                          const isWeekend = idx === 0 || idx === 6;
-                          const totalShifts = [day.morningShift, day.eveningShift, day.nightShift].filter(Boolean).length;
-                          let shiftHoursDisplay = '';
-                          if (day.isWorking && totalShifts > 0) {
-                            const parts: string[] = [];
-                            if (day.morningShift) parts.push(`${formatTime12(scheduleShiftTimings.morning.start)}-${formatTime12(scheduleShiftTimings.morning.end)}`);
-                            if (day.eveningShift) parts.push(`${formatTime12(scheduleShiftTimings.evening.start)}-${formatTime12(scheduleShiftTimings.evening.end)}`);
-                            if (day.nightShift) parts.push(`${formatTime12(scheduleShiftTimings.night.start)}-${formatTime12(scheduleShiftTimings.night.end)}`);
-                            shiftHoursDisplay = parts.join(', ');
-                          }
-                          return (
-                            <tr key={idx} className={`border-b border-slate-100 ${isWeekend ? 'bg-slate-50/50' : ''}`}>
+                    {/* Right Side — Weekly Shifts Table */}
+                    <div className="flex-1 min-w-0">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-slate-200">
+                            <th className="py-2 text-left text-[10px] font-semibold text-slate-500 uppercase w-28">Day</th>
+                            <th className="py-2 text-center text-[10px] font-semibold text-slate-500 uppercase">
+                              <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-300"></span>Morning</span>
+                            </th>
+                            <th className="py-2 text-center text-[10px] font-semibold text-slate-500 uppercase">
+                              <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-300"></span>Afternoon</span>
+                            </th>
+                            <th className="py-2 text-center text-[10px] font-semibold text-slate-500 uppercase">
+                              <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#1e3a5f]"></span>Night</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {doctorSchedule.map((day, idx) => (
+                            <tr key={idx} className="border-b border-slate-100">
                               <td className="py-2.5">
-                                <div className="flex items-center gap-2">
-                                  <span className={`text-xs font-medium ${day.isWorking ? 'text-slate-800' : 'text-slate-400'}`}>{DAYS_OF_WEEK[idx]}</span>
-                                  {isWeekend && <span className="text-[8px] font-medium text-slate-400 bg-slate-100 px-1 py-0.5 rounded">WE</span>}
-                                </div>
+                                <span className={`text-xs font-medium ${day.isWorking ? 'text-slate-800' : 'text-slate-500'}`}>{DAYS_OF_WEEK[idx]}</span>
                               </td>
                               {(['morning', 'evening', 'night'] as const).map(shift => {
                                 const isActive = day[`${shift}Shift` as keyof DoctorScheduleDay] as boolean;
-                                const cfg = {
-                                  morning: { active: 'bg-yellow-100 text-yellow-700 border-yellow-300', inactive: 'bg-white text-slate-300 border-slate-200' },
-                                  evening: { active: 'bg-orange-100 text-orange-700 border-orange-300', inactive: 'bg-white text-slate-300 border-slate-200' },
-                                  night: { active: 'bg-navy-700 text-white border-navy-600', inactive: 'bg-white text-slate-300 border-slate-200' },
-                                }[shift];
+                                const timings = scheduleShiftTimings[shift];
                                 return (
                                   <td key={shift} className="py-2.5 text-center">
-                                    <label className={`inline-flex items-center justify-center w-16 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all border ${isActive ? cfg.active : cfg.inactive} hover:opacity-80`}>
+                                    <label className={`inline-flex items-center justify-center min-w-[100px] px-3 py-1.5 rounded-md text-[10px] font-semibold cursor-pointer transition-all border ${
+                                      isActive
+                                        ? shift === 'night'
+                                          ? 'bg-[#1e3a5f] text-white border-[#1e3a5f] shadow-sm'
+                                          : shift === 'morning'
+                                            ? 'bg-amber-200 text-amber-800 border-amber-200 shadow-sm'
+                                            : 'bg-orange-200 text-orange-800 border-orange-200 shadow-sm'
+                                        : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300 hover:text-slate-500'
+                                    }`}>
                                       <input type="checkbox" checked={isActive} onChange={e => handleDoctorScheduleChange(idx, `${shift}Shift`, e.target.checked)} className="sr-only" />
-                                      {isActive ? (shift === 'morning' ? 'AM' : shift === 'evening' ? 'PM' : 'NT') : '—'}
+                                      {isActive ? `${shortTime(timings.start)}-${shortTime(timings.end)}` : '+'}
                                     </label>
                                   </td>
                                 );
                               })}
-                              <td className="py-2.5 text-right">
-                                {day.isWorking && shiftHoursDisplay ? (
-                                  <span className="text-[9px] text-slate-400">{shiftHoursDisplay}</span>
-                                ) : (
-                                  <span className="text-[9px] text-slate-300 italic">Off</span>
-                                )}
-                              </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
 
                 {/* Footer */}
-                <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+                <div className="flex justify-end gap-2 px-6 py-3 border-t border-slate-200 bg-slate-50 rounded-b-xl">
                   <button type="button" onClick={() => { setShowDoctorScheduleModal(false); setScheduleDoctorId(null); }} className="px-5 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100">Cancel</button>
-                  <button onClick={saveDoctorSchedule} disabled={doctorScheduleSaving} className="px-5 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{doctorScheduleSaving ? 'Saving...' : 'Save Schedule'}</button>
+                  <button onClick={saveDoctorSchedule} disabled={doctorScheduleSaving} className="px-5 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{doctorScheduleSaving ? 'Saving...' : 'Save Schedule'}</button>
                 </div>
               </>
             )}
@@ -2387,7 +2529,7 @@ function HospitalAdministrationContent() {
                   <div key={l.id} className="flex items-center justify-between p-2 border border-slate-200 rounded-lg hover:bg-slate-50">
                     <div>
                       <p className="text-xs font-medium text-slate-700">{l.productName}</p>
-                      <p className="text-[10px] text-slate-400">Assigned {new Date(l.assignedAt).toLocaleDateString()}</p>
+                      <p className="text-[10px] text-slate-400">Assigned {formatShortDate(l.assignedAt)}</p>
                     </div>
                     <button onClick={() => handleRevokeLicense(l.id)} disabled={revokingLicenseId === l.id} className="px-2.5 py-1 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 disabled:opacity-50">
                       {revokingLicenseId === l.id ? 'Revoking...' : 'Revoke'}
@@ -2411,82 +2553,149 @@ function HospitalAdministrationContent() {
       {showAssignModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowAssignModal(false); setAssignDoctorSearch(''); setAssignProductOpen(false); setAssignDoctorOpen(false); }}>
           <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-5" onClick={e => e.stopPropagation()}>
-            <h2 className="text-sm font-semibold text-slate-800 mb-4">Assign License</h2>
-            <form onSubmit={assignLicense} className="space-y-3">
-              {/* Product Dropdown */}
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">Product</label>
-                <div className="relative" ref={assignProductRef}>
-                  <button type="button" onClick={() => { setAssignProductOpen(!assignProductOpen); setAssignDoctorOpen(false); }} className={`flex items-center w-full border bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-xs rounded-lg px-3 py-2 ${assignProductOpen ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200'}`}>
-                    <span className="flex-1 text-left truncate text-slate-900 font-medium">{subscription?.items.find(i => i.productCode === assignForm.productCode)?.productName || 'Select product...'}</span>
-                    <svg className={`flex-shrink-0 w-3.5 h-3.5 text-slate-400 transition-transform ${assignProductOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                  {assignProductOpen && (
-                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden" style={{ maxHeight: '160px', overflowY: 'auto' }}>
-                      {subscription?.items.map(item => (
-                        <button type="button" key={item.productCode} onClick={() => { setAssignForm({ ...assignForm, productCode: item.productCode, doctorId: '' }); setAssignProductOpen(false); }} className={`w-full text-left px-3 py-2 text-xs transition-colors ${item.productCode === assignForm.productCode ? 'bg-[#1e3a5f] text-white font-medium' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
-                          {item.productName}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+            <h2 className="text-sm font-semibold text-slate-800 mb-4">{assignTargetDoctor ? 'License Management' : 'Assign License'}</h2>
+
+            {/* Doctor Info Header (when opened from doctors table) */}
+            {assignTargetDoctor && (
+              <div className="flex items-center gap-3 mb-4 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                <div className="w-9 h-9 rounded-full bg-[#1e3a5f] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                  {(assignTargetDoctor.fullName || assignTargetDoctor.email || '?').charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-slate-800 truncate">Dr. {assignTargetDoctor.fullName || 'Unknown'}</div>
+                  <div className="text-[10px] text-slate-400 truncate">{assignTargetDoctor.email}</div>
+                  {assignTargetDoctor.specialty && <div className="text-[10px] text-[#1e3a5f]/60 truncate">{assignTargetDoctor.specialty}</div>}
                 </div>
               </div>
-              {/* Doctor Dropdown (searchable) */}
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">Doctor</label>
-                <div className="relative" ref={assignDoctorRef}>
-                  <button type="button" onClick={() => { setAssignDoctorOpen(!assignDoctorOpen); setAssignProductOpen(false); }} className={`flex items-center w-full border bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-xs rounded-lg px-3 py-2 ${assignDoctorOpen ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200'}`}>
-                    <span className={`flex-1 text-left truncate ${assignForm.doctorId ? 'text-slate-900 font-medium' : 'text-slate-400'}`}>
-                      {assignForm.doctorId ? `Dr. ${availableDoctorsForLicense.find(d => d.userId === assignForm.doctorId)?.fullName || availableDoctorsForLicense.find(d => d.userId === assignForm.doctorId)?.email || ''}` : doctors.length === 0 ? 'No doctors added yet' : availableDoctorsForLicense.length === 0 ? 'All doctors assigned' : 'Select doctor...'}
-                    </span>
-                    <svg className={`flex-shrink-0 w-3.5 h-3.5 text-slate-400 transition-transform ${assignDoctorOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                  {assignDoctorOpen && (
-                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden">
-                      <div className="p-2 border-b border-slate-100">
-                        <div className="relative">
-                          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                          <input type="text" value={assignDoctorSearch} onChange={e => setAssignDoctorSearch(e.target.value)} placeholder="Search doctors..." className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#a3cbef] focus:border-[#2b5a8a]" autoFocus />
+            )}
+
+            {/* Already Assigned Licenses */}
+            {assignTargetDoctor && assignTargetLicenses.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-[11px] font-medium text-slate-600 mb-1.5">Active Licenses</label>
+                <div className="space-y-1">
+                  {assignTargetLicenses.map(l => (
+                    <div key={l.id} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-md border border-emerald-200/60">
+                      <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                      <span className="text-xs font-medium text-emerald-700 flex-1">{l.productName}</span>
+                      <button type="button" onClick={() => handleRevokeLicense(l.id)} disabled={revokingLicenseId === l.id} className="text-[9px] font-medium text-red-500 hover:text-red-700 disabled:opacity-50">{revokingLicenseId === l.id ? '...' : 'Revoke'}</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Assign New License Form */}
+            {assignTargetDoctor ? (
+              unassignedProducts.length > 0 ? (
+                <form onSubmit={assignLicense} className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Assign New Product</label>
+                    <div className="relative" ref={assignProductRef}>
+                      <button type="button" onClick={() => { setAssignProductOpen(!assignProductOpen); }} className={`flex items-center w-full border bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-xs rounded-lg px-3 py-2 ${assignProductOpen ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200'}`}>
+                        <span className="flex-1 text-left truncate text-slate-900 font-medium">{unassignedProducts.find(i => i.productCode === assignForm.productCode)?.productName || unassignedProducts[0]?.productName || 'Select product...'}</span>
+                        <svg className={`flex-shrink-0 w-3.5 h-3.5 text-slate-400 transition-transform ${assignProductOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                      {assignProductOpen && (
+                        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden" style={{ maxHeight: '160px', overflowY: 'auto' }}>
+                          {unassignedProducts.map(item => (
+                            <button type="button" key={item.productCode} onClick={() => { setAssignForm({ ...assignForm, productCode: item.productCode }); setAssignProductOpen(false); }} className={`w-full text-left px-3 py-2 text-xs transition-colors ${item.productCode === assignForm.productCode ? 'bg-[#1e3a5f] text-white font-medium' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
+                              {item.productName}
+                            </button>
+                          ))}
                         </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" onClick={() => { setShowAssignModal(false); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                    <button type="submit" disabled={assigning || !assignForm.productCode} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign'}</button>
+                  </div>
+                </form>
+              ) : (
+                <div className="text-center py-3">
+                  <p className="text-xs text-slate-400 mb-3">All available products have been assigned to this doctor.</p>
+                  <button type="button" onClick={() => setShowAssignModal(false)} className="px-4 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
+                </div>
+              )
+            ) : (
+              /* Fallback: full form with both dropdowns (e.g. from billing header) */
+              <form onSubmit={assignLicense} className="space-y-3">
+                {/* Product Dropdown */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Product</label>
+                  <div className="relative" ref={assignProductRef}>
+                    <button type="button" onClick={() => { setAssignProductOpen(!assignProductOpen); setAssignDoctorOpen(false); }} className={`flex items-center w-full border bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-xs rounded-lg px-3 py-2 ${assignProductOpen ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200'}`}>
+                      <span className="flex-1 text-left truncate text-slate-900 font-medium">{subscription?.items.find(i => i.productCode === assignForm.productCode)?.productName || 'Select product...'}</span>
+                      <svg className={`flex-shrink-0 w-3.5 h-3.5 text-slate-400 transition-transform ${assignProductOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    {assignProductOpen && (
+                      <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden" style={{ maxHeight: '160px', overflowY: 'auto' }}>
+                        {subscription?.items.map(item => (
+                          <button type="button" key={item.productCode} onClick={() => { setAssignForm({ ...assignForm, productCode: item.productCode, doctorId: '' }); setAssignProductOpen(false); }} className={`w-full text-left px-3 py-2 text-xs transition-colors ${item.productCode === assignForm.productCode ? 'bg-[#1e3a5f] text-white font-medium' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
+                            {item.productName}
+                          </button>
+                        ))}
                       </div>
-                      <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
-                        {availableDoctorsForLicense.filter(d => {
-                          if (!assignDoctorSearch) return true;
-                          const q = assignDoctorSearch.toLowerCase();
-                          return (d.fullName || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q);
-                        }).length === 0 ? (
-                          <div className="px-3 py-3 text-xs text-slate-400 text-center">{doctors.length === 0 ? 'No doctors added yet' : assignDoctorSearch ? 'No matching doctors' : 'All doctors have been assigned this license'}</div>
-                        ) : (
-                          availableDoctorsForLicense.filter(d => {
+                    )}
+                  </div>
+                </div>
+                {/* Doctor Dropdown (searchable) */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Doctor</label>
+                  <div className="relative" ref={assignDoctorRef}>
+                    <button type="button" onClick={() => { setAssignDoctorOpen(!assignDoctorOpen); setAssignProductOpen(false); }} className={`flex items-center w-full border bg-white cursor-pointer hover:border-[#2b5a8a] focus:outline-none focus:ring-1 focus:ring-[#a3cbef] transition-all text-xs rounded-lg px-3 py-2 ${assignDoctorOpen ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200'}`}>
+                      <span className={`flex-1 text-left truncate ${assignForm.doctorId ? 'text-slate-900 font-medium' : 'text-slate-400'}`}>
+                        {assignForm.doctorId ? `Dr. ${availableDoctorsForLicense.find(d => d.userId === assignForm.doctorId)?.fullName || availableDoctorsForLicense.find(d => d.userId === assignForm.doctorId)?.email || ''}` : doctors.length === 0 ? 'No doctors added yet' : availableDoctorsForLicense.length === 0 ? 'All doctors assigned' : 'Select doctor...'}
+                      </span>
+                      <svg className={`flex-shrink-0 w-3.5 h-3.5 text-slate-400 transition-transform ${assignDoctorOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    {assignDoctorOpen && (
+                      <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden">
+                        <div className="p-2 border-b border-slate-100">
+                          <div className="relative">
+                            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            <input type="text" value={assignDoctorSearch} onChange={e => setAssignDoctorSearch(e.target.value)} placeholder="Search doctors..." className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#a3cbef] focus:border-[#2b5a8a]" autoFocus />
+                          </div>
+                        </div>
+                        <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
+                          {availableDoctorsForLicense.filter(d => {
                             if (!assignDoctorSearch) return true;
                             const q = assignDoctorSearch.toLowerCase();
                             return (d.fullName || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q);
-                          }).map(d => (
-                            <button type="button" key={d.userId} onClick={() => { setAssignForm({ ...assignForm, doctorId: d.userId }); setAssignDoctorOpen(false); setAssignDoctorSearch(''); }} className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${d.userId === assignForm.doctorId ? 'bg-[#1e3a5f] text-white' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${d.userId === assignForm.doctorId ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                {(d.fullName || d.email || '?').charAt(0).toUpperCase()}
-                              </div>
-                              <div className="min-w-0">
-                                <div className={`truncate font-medium ${d.userId === assignForm.doctorId ? 'text-white' : ''}`}>Dr. {d.fullName || 'No name'}</div>
-                                <div className={`truncate text-[10px] ${d.userId === assignForm.doctorId ? 'text-white/70' : 'text-slate-400'}`}>{d.email}</div>
-                              </div>
-                              {d.userId === assignForm.doctorId && (
-                                <svg className="w-4 h-4 ml-auto flex-shrink-0 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                              )}
-                            </button>
-                          ))
-                        )}
+                          }).length === 0 ? (
+                            <div className="px-3 py-3 text-xs text-slate-400 text-center">{doctors.length === 0 ? 'No doctors added yet' : assignDoctorSearch ? 'No matching doctors' : 'All doctors have been assigned this license'}</div>
+                          ) : (
+                            availableDoctorsForLicense.filter(d => {
+                              if (!assignDoctorSearch) return true;
+                              const q = assignDoctorSearch.toLowerCase();
+                              return (d.fullName || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q);
+                            }).map(d => (
+                              <button type="button" key={d.userId} onClick={() => { setAssignForm({ ...assignForm, doctorId: d.userId }); setAssignDoctorOpen(false); setAssignDoctorSearch(''); }} className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${d.userId === assignForm.doctorId ? 'bg-[#1e3a5f] text-white' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${d.userId === assignForm.doctorId ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                  {(d.fullName || d.email || '?').charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className={`truncate font-medium ${d.userId === assignForm.doctorId ? 'text-white' : ''}`}>Dr. {d.fullName || 'No name'}</div>
+                                  <div className={`truncate text-[10px] ${d.userId === assignForm.doctorId ? 'text-white/70' : 'text-slate-400'}`}>{d.email}</div>
+                                </div>
+                                {d.userId === assignForm.doctorId && (
+                                  <svg className="w-4 h-4 ml-auto flex-shrink-0 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                )}
+                              </button>
+                            ))
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => { setShowAssignModal(false); setAssignDoctorSearch(''); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={assigning || !assignForm.doctorId} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign'}</button>
-              </div>
-            </form>
+                <div className="flex gap-2 pt-2">
+                  <button type="button" onClick={() => { setShowAssignModal(false); setAssignDoctorSearch(''); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                  <button type="submit" disabled={assigning || !assignForm.doctorId} className="flex-1 py-2 text-xs font-medium text-white bg-[#1e3a5f] rounded-lg hover:bg-[#162f4d] disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign'}</button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -2503,7 +2712,7 @@ function HospitalAdministrationContent() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="email" value={patientForm.email} onChange={e => setPatientForm({ ...patientForm, email: e.target.value })} placeholder="Email" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                <PhoneInput value={patientForm.phone} onChange={(value) => setPatientForm({ ...patientForm, phone: value })} placeholder="Phone number" />
+                <PhoneInput value={patientForm.phone} onChange={(value) => setPatientForm({ ...patientForm, phone: value })} placeholder="Phone number" lockCountryCode={false} />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input type="date" value={patientForm.dateOfBirth} onChange={e => setPatientForm({ ...patientForm, dateOfBirth: e.target.value })} placeholder="Date of Birth" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
@@ -2835,7 +3044,7 @@ function HospitalAdministrationContent() {
                 {/* Calendar Grid */}
                 {(() => {
                   const cm = holidayMonth || 1;
-                  const year = new Date().getFullYear();
+                  const year = getCurrentTime().getFullYear();
                   const firstDay = new Date(year, cm - 1, 1).getDay();
                   const daysInMonth = new Date(year, cm, 0).getDate();
                   const holidaysInMonth = getHolidaysForMonth(cm);
@@ -2965,7 +3174,7 @@ function HospitalAdministrationContent() {
               <div className="bg-white shadow-md mx-auto max-w-[600px] px-10 py-8 rounded min-h-[500px]">
                 <div className="border-b border-slate-200 pb-3 mb-4">
                   <h2 className="text-base font-bold text-slate-800">{viewingDoc.docTitle}</h2>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Version {viewingDoc.version} &middot; Signed by {viewingDoc.signerName} on {new Date(viewingDoc.acceptedAt).toLocaleDateString()}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Version {viewingDoc.version} &middot; Signed by {viewingDoc.signerName} on {formatShortDate(viewingDoc.acceptedAt)}</p>
                 </div>
                 <div
                   className="prose prose-sm max-w-none text-slate-700 text-xs leading-relaxed"

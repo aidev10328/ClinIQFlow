@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
 import { PrismaService } from './prisma.service';
 import { N8nModule } from './providers/n8n';
+import { WhatsAppModule } from './providers/whatsapp';
 import { SupabaseModule } from './supabase';
 import { MeModule } from './me/me.module';
 import { InvitesModule } from './invites/invites.module';
@@ -26,6 +27,7 @@ import { DataScopingMiddleware } from './data-scoping/data-scoping.middleware';
     ConfigModule.forRoot({ isGlobal: true }),
     AuthModule,
     N8nModule,
+    WhatsAppModule,
     SupabaseModule,
     MeModule,
     InvitesModule,

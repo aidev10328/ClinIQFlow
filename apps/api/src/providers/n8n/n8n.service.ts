@@ -18,6 +18,7 @@ export class N8nService {
     this.baseUrl = this.configService.get<string>('N8N_BASE_URL') || 'http://localhost:5678';
     this.webhookPath = this.configService.get<string>('N8N_WEBHOOK_PATH') || '/webhook';
     this.enabled = this.configService.get<string>('N8N_ENABLED') === 'true';
+    this.logger.log(`n8n config: enabled=${this.enabled}, baseUrl=${this.baseUrl}, webhookPath=${this.webhookPath}`);
   }
 
   private getWebhookUrl(endpoint: string): string {
@@ -26,11 +27,12 @@ export class N8nService {
 
   async triggerWebhook(endpoint: string, data: Record<string, any>): Promise<boolean> {
     if (!this.enabled) {
-      this.logger.debug('n8n integration disabled, skipping webhook');
+      this.logger.warn('n8n integration disabled, skipping webhook');
       return false;
     }
 
     const url = this.getWebhookUrl(endpoint);
+    this.logger.log(`Triggering n8n webhook: ${url}`);
     const payload: N8nWebhookPayload = {
       event: endpoint,
       timestamp: new Date().toISOString(),
@@ -73,6 +75,26 @@ export class N8nService {
     return this.triggerWebhook('user-logged-in', {
       userId: user.id,
       email: user.email,
+    });
+  }
+
+  async onPatientCreated(patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone?: string;
+    email?: string;
+    hospitalId: string;
+    hospitalName?: string;
+  }) {
+    return this.triggerWebhook('ddc295ed-4c5d-4243-8dce-f271ded16955', {
+      patientId: patient.id,
+      firstName: patient.firstName,
+      lastName: patient.lastName,
+      phone: patient.phone,
+      email: patient.email,
+      hospitalId: patient.hospitalId,
+      hospitalName: patient.hospitalName,
     });
   }
 

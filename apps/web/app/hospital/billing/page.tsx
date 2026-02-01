@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
+import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
 
 interface SubscriptionItem {
   id: string;
@@ -63,6 +64,7 @@ interface Doctor {
 export default function HospitalBillingPage() {
   const router = useRouter();
   const { user, profile, currentHospital, loading: authLoading, legalStatus } = useAuth();
+  const { formatShortDate } = useHospitalTimezone();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [licenseStats, setLicenseStats] = useState<LicenseStats | null>(null);
   const [licenses, setLicenses] = useState<License[]>([]);
@@ -245,7 +247,7 @@ export default function HospitalBillingPage() {
             {subscription.status === 'TRIAL' && subscription.trialEndsAt && (
               <div className="bg-navy-50 border border-navy-200 rounded-lg p-3 mb-4">
                 <p className="text-sm text-navy-700">
-                  Your trial ends on {new Date(subscription.trialEndsAt).toLocaleDateString()}.
+                  Your trial ends on {formatShortDate(subscription.trialEndsAt)}.
                   Contact support to activate your subscription.
                 </p>
               </div>
@@ -282,7 +284,7 @@ export default function HospitalBillingPage() {
             </div>
 
             <div className="mt-4 text-xs text-gray-500">
-              Billing cycle: {new Date(subscription.billingCycleStart).toLocaleDateString()} - {new Date(subscription.billingCycleEnd).toLocaleDateString()}
+              Billing cycle: {formatShortDate(subscription.billingCycleStart)} - {formatShortDate(subscription.billingCycleEnd)}
             </div>
           </>
         ) : (
@@ -362,7 +364,7 @@ export default function HospitalBillingPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-500">
-                        {new Date(license.assignedAt).toLocaleDateString()}
+                        {formatShortDate(license.assignedAt)}
                       </div>
                       <div className="text-xs text-gray-400">by {license.assignedByName}</div>
                     </td>

@@ -48,14 +48,7 @@ interface DailyQueueData {
   };
 }
 
-function formatTime(isoString: string): string {
-  const date = new Date(isoString);
-  const hours = date.getHours();
-  const mins = date.getMinutes();
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const hours12 = hours % 12 || 12;
-  return `${hours12}:${String(mins).padStart(2, '0')} ${period}`;
-}
+// formatTime is provided by useHospitalTimezone hook inside DoctorQueue
 
 function formatDuration(minutes: number): string {
   if (minutes < 60) {
@@ -85,7 +78,7 @@ function getPriorityBadge(priority: string) {
 
 export function DoctorQueue() {
   const { profile } = useAuth();
-  const { formatShortDate, timezone } = useHospitalTimezone();
+  const { formatShortDate, formatTime, timezone } = useHospitalTimezone();
 
   const [loading, setLoading] = useState(true);
   const [queueData, setQueueData] = useState<DailyQueueData | null>(null);

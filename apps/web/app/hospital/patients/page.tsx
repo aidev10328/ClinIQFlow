@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
 import PhoneInput from '../../../components/PhoneInput';
+import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
 
 const ITEMS_PER_PAGE = 12;
 
@@ -50,10 +51,10 @@ interface Report {
   status: string;
 }
 
-function calculateAge(dateOfBirth?: string): string {
+function calculateAge(dateOfBirth?: string, now?: Date): string {
   if (!dateOfBirth) return '—';
-  const today = new Date();
-  const birth = new Date(dateOfBirth);
+  const today = now || new Date();
+  const birth = new Date(dateOfBirth + 'T00:00:00');
   let age = today.getFullYear() - birth.getFullYear();
   const monthDiff = today.getMonth() - birth.getMonth();
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
@@ -65,6 +66,7 @@ function calculateAge(dateOfBirth?: string): string {
 function PatientsPageContent() {
   const searchParams = useSearchParams();
   const { currentHospital } = useAuth();
+  const { getCurrentTime, formatShortDate } = useHospitalTimezone();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +83,7 @@ function PatientsPageContent() {
   const [showModal, setShowModal] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
   const [formData, setFormData] = useState<Partial<Patient>>({
     firstName: '', lastName: '', email: '', phone: '', dateOfBirth: '', gender: '',
     address: '', city: '', state: '', postalCode: '', insuranceProvider: '', insuranceNumber: '',
@@ -155,17 +158,20 @@ function PatientsPageContent() {
       emergencyContactName: '', emergencyContactPhone: '', notes: '', status: 'active',
     });
     setEditingPatient(null);
+    setFormError('');
   }
 
   function handleEdit(patient: Patient) {
     setEditingPatient(patient);
     setFormData({ ...patient });
+    setFormError('');
     setShowModal(true);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setFormError('');
     try {
       const url = editingPatient ? `/v1/patients/${editingPatient.id}` : '/v1/patients';
       const method = editingPatient ? 'PATCH' : 'POST';
@@ -176,10 +182,11 @@ function PatientsPageContent() {
         fetchPatients();
       } else {
         const error = await res.json();
-        alert(error.message || 'Failed to save patient');
+        setFormError(error.message || 'Failed to save patient');
       }
     } catch (error) {
       console.error('Failed to save patient:', error);
+      setFormError('Failed to save patient');
     } finally {
       setSaving(false);
     }
@@ -187,10 +194,13 @@ function PatientsPageContent() {
 
   // Filter patients
   const filteredPatients = patients.filter(patient => {
+    const query = searchQuery.toLowerCase();
     const fullName = `${patient.firstName} ${patient.lastName}`.toLowerCase();
-    return fullName.includes(searchQuery.toLowerCase()) ||
-      patient.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      patient.phone?.includes(searchQuery);
+    const queryDigits = searchQuery.replace(/\D/g, '');
+    const phoneDigits = (patient.phone || '').replace(/\D/g, '');
+    return fullName.includes(query) ||
+      patient.email?.toLowerCase().includes(query) ||
+      (queryDigits.length > 0 && phoneDigits.includes(queryDigits));
   });
 
   useEffect(() => { setCurrentPage(1); }, [searchQuery]);
@@ -314,7 +324,7 @@ function PatientsPageContent() {
 
                     {/* Age */}
                     <div className="hidden lg:block lg:col-span-1 text-center">
-                      <span className="text-sm text-slate-700">{calculateAge(patient.dateOfBirth)}</span>
+                      <span className="text-sm text-slate-700">{calculateAge(patient.dateOfBirth, getCurrentTime())}</span>
                     </div>
 
                     {/* Gender */}
@@ -481,7 +491,7 @@ function PatientsPageContent() {
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <p className="text-sm font-medium text-slate-900">
-                            {new Date(appt.appointmentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                            {new Date(appt.appointmentDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                           </p>
                           <p className="text-xs text-slate-500">{appt.startTime} - {appt.endTime}</p>
                         </div>
@@ -566,7 +576,7 @@ function PatientsPageContent() {
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="text-sm font-medium text-slate-900">{report.title}</p>
-                          <p className="text-xs text-slate-500 mt-0.5">{new Date(report.createdAt).toLocaleDateString()}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{formatShortDate(report.createdAt)}</p>
                         </div>
                         <span className="text-xs px-2 py-1 rounded-lg font-medium bg-purple-50 text-purple-700">{report.type}</span>
                       </div>
@@ -617,6 +627,14 @@ function PatientsPageContent() {
             </div>
 
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-5">
+              {formError && (
+                <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
+                  <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-sm text-red-700">{formError}</p>
+                </div>
+              )}
               {/* Basic Information */}
               <div>
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Basic Information</h4>
