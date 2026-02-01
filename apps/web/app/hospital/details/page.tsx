@@ -195,7 +195,8 @@ function HospitalAdministrationContent() {
   const pictureInputRef = useRef<HTMLInputElement>(null);
 
   // Manager Profile
-  const [profileEditMode, setProfileEditMode] = useState(false);
+  const [showEditManagerModal, setShowEditManagerModal] = useState(false);
+  const [editingManager, setEditingManager] = useState<Manager | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '' });
 
@@ -217,6 +218,8 @@ function HospitalAdministrationContent() {
   const [pendingManagerInvites, setPendingManagerInvites] = useState<Invite[]>([]);
   const [showInviteManagerModal, setShowInviteManagerModal] = useState(false);
   const [inviteManagerEmail, setInviteManagerEmail] = useState('');
+  const [inviteManagerFirstName, setInviteManagerFirstName] = useState('');
+  const [inviteManagerLastName, setInviteManagerLastName] = useState('');
   const [invitingManager, setInvitingManager] = useState(false);
 
   // Doctors
@@ -596,7 +599,8 @@ function HospitalAdministrationContent() {
       const res = await apiFetch('/v1/me', { method: 'PATCH', body: JSON.stringify({ fullName, phone: profileForm.phone }) });
       if (res.ok) {
         setMessage({ type: 'success', text: 'Profile updated', source: 'profile' });
-        setProfileEditMode(false);
+        setShowEditManagerModal(false);
+        setEditingManager(null);
         refreshProfile();
       } else {
         setMessage({ type: 'error', text: 'Failed to update profile', source: 'profile' });
@@ -1330,21 +1334,9 @@ function HospitalAdministrationContent() {
                   <span className="px-1.5 py-0.5 bg-[#ecf5e7] text-[#4d7c43] text-[9px] font-medium rounded">{managers.filter(m => m.status === 'ACTIVE').length} active</span>
                   {cardMsg('profile')}
                 </div>
-                <button onClick={() => { setInviteManagerEmail(''); setShowInviteManagerModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Hospital Manager</button>
+                <button onClick={() => { setInviteManagerEmail(''); setInviteManagerFirstName(''); setInviteManagerLastName(''); setShowInviteManagerModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Invite Hospital Manager</button>
               </div>
               <div className="flex-1 lg:overflow-auto">
-                {/* Pending Manager Invites */}
-                {pendingManagerInvites.length > 0 && (
-                  <div className="px-2 py-1.5 bg-amber-50/50 border-b border-amber-100">
-                    <p className="text-[9px] font-semibold text-amber-700 uppercase tracking-wide mb-1">Pending Invites</p>
-                    {pendingManagerInvites.map(inv => (
-                      <div key={inv.id} className="flex items-center justify-between py-0.5">
-                        <span className="text-[10px] text-amber-800">{inv.invitedEmail}</span>
-                        <button onClick={() => revokeManagerInvite(inv.id)} className="text-[9px] text-red-500 hover:text-red-700">Revoke</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 {!dataLoaded ? (
                   <div className="overflow-x-auto">
                   <table className="w-full text-[11px]">
@@ -1358,7 +1350,7 @@ function HospitalAdministrationContent() {
                     <TableSkeleton cols={3} rows={2} />
                   </table>
                   </div>
-                ) : managers.length > 0 ? (
+                ) : (managers.length > 0 || pendingManagerInvites.length > 0) ? (
                   <div className="overflow-x-auto">
                   <table className="w-full text-[11px]">
                     <thead className="bg-slate-50 sticky top-0">
@@ -1380,7 +1372,18 @@ function HospitalAdministrationContent() {
                           </td>
                           <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${m.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{m.status}</span></td>
                           <td className="px-3 py-1.5 text-right">
-                            <button onClick={() => { setProfileEditMode(true); const nameParts = (m.fullName || '').split(' '); setProfileForm({ firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || '', phone: '' }); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
+                            <button onClick={() => { setEditingManager(m); const nameParts = (m.fullName || '').split(' '); setProfileForm({ firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || '', phone: '' }); setShowEditManagerModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
+                          </td>
+                        </tr>
+                      ))}
+                      {pendingManagerInvites.map(inv => (
+                        <tr key={inv.id} className="hover:bg-amber-50/30 bg-amber-50/20">
+                          <td className="px-3 py-1.5">
+                            <div className="font-medium text-slate-500">{inv.invitedEmail}</div>
+                          </td>
+                          <td className="px-3 py-1.5"><span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-700">PENDING INVITE</span></td>
+                          <td className="px-3 py-1.5 text-right">
+                            <button onClick={() => revokeManagerInvite(inv.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50">Revoke</button>
                           </td>
                         </tr>
                       ))}
@@ -1410,13 +1413,12 @@ function HospitalAdministrationContent() {
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
                         <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Title</th>
                         <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
                         <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
                         <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
                       </tr>
                     </thead>
-                    <TableSkeleton cols={5} rows={3} />
+                    <TableSkeleton cols={4} rows={3} />
                   </table>
                   </div>
                 ) : staff.length > 0 ? (
@@ -1425,7 +1427,6 @@ function HospitalAdministrationContent() {
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
                         <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Name</th>
-                        <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Title</th>
                         <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Doctors</th>
                         <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Status</th>
                         <th className="px-3 py-1.5 text-right text-[10px] font-medium text-slate-500">Actions</th>
@@ -1438,18 +1439,26 @@ function HospitalAdministrationContent() {
                             <div className="font-medium text-slate-700">{s.displayName}</div>
                             <div className="text-[10px] text-slate-400">{s.email}</div>
                           </td>
-                          <td className="px-3 py-1.5 text-slate-500">{s.title || '—'}</td>
                           <td className="px-3 py-1.5">
-                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
-                              {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'All' : `${s.assignedDoctorIds.length}`}
-                            </span>
+                            <div className="relative group inline-block">
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700 cursor-default">
+                                {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0 ? 'All' : `${s.assignedDoctorIds.length}`}
+                              </span>
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block z-50 pointer-events-none">
+                                <div className="bg-slate-800 text-white text-[10px] rounded-md px-2.5 py-1.5 whitespace-nowrap shadow-lg">
+                                  {!s.assignedDoctorIds || s.assignedDoctorIds.length === 0
+                                    ? 'Assigned to all doctors'
+                                    : s.assignedDoctorIds.map(id => { const doc = doctors.find(d => d.userId === id); return doc ? `Dr. ${doc.fullName || doc.email}` : id; }).join(', ')}
+                                </div>
+                                <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-slate-800 rotate-45" />
+                              </div>
+                            </div>
                           </td>
                           <td className="px-3 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${s.status === 'ACTIVE' ? 'bg-[#f0f7eb] text-[#4d7c43]' : 'bg-slate-100 text-slate-500'}`}>{s.status}</span></td>
                           <td className="px-3 py-1.5 text-right whitespace-nowrap">
                             <button onClick={() => { setEditingStaff(s); const nameParts = (s.displayName || '').split(' '); const firstName = nameParts[0] || ''; const lastName = nameParts.slice(1).join(' ') || ''; setStaffForm({ email: s.email, password: '', firstName, lastName, title: s.title || '', phone: s.phone || '' }); if (s.assignedDoctorIds && s.assignedDoctorIds.length > 0) { setStaffAssignAll(false); setStaffSelectedDoctorIds(s.assignedDoctorIds); } else { setStaffAssignAll(true); setStaffSelectedDoctorIds([]); } setShowStaffModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-navy-600 border border-navy-200 rounded hover:bg-navy-50">Edit</button>
                             <button onClick={() => { setPasswordResetStaff(s); setResetPassword(''); setShowPasswordResetModal(true); }} className="px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200 rounded hover:bg-amber-50 mr-1">Reset Pwd</button>
                             <button onClick={() => toggleStaffStatus(s)} className={`px-2 py-0.5 text-[10px] font-medium rounded mr-1 ${s.status === 'ACTIVE' ? 'text-orange-700 border border-orange-200 hover:bg-orange-50' : 'text-[#4d7c43] border border-[#b8d4af] hover:bg-[#ecf5e7]'}`}>{s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button>
-                            <button onClick={() => deleteStaff(s.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50">Delete</button>
                           </td>
                         </tr>
                       ))}
@@ -1463,27 +1472,6 @@ function HospitalAdministrationContent() {
             </div>
           </div>
 
-          {/* Edit Manager (inline below grid) */}
-          {profileEditMode && (
-            <div className="mt-2 bg-white rounded-lg border border-slate-200 overflow-hidden">
-              <div className="flex items-center justify-between px-2 py-1.5 bg-[#f0f7ff]">
-                <h3 className="text-[11px] font-semibold text-slate-800">Edit Manager Details</h3>
-                <div className="flex gap-1">
-                  <button onClick={() => setProfileEditMode(false)} className="px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-200 rounded">Cancel</button>
-                  <button onClick={saveProfile} disabled={profileSaving} className="px-2 py-0.5 text-[10px] text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d] disabled:opacity-50">{profileSaving ? '...' : 'Save'}</button>
-                </div>
-              </div>
-              <div className="p-2">
-                <form onSubmit={saveProfile} className="space-y-1.5">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    <input value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} placeholder="First Name" className="w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                    <input value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} placeholder="Last Name" className="w-full px-1.5 py-0.5 text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
-                  </div>
-                  <PhoneInput value={profileForm.phone} onChange={(value) => setProfileForm({ ...profileForm, phone: value })} placeholder="Phone number" />
-                </form>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -1778,10 +1766,35 @@ function HospitalAdministrationContent() {
             <h2 className="text-sm font-semibold text-slate-800 mb-3">Invite Hospital Manager</h2>
             <p className="text-[10px] text-slate-400 mb-3">Send an email invitation to add a new hospital manager.</p>
             <form onSubmit={inviteManager} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" value={inviteManagerFirstName} onChange={e => setInviteManagerFirstName(e.target.value)} placeholder="First Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <input type="text" value={inviteManagerLastName} onChange={e => setInviteManagerLastName(e.target.value)} placeholder="Last Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              </div>
               <input type="email" value={inviteManagerEmail} onChange={e => setInviteManagerEmail(e.target.value)} placeholder="Email address *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => setShowInviteManagerModal(false)} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
                 <button type="submit" disabled={invitingManager} className="flex-1 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{invitingManager ? 'Sending...' : 'Send Invite'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Manager Modal */}
+      {showEditManagerModal && editingManager && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowEditManagerModal(false); setEditingManager(null); }}>
+          <div className="w-full max-w-sm bg-white rounded-lg shadow-xl p-4" onClick={e => e.stopPropagation()}>
+            <h2 className="text-sm font-semibold text-slate-800 mb-3">Edit Manager Details</h2>
+            <p className="text-[10px] text-slate-400 mb-3">{editingManager.email}</p>
+            <form onSubmit={saveProfile} className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} placeholder="First Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                <input type="text" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} placeholder="Last Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              </div>
+              <input type="tel" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} placeholder="Phone" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => { setShowEditManagerModal(false); setEditingManager(null); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+                <button type="submit" disabled={profileSaving} className="flex-1 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{profileSaving ? 'Saving...' : 'Save'}</button>
               </div>
             </form>
           </div>
