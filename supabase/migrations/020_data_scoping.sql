@@ -63,6 +63,16 @@ INSERT INTO data_scoping_rules (role, data_domain, scope_type, description) VALU
   ('HOSPITAL_STAFF', 'staff',        'same_doctors',     'Staff sees colleagues with same doctors')
 ON CONFLICT (role, data_domain) DO NOTHING;
 
+-- STAFF: full hospital access (same as HOSPITAL_MANAGER — operational role)
+INSERT INTO data_scoping_rules (role, data_domain, scope_type, description) VALUES
+  ('STAFF', 'doctors',      'all_hospital',   'Staff sees all doctors'),
+  ('STAFF', 'patients',     'all_hospital',   'Staff sees all patients'),
+  ('STAFF', 'appointments', 'all_hospital',   'Staff sees all appointments'),
+  ('STAFF', 'schedule',     'all_hospital',   'Staff sees all schedules'),
+  ('STAFF', 'metrics',      'hospital_wide',  'Staff sees hospital-wide metrics'),
+  ('STAFF', 'staff',        'all_hospital',   'Staff sees all staff')
+ON CONFLICT (role, data_domain) DO NOTHING;
+
 -- PATIENT: own-record scoped
 INSERT INTO data_scoping_rules (role, data_domain, scope_type, description) VALUES
   ('PATIENT', 'doctors',      'none',          'Patient cannot see doctor list'),

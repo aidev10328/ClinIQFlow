@@ -996,7 +996,41 @@ export class ProductsService {
       return false;
     }
 
-    return data === true;
+    if (data === true) return true;
+
+    // The DB function may not handle STAFF/HOSPITAL_STAFF yet.
+    // Staff should have same access as HOSPITAL_MANAGER (subscription-level).
+    const { data: membership } = await adminClient
+      .from('hospital_memberships')
+      .select('role')
+      .eq('hospital_id', hospitalId)
+      .eq('user_id', userId)
+      .eq('status', 'ACTIVE')
+      .single();
+
+    if (membership?.role === 'STAFF' || membership?.role === 'HOSPITAL_STAFF') {
+      // Check if hospital has an active subscription that includes this product
+      const { data: product } = await adminClient
+        .from('products')
+        .select('id')
+        .eq('code', productCode)
+        .eq('is_active', true)
+        .single();
+
+      if (!product) return false;
+
+      const { data: subItems } = await adminClient
+        .from('hospital_subscription_items')
+        .select('id, hospital_subscriptions!inner(id, status)')
+        .eq('product_id', product.id)
+        .eq('hospital_subscriptions.hospital_id', hospitalId)
+        .in('hospital_subscriptions.status', ['ACTIVE', 'TRIAL'])
+        .limit(1);
+
+      return (subItems?.length || 0) > 0;
+    }
+
+    return false;
   }
 
   // =========================================

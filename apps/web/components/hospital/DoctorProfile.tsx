@@ -5,6 +5,8 @@ import { useAuth } from '../AuthProvider';
 import { apiFetch } from '../../lib/api';
 import { useHospitalTimezone } from '../../hooks/useHospitalTimezone';
 import PhoneInput from '../PhoneInput';
+import { COUNTRIES, getCountryByCode } from '../../lib/countries';
+import { getStatesForCountry } from '../../lib/countryStateData';
 
 interface DoctorProfileData {
   id: string;
@@ -17,8 +19,16 @@ interface DoctorProfileData {
   dateOfBirth?: string;
   gender?: string;
   address?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  nationalId?: string;
   emergencyContact?: string;
   emergencyPhone?: string;
+  emergencyRelation?: string;
   // Professional
   specialization?: string;
   qualification?: string;
@@ -27,6 +37,8 @@ interface DoctorProfileData {
   consultationFee?: number;
   education?: string;
   bio?: string;
+  employmentType?: string;
+  department?: string;
   // Schedule
   appointmentDurationMinutes?: number;
 }
@@ -54,6 +66,19 @@ interface Specialization {
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const DEPARTMENTS = [
+  'Emergency Medicine', 'Internal Medicine', 'Surgery', 'Pediatrics',
+  'Obstetrics & Gynecology', 'Cardiology', 'Neurology', 'Orthopedics',
+  'Radiology', 'Pathology', 'Anesthesiology', 'Dermatology',
+  'Ophthalmology', 'ENT', 'Urology', 'Psychiatry', 'Oncology',
+  'Pulmonology', 'Gastroenterology', 'Nephrology', 'Endocrinology',
+  'Rheumatology', 'ICU', 'General Practice', 'Rehabilitation',
+];
+
+const EMERGENCY_RELATIONS = [
+  'Spouse', 'Parent', 'Sibling', 'Child', 'Friend', 'Relative', 'Other',
+];
 
 export function DoctorProfile() {
   const { user, profile } = useAuth();
@@ -243,8 +268,16 @@ export function DoctorProfile() {
           dateOfBirth: formData.dateOfBirth || null,
           gender: formData.gender || null,
           address: formData.address || null,
+          addressLine1: formData.addressLine1 || null,
+          addressLine2: formData.addressLine2 || null,
+          city: formData.city || null,
+          state: formData.state || null,
+          postalCode: formData.postalCode || null,
+          country: formData.country || null,
+          nationalId: formData.nationalId || null,
           emergencyContact: formData.emergencyContact || null,
           emergencyPhone: formData.emergencyPhone || null,
+          emergencyRelation: formData.emergencyRelation || null,
           specialization: formData.specialization || null,
           qualification: formData.qualification || null,
           licenseNumber: formData.licenseNumber || null,
@@ -252,6 +285,8 @@ export function DoctorProfile() {
           consultationFee: formData.consultationFee || null,
           education: formData.education || null,
           bio: formData.bio || null,
+          employmentType: formData.employmentType || null,
+          department: formData.department || null,
         }),
       });
 
@@ -474,7 +509,7 @@ export function DoctorProfile() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+        <div className="w-5 h-5 border-2 border-[#1e3a5f] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -482,35 +517,34 @@ export function DoctorProfile() {
   const doctorName = doctor?.fullName || profile?.fullName || 'Doctor';
 
   return (
-    <div className="page-fullheight flex flex-col bg-gray-50 overflow-hidden">
+    <div className="page-fullheight flex flex-col overflow-hidden">
       {/* Header with Avatar */}
-      <div className="flex-shrink-0 bg-white border-b">
-        <div className="px-6 py-5">
-          <div className="flex items-center gap-5">
+      <div className="flex-shrink-0 bg-white border-b border-slate-200">
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-4">
             {/* Avatar Section */}
             <div className="relative">
               <div
-                className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[var(--color-primary)] to-[#5a8ac7] flex items-center justify-center overflow-hidden cursor-pointer group"
+                className="w-14 h-14 rounded-xl bg-[#1e3a5f] flex items-center justify-center overflow-hidden cursor-pointer group"
                 onClick={() => fileInputRef.current?.click()}
               >
                 {avatarPreview ? (
                   <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-2xl font-bold text-white">
+                  <span className="text-lg font-bold text-white">
                     {doctorName.charAt(0).toUpperCase()}
                   </span>
                 )}
-                {/* Hover overlay */}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </div>
               </div>
               {uploadingAvatar && (
-                <div className="absolute inset-0 bg-white/80 rounded-2xl flex items-center justify-center">
-                  <div className="w-5 h-5 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+                <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+                  <div className="w-4 h-4 border-2 border-[#1e3a5f] border-t-transparent rounded-full animate-spin" />
                 </div>
               )}
               <input
@@ -520,12 +554,11 @@ export function DoctorProfile() {
                 onChange={handleAvatarChange}
                 className="hidden"
               />
-              {/* Camera badge */}
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="absolute -bottom-1 -right-1 w-7 h-7 bg-[var(--color-primary)] rounded-full flex items-center justify-center text-white shadow-lg hover:bg-[var(--color-primary-dark)] transition-colors"
+                className="absolute -bottom-1 -right-1 w-6 h-6 bg-[#1e3a5f] rounded-full flex items-center justify-center text-white shadow-lg hover:bg-[#162d4a] transition-colors"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
@@ -534,16 +567,16 @@ export function DoctorProfile() {
 
             {/* Doctor Info */}
             <div className="flex-1">
-              <h1 className="text-xl font-semibold text-gray-900">Dr. {doctorName}</h1>
-              <p className="text-sm text-gray-500">{doctor?.email}</p>
-              <div className="flex items-center gap-3 mt-2">
+              <h1 className="text-base font-semibold text-slate-900">Dr. {doctorName}</h1>
+              <p className="text-[11px] text-slate-500">{doctor?.email}</p>
+              <div className="flex items-center gap-2 mt-1.5">
                 {doctor?.specialization && (
-                  <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-lg border border-indigo-100">
+                  <span className="px-2 py-0.5 bg-blue-50 text-[#1e3a5f] text-[10px] font-medium rounded border border-blue-100">
                     {doctor.specialization}
                   </span>
                 )}
                 {doctor?.qualification && (
-                  <span className="px-2.5 py-1 bg-cyan-50 text-cyan-700 text-xs font-medium rounded-lg border border-cyan-100">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-medium rounded border border-slate-200">
                     {doctor.qualification}
                   </span>
                 )}
@@ -552,118 +585,105 @@ export function DoctorProfile() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="px-6">
-          <div className="flex gap-1">
+        {/* Tabs - underline style */}
+        <div className="px-4 flex gap-4">
+          {([
+            { id: 'personal' as const, label: 'Personal', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+            { id: 'professional' as const, label: 'Professional', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
+            { id: 'schedule' as const, label: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+          ]).map((tab) => (
             <button
-              onClick={() => setActiveTab('personal')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
-                activeTab === 'personal'
-                  ? 'bg-gray-50 text-[var(--color-primary)] border-t-2 border-x border-[var(--color-primary)]'
-                  : 'text-gray-500 hover:text-gray-700'
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 pb-2 text-sm font-medium transition-colors ${
+                activeTab === tab.id
+                  ? 'border-b-2 border-[#1e3a5f] text-[#1e3a5f]'
+                  : 'text-slate-500 hover:text-slate-700'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
               </svg>
-              Personal
+              {tab.label}
             </button>
-            <button
-              onClick={() => setActiveTab('professional')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
-                activeTab === 'professional'
-                  ? 'bg-gray-50 text-[var(--color-primary)] border-t-2 border-x border-[var(--color-primary)]'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
-              Professional
-            </button>
-            <button
-              onClick={() => setActiveTab('schedule')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
-                activeTab === 'schedule'
-                  ? 'bg-gray-50 text-[var(--color-primary)] border-t-2 border-x border-[var(--color-primary)]'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              Schedule
-            </button>
-          </div>
+          ))}
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-3">
         {/* Personal Tab */}
         {activeTab === 'personal' && (
           <div className="max-w-4xl">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">Personal Information</h2>
-                  <p className="text-sm text-gray-500">Your contact and personal details</p>
-                </div>
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-slate-700">Personal Information</h2>
                 {!editMode && (
                   <button
                     onClick={() => setEditMode(true)}
-                    className="px-4 py-2 text-sm font-medium text-[var(--color-primary)] bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 rounded-lg transition-colors"
+                    className="text-sm font-medium text-[#1e3a5f] hover:text-[#162d4a] transition-colors"
                   >
                     Edit
                   </button>
                 )}
               </div>
-              <div className="p-5">
+              <div className="p-4">
                 {editMode ? (
-                  <form onSubmit={handleSaveProfile} className="space-y-5">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div className="form-group">
-                        <label className="form-label">Full Name</label>
+                  <form onSubmit={handleSaveProfile} className="space-y-4">
+                    {/* Basic Info */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
                         <input
                           type="text"
                           value={formData.fullName || ''}
                           onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                           placeholder="Enter your full name"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Email</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
                         <input
                           type="email"
                           value={formData.email || ''}
                           disabled
-                          className="form-input bg-gray-50"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Phone</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
                         <PhoneInput
                           value={formData.phone || ''}
                           onChange={(value) => setFormData({ ...formData, phone: value })}
                           placeholder="Phone number"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Date of Birth</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">National ID</label>
+                        <input
+                          type="text"
+                          value={formData.nationalId || ''}
+                          onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+                          placeholder="SSN / Aadhaar / NIN"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Date of Birth</label>
                         <input
                           type="date"
                           value={formData.dateOfBirth || ''}
                           onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Gender</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Gender</label>
                         <select
                           value={formData.gender || ''}
                           onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] bg-white"
                         >
                           <option value="">Select</option>
                           <option value="male">Male</option>
@@ -671,112 +691,187 @@ export function DoctorProfile() {
                           <option value="other">Other</option>
                         </select>
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Address</label>
+                    </div>
+
+                    {/* Address Section */}
+                    <div className="pt-3 border-t border-slate-100">
+                      <p className="text-sm font-medium text-slate-600 mb-2">Address</p>
+                      <div className="space-y-2">
                         <input
                           type="text"
-                          value={formData.address || ''}
-                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                          className="form-input"
-                          placeholder="Your address"
+                          placeholder="Address Line 1"
+                          value={formData.addressLine1 || ''}
+                          onChange={(e) => setFormData({ ...formData, addressLine1: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                         />
+                        <input
+                          type="text"
+                          placeholder="Address Line 2 (Apt, Suite, etc.)"
+                          value={formData.addressLine2 || ''}
+                          onChange={(e) => setFormData({ ...formData, addressLine2: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+                        />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <select
+                            value={formData.country || ''}
+                            onChange={(e) => setFormData({ ...formData, country: e.target.value, state: '' })}
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] bg-white"
+                          >
+                            <option value="">Country</option>
+                            {COUNTRIES.map((c) => (
+                              <option key={c.code} value={c.code}>{c.name}</option>
+                            ))}
+                          </select>
+                          {formData.country && getStatesForCountry(formData.country).length > 0 ? (
+                            <select
+                              value={formData.state || ''}
+                              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] bg-white"
+                            >
+                              <option value="">State</option>
+                              {getStatesForCountry(formData.country).map((s) => (
+                                <option key={s.code} value={s.code}>{s.name}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              placeholder="State / Province"
+                              value={formData.state || ''}
+                              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+                            />
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            placeholder="City"
+                            value={formData.city || ''}
+                            onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Postal / ZIP Code"
+                            value={formData.postalCode || ''}
+                            onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+                          />
+                        </div>
                       </div>
                     </div>
 
                     {/* Emergency Contact */}
-                    <div className="pt-4 border-t border-gray-100">
-                      <h3 className="text-sm font-medium text-red-600 mb-3 flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        Emergency Contact
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="form-group">
-                          <label className="form-label">Contact Name</label>
-                          <input
-                            type="text"
-                            value={formData.emergencyContact || ''}
-                            onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
-                            className="form-input"
-                            placeholder="Emergency contact name"
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Contact Phone</label>
-                          <PhoneInput
-                            value={formData.emergencyPhone || ''}
-                            onChange={(value) => setFormData({ ...formData, emergencyPhone: value })}
-                            placeholder="Emergency phone"
-                          />
-                        </div>
+                    <div className="pt-3 border-t border-slate-100">
+                      <p className="text-sm font-medium text-red-600 mb-2">Emergency Contact</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Contact Name"
+                          value={formData.emergencyContact || ''}
+                          onChange={(e) => setFormData({ ...formData, emergencyContact: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
+                        />
+                        <select
+                          value={formData.emergencyRelation || ''}
+                          onChange={(e) => setFormData({ ...formData, emergencyRelation: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] bg-white"
+                        >
+                          <option value="">Relation</option>
+                          {EMERGENCY_RELATIONS.map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                        <PhoneInput
+                          value={formData.emergencyPhone || ''}
+                          onChange={(value) => setFormData({ ...formData, emergencyPhone: value })}
+                          placeholder="Contact Phone"
+                        />
                       </div>
                     </div>
 
-                    <div className="flex justify-end gap-3 pt-4">
+                    <div className="flex justify-end gap-2 pt-3">
                       <button
                         type="button"
                         onClick={() => {
                           setEditMode(false);
                           setFormData(doctor || {});
                         }}
-                        className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
                         disabled={saving}
-                        className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] rounded-lg disabled:opacity-50 transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-white bg-[#1e3a5f] hover:bg-[#162d4a] rounded-lg disabled:opacity-50 transition-colors"
                       >
-                        {saving ? 'Saving...' : 'Save Changes'}
+                        {saving ? 'Saving...' : 'Save'}
                       </button>
                     </div>
                   </form>
                 ) : (
-                  <div className="space-y-5">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Full Name</p>
-                        <p className="text-sm font-medium text-gray-900">{doctor?.fullName || '—'}</p>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Full Name</p>
+                        <p className="text-sm text-slate-900">{doctor?.fullName || '—'}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Email</p>
-                        <p className="text-sm font-medium text-gray-900 truncate">{doctor?.email || '—'}</p>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Email</p>
+                        <p className="text-sm text-slate-900 truncate">{doctor?.email || '—'}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Phone</p>
-                        <p className="text-sm font-medium text-gray-900">{doctor?.phone || '—'}</p>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Phone</p>
+                        <p className="text-sm text-slate-900">{doctor?.phone || '—'}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Date of Birth</p>
-                        <p className="text-sm font-medium text-gray-900">
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">National ID</p>
+                        <p className="text-sm text-slate-900">{doctor?.nationalId || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Date of Birth</p>
+                        <p className="text-sm text-slate-900">
                           {doctor?.dateOfBirth
                             ? new Date(doctor.dateOfBirth + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                             : '—'}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Gender</p>
-                        <p className="text-sm font-medium text-gray-900 capitalize">{doctor?.gender || '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Address</p>
-                        <p className="text-sm font-medium text-gray-900 truncate">{doctor?.address || '—'}</p>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Gender</p>
+                        <p className="text-sm text-slate-900 capitalize">{doctor?.gender || '—'}</p>
                       </div>
                     </div>
 
+                    {/* Address Display */}
+                    <div className="pt-3 border-t border-slate-100">
+                      <p className="text-sm font-medium text-slate-500 mb-0.5">Address</p>
+                      <p className="text-sm text-slate-900">
+                        {doctor?.addressLine1 ? (
+                          <>
+                            {doctor.addressLine1}
+                            {doctor.addressLine2 && <>, {doctor.addressLine2}</>}
+                            {(doctor.city || doctor.state || doctor.postalCode) && <br />}
+                            {doctor.city}{doctor.city && doctor.state ? ', ' : ''}{doctor.state} {doctor.postalCode}
+                            {doctor.country && <><br />{getCountryByCode(doctor.country)?.name || doctor.country}</>}
+                          </>
+                        ) : (
+                          doctor?.address || '—'
+                        )}
+                      </p>
+                    </div>
+
                     {/* Emergency Contact Display */}
-                    <div className="pt-4 border-t border-gray-100">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2 text-red-600">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                          </svg>
-                          <span className="text-xs font-medium uppercase">Emergency:</span>
-                        </div>
-                        <span className="text-sm text-gray-700">{doctor?.emergencyContact || '—'}</span>
-                        <span className="text-sm text-gray-500">{doctor?.emergencyPhone || ''}</span>
+                    <div className="pt-3 border-t border-slate-100">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span className="text-sm font-medium text-red-600">Emergency:</span>
+                        <span className="text-sm text-slate-700">{doctor?.emergencyContact || '—'}</span>
+                        {doctor?.emergencyRelation && <span className="text-xs text-slate-400">({doctor.emergencyRelation})</span>}
+                        <span className="text-sm text-slate-500">{doctor?.emergencyPhone || ''}</span>
                       </div>
                     </div>
                   </div>
@@ -789,162 +884,186 @@ export function DoctorProfile() {
         {/* Professional Tab */}
         {activeTab === 'professional' && (
           <div className="max-w-4xl">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">Professional Credentials</h2>
-                  <p className="text-sm text-gray-500">Your qualifications and expertise</p>
-                </div>
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-slate-700">Professional Details</h2>
                 {!editMode && (
                   <button
                     onClick={() => setEditMode(true)}
-                    className="px-4 py-2 text-sm font-medium text-[var(--color-primary)] bg-[var(--color-primary)]/10 hover:bg-[var(--color-primary)]/20 rounded-lg transition-colors"
+                    className="text-sm font-medium text-[#1e3a5f] hover:text-[#162d4a] transition-colors"
                   >
                     Edit
                   </button>
                 )}
               </div>
-              <div className="p-5">
+              <div className="p-4">
                 {editMode ? (
-                  <form onSubmit={handleSaveProfile} className="space-y-5">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div className="form-group">
-                        <label className="form-label">Specialization</label>
+                  <form onSubmit={handleSaveProfile} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Specialization</label>
                         <select
                           value={formData.specialization || ''}
                           onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] bg-white"
                         >
-                          <option value="">Select specialization</option>
+                          <option value="">Select</option>
                           {specializations.map((spec) => (
                             <option key={spec.id} value={spec.name}>{spec.name}</option>
                           ))}
                         </select>
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Qualification</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+                        <select
+                          value={formData.department || ''}
+                          onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] bg-white"
+                        >
+                          <option value="">Select Department</option>
+                          {DEPARTMENTS.map((d) => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Employment Type</label>
+                        <select
+                          value={formData.employmentType || ''}
+                          onChange={(e) => setFormData({ ...formData, employmentType: e.target.value })}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] bg-white"
+                        >
+                          <option value="">Select</option>
+                          <option value="Full-time">Full-time</option>
+                          <option value="Visiting">Visiting</option>
+                          <option value="Consultant">Consultant</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Qualification</label>
                         <input
                           type="text"
                           value={formData.qualification || ''}
                           onChange={(e) => setFormData({ ...formData, qualification: e.target.value })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                           placeholder="e.g., MBBS, MD"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">License Number</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">License Number</label>
                         <input
                           type="text"
                           value={formData.licenseNumber || ''}
                           onChange={(e) => setFormData({ ...formData, licenseNumber: e.target.value })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                           placeholder="Medical license number"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Years of Experience</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Experience (years)</label>
                         <input
                           type="number"
                           min="0"
                           value={formData.yearsOfExperience || ''}
                           onChange={(e) => setFormData({ ...formData, yearsOfExperience: parseInt(e.target.value) })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Consultation Fee</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Consultation Fee ($)</label>
                         <input
                           type="number"
                           min="0"
                           value={formData.consultationFee || ''}
                           onChange={(e) => setFormData({ ...formData, consultationFee: parseFloat(e.target.value) })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                           placeholder="e.g., 500"
                         />
                       </div>
-                      <div className="form-group">
-                        <label className="form-label">Education</label>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Education</label>
                         <input
                           type="text"
                           value={formData.education || ''}
                           onChange={(e) => setFormData({ ...formData, education: e.target.value })}
-                          className="form-input"
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f]"
                           placeholder="e.g., MD from Stanford"
                         />
                       </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Bio</label>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Bio</label>
                       <textarea
                         value={formData.bio || ''}
                         onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-                        className="form-input"
-                        rows={3}
+                        rows={2}
                         placeholder="Brief professional biography..."
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] resize-none"
                       />
                     </div>
 
-                    <div className="flex justify-end gap-3 pt-4">
+                    <div className="flex justify-end gap-2 pt-3">
                       <button
                         type="button"
                         onClick={() => {
                           setEditMode(false);
                           setFormData(doctor || {});
                         }}
-                        className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
                         disabled={saving}
-                        className="px-4 py-2 text-sm font-medium text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] rounded-lg disabled:opacity-50 transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-white bg-[#1e3a5f] hover:bg-[#162d4a] rounded-lg disabled:opacity-50 transition-colors"
                       >
-                        {saving ? 'Saving...' : 'Save Changes'}
+                        {saving ? 'Saving...' : 'Save'}
                       </button>
                     </div>
                   </form>
                 ) : (
-                  <div className="space-y-5">
-                    {/* Credentials badges */}
-                    <div className="flex flex-wrap gap-3">
-                      <div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 rounded-lg border border-indigo-100">
-                        <span className="text-xs text-indigo-500 uppercase font-medium">Specialization</span>
-                        <span className="text-sm font-semibold text-indigo-700">{doctor?.specialization || '—'}</span>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Specialization</p>
+                        <p className="text-sm text-slate-900">{doctor?.specialization || '—'}</p>
                       </div>
-                      <div className="flex items-center gap-2 px-4 py-2 bg-cyan-50 rounded-lg border border-cyan-100">
-                        <span className="text-xs text-cyan-500 uppercase font-medium">Qualification</span>
-                        <span className="text-sm font-semibold text-cyan-700">{doctor?.qualification || '—'}</span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Department</p>
+                        <p className="text-sm text-slate-900">{doctor?.department || '—'}</p>
                       </div>
-                      <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
-                        <span className="text-xs text-emerald-500 uppercase font-medium">Experience</span>
-                        <span className="text-sm font-semibold text-emerald-700">
-                          {doctor?.yearsOfExperience ? `${doctor.yearsOfExperience} years` : '—'}
-                        </span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Employment Type</p>
+                        <p className="text-sm text-slate-900">{doctor?.employmentType || '—'}</p>
                       </div>
-                      <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 rounded-lg border border-amber-100">
-                        <span className="text-xs text-amber-500 uppercase font-medium">License</span>
-                        <span className="text-sm font-semibold text-amber-700">{doctor?.licenseNumber || '—'}</span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Qualification</p>
+                        <p className="text-sm text-slate-900">{doctor?.qualification || '—'}</p>
                       </div>
-                      <div className="flex items-center gap-2 px-4 py-2 bg-green-50 rounded-lg border border-green-100">
-                        <span className="text-xs text-green-500 uppercase font-medium">Fee</span>
-                        <span className="text-sm font-semibold text-green-700">
-                          {doctor?.consultationFee ? `$${doctor.consultationFee}` : '—'}
-                        </span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">License Number</p>
+                        <p className="text-sm text-slate-900">{doctor?.licenseNumber || '—'}</p>
                       </div>
-                      <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg border border-gray-100">
-                        <span className="text-xs text-gray-500 uppercase font-medium">Education</span>
-                        <span className="text-sm font-semibold text-gray-700">{doctor?.education || '—'}</span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Experience</p>
+                        <p className="text-sm text-slate-900">{doctor?.yearsOfExperience ? `${doctor.yearsOfExperience} years` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Consultation Fee</p>
+                        <p className="text-sm text-slate-900">{doctor?.consultationFee ? `$${doctor.consultationFee}` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Education</p>
+                        <p className="text-sm text-slate-900">{doctor?.education || '—'}</p>
                       </div>
                     </div>
-
-                    {/* Bio */}
-                    <div className="pt-4 border-t border-gray-100">
-                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Bio</p>
-                      <p className="text-sm text-gray-600 leading-relaxed">
-                        {doctor?.bio || 'No professional biography added.'}
-                      </p>
-                    </div>
+                    {doctor?.bio && (
+                      <div className="pt-3 border-t border-slate-100">
+                        <p className="text-sm font-medium text-slate-500 mb-0.5">Bio</p>
+                        <p className="text-sm text-slate-600">{doctor.bio}</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -958,11 +1077,11 @@ export function DoctorProfile() {
             {/* Left Column */}
             <div className="space-y-4">
               {/* Weekly Schedule */}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
                   <div>
-                    <h2 className="text-base font-semibold text-gray-900">Weekly Schedule</h2>
-                    <p className="text-sm text-gray-500">Your working days and shifts</p>
+                    <h2 className="text-sm font-semibold text-slate-900">Weekly Schedule</h2>
+                    <p className="text-[11px] text-slate-500">Your working days and shifts</p>
                   </div>
                   <button
                     onClick={handleSaveSchedule}
@@ -970,7 +1089,7 @@ export function DoctorProfile() {
                     className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${
                       saveSuccess
                         ? 'bg-green-500 hover:bg-green-600'
-                        : 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)]'
+                        : 'bg-[#1e3a5f] hover:bg-[#162d4a]'
                     }`}
                   >
                     {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
@@ -1031,10 +1150,10 @@ export function DoctorProfile() {
               </div>
 
               {/* Appointment Duration */}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100">
-                  <h2 className="text-base font-semibold text-gray-900">Appointment Duration</h2>
-                  <p className="text-sm text-gray-500">Default time slot for appointments</p>
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-100">
+                  <h2 className="text-sm font-semibold text-slate-900">Appointment Duration</h2>
+                  <p className="text-[11px] text-slate-500">Default time slot for appointments</p>
                 </div>
                 <div className="p-4">
                   <div className="flex items-center gap-4">
@@ -1051,7 +1170,7 @@ export function DoctorProfile() {
                       <option value={60}>60 minutes</option>
                     </select>
                     {savingDuration && (
-                      <span className="text-sm text-gray-500">Saving...</span>
+                      <span className="text-[11px] text-slate-500">Saving...</span>
                     )}
                   </div>
                 </div>
@@ -1059,9 +1178,9 @@ export function DoctorProfile() {
 
               {/* Time Off List */}
               {timeOff.length > 0 && (
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100">
-                    <h2 className="text-base font-semibold text-gray-900">Time Off ({timeOff.length})</h2>
+                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-slate-100">
+                    <h2 className="text-sm font-semibold text-slate-900">Time Off ({timeOff.length})</h2>
                   </div>
                   <div className="p-3 space-y-2">
                     {timeOff.map((item) => (
@@ -1092,15 +1211,15 @@ export function DoctorProfile() {
             </div>
 
             {/* Right Column - Calendar */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button onClick={() => navigateMonth('prev')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
                     <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                   </button>
-                  <span className="text-base font-semibold text-gray-900">{formatMonthYear(calendarDate)}</span>
+                  <span className="text-sm font-semibold text-slate-900">{formatMonthYear(calendarDate)}</span>
                   <button onClick={() => navigateMonth('next')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
                     <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1134,7 +1253,7 @@ export function DoctorProfile() {
                         {day && (
                           <span className={`text-sm inline-flex items-center justify-center w-8 h-8 rounded-full ${
                             isTodayDay
-                              ? 'bg-[var(--color-primary)] text-white font-bold'
+                              ? 'bg-[#1e3a5f] text-white font-bold'
                               : isTimeOffDay
                               ? 'text-red-600 font-medium'
                               : 'text-gray-700'
@@ -1149,7 +1268,7 @@ export function DoctorProfile() {
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
                   <div className="flex items-center gap-4 text-xs text-gray-500">
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-full bg-[var(--color-primary)]" />
+                      <div className="w-3 h-3 rounded-full bg-[#1e3a5f]" />
                       <span>Today</span>
                     </div>
                     <div className="flex items-center gap-1.5">

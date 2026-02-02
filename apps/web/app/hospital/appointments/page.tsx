@@ -1,16 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch, invalidateApiCache } from '../../../lib/api';
 import PhoneInput from '../../../components/PhoneInput';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
-
-const DoctorAppointments = dynamic(
-  () => import('../../../components/hospital/DoctorAppointments').then((m) => m.DoctorAppointments),
-  { loading: () => null }
-);
 
 type TabType = 'scheduler' | 'queue';
 
@@ -219,11 +214,15 @@ export default function AppointmentsPage() {
   const { currentHospital, profile } = useAuth();
   const { getCurrentTime } = useHospitalTimezone();
 
+  const searchParams = useSearchParams();
+
   const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');
   const isDoctor = userRole === 'DOCTOR';
   const isManager = userRole === 'SUPER_ADMIN' || userRole === 'HOSPITAL_MANAGER';
 
-  const [activeTab, setActiveTab] = useState<TabType>('scheduler');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    return searchParams.get('tab') === 'queue' ? 'queue' : 'scheduler';
+  });
 
   const getHospitalToday = useCallback(() => {
     return getCurrentTime();
@@ -321,8 +320,12 @@ export default function AppointmentsPage() {
         const data = await res.json();
         setDoctors(data);
         if (data.length > 0 && !selectedDoctor) {
-          setSelectedDoctor(data[0]);
-          setScheduleDoctor(data[0]);
+          // For doctors, auto-select their own profile
+          const defaultDoc = isDoctor && profile?.id
+            ? data.find((d: Doctor) => d.userId === profile.id) || data[0]
+            : data[0];
+          setSelectedDoctor(defaultDoc);
+          setScheduleDoctor(defaultDoc);
         }
       }
     } catch (error) {
@@ -916,11 +919,6 @@ export default function AppointmentsPage() {
     );
   });
 
-  // Show doctor-specific view for doctors (after all hooks to satisfy Rules of Hooks)
-  if (isDoctor) {
-    return <DoctorAppointments />;
-  }
-
   if (loading) {
     return null;
   }
@@ -990,21 +988,23 @@ export default function AppointmentsPage() {
           onUnblockSlot={handleUnblockSlot}
           setShowGenerateModal={setShowGenerateModal}
           scheduleShiftTimings={scheduleShiftTimings}
+          isDoctor={isDoctor}
         />
       )}
 
       {activeTab === 'queue' && (
         <QueueTab
-          doctors={doctors}
+          doctors={isDoctor ? doctors.filter((d: Doctor) => d.userId === profile?.id) : doctors}
           patients={patients}
           formatDateString={formatDateString}
           getHospitalToday={getHospitalToday}
           onAddPatient={() => setShowAddPatientModal(true)}
+          isDoctor={isDoctor}
         />
       )}
 
-      {/* Generate Slots Modal */}
-      {showGenerateModal && (
+      {/* Generate Slots Modal (manager only) */}
+      {!isDoctor && showGenerateModal && (
         <GenerateSlotsModal
           selectedDoctor={selectedDoctor || scheduleDoctor}
           generateStartDate={generateStartDate}
@@ -1019,8 +1019,8 @@ export default function AppointmentsPage() {
         />
       )}
 
-      {/* Booking Modal */}
-      {showBookingModal && selectedSlot && (
+      {/* Booking Modal (manager only) */}
+      {!isDoctor && showBookingModal && selectedSlot && (
         <BookingModal
           selectedSlot={selectedSlot}
           patientSearch={patientSearch}
@@ -1044,8 +1044,8 @@ export default function AppointmentsPage() {
         />
       )}
 
-      {/* Add Patient Modal */}
-      {showAddPatientModal && (
+      {/* Add Patient Modal (manager only) */}
+      {!isDoctor && showAddPatientModal && (
         <AddPatientModal
           form={newPatientForm}
           setForm={setNewPatientForm}
@@ -1435,6 +1435,7 @@ function SchedulerTab({
   onUnblockSlot,
   setShowGenerateModal,
   scheduleShiftTimings,
+  isDoctor,
 }: any) {
   // Build time-off set for calendar highlighting
   const calTimeOffSet = useMemo(() => {
@@ -1459,20 +1460,26 @@ function SchedulerTab({
         <div className="bg-white rounded-lg border border-slate-200 p-2 flex flex-col">
           {/* Doctor Selector */}
           <div className="mb-2 pb-2 border-b border-slate-100">
-            <select
-              value={selectedDoctor?.id || ''}
-              onChange={(e) => {
-                const doc = doctors.find((d: Doctor) => d.id === e.target.value);
-                setSelectedDoctor(doc || null);
-              }}
-              className="w-full text-xs px-2 py-1 border border-slate-200 rounded bg-white"
-            >
-              {doctors.map((doc: Doctor) => (
-                <option key={doc.id} value={doc.id}>
-                  Dr. {doc.name} {doc.specialization ? `(${doc.specialization})` : ''}
-                </option>
-              ))}
-            </select>
+            {isDoctor ? (
+              <p className="text-xs font-medium text-slate-700 px-2 py-1">
+                Dr. {selectedDoctor?.name} {selectedDoctor?.specialization ? `(${selectedDoctor.specialization})` : ''}
+              </p>
+            ) : (
+              <select
+                value={selectedDoctor?.id || ''}
+                onChange={(e) => {
+                  const doc = doctors.find((d: Doctor) => d.id === e.target.value);
+                  setSelectedDoctor(doc || null);
+                }}
+                className="w-full text-xs px-2 py-1 border border-slate-200 rounded bg-white"
+              >
+                {doctors.map((doc: Doctor) => (
+                  <option key={doc.id} value={doc.id}>
+                    Dr. {doc.name} {doc.specialization ? `(${doc.specialization})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Calendar Header */}
@@ -1627,7 +1634,7 @@ function SchedulerTab({
                 <p className="text-[10px] text-slate-500">{slotsData.stats.available} open · {slotsData.stats.booked} booked</p>
               ) : null}
             </div>
-            {!slotsData?.isTimeOff && (
+            {!isDoctor && !slotsData?.isTimeOff && (
               <button
                 onClick={() => setShowGenerateModal(true)}
                 className="px-2 py-1 text-[10px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] flex items-center gap-1"
@@ -1720,7 +1727,7 @@ function SchedulerTab({
                 </div>
                 <div className="flex-1 p-1 overflow-y-auto space-y-0.5">
                   {slotsData.morning.map((slot: Slot) => (
-                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} />
+                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} readOnly={isDoctor} />
                   ))}
                   {slotsData.morning.length === 0 && <p className="text-center text-[10px] text-amber-400 py-2">No slots</p>}
                 </div>
@@ -1737,7 +1744,7 @@ function SchedulerTab({
                 </div>
                 <div className="flex-1 p-1 overflow-y-auto space-y-0.5">
                   {slotsData.evening.map((slot: Slot) => (
-                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} />
+                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} readOnly={isDoctor} />
                   ))}
                   {slotsData.evening.length === 0 && <p className="text-center text-[10px] text-orange-400 py-2">No slots</p>}
                 </div>
@@ -1754,7 +1761,7 @@ function SchedulerTab({
                 </div>
                 <div className="flex-1 p-1 overflow-y-auto space-y-0.5">
                   {slotsData.night.map((slot: Slot) => (
-                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} />
+                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} readOnly={isDoctor} />
                   ))}
                   {slotsData.night.length === 0 && <p className="text-center text-[10px] text-indigo-400 py-2">No slots</p>}
                 </div>
@@ -1952,7 +1959,7 @@ function HospitalCalendarTab({ doctors, formatDateString, getHospitalToday }: an
 // ============================================================================
 // QUEUE TAB
 // ============================================================================
-function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAddPatient }: any) {
+function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAddPatient, isDoctor }: any) {
   const { formatTime: formatTimeHospital } = useHospitalTimezone();
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(doctors[0] || null);
   const [queueData, setQueueData] = useState<any>(null);
@@ -2132,15 +2139,19 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
       {/* Header */}
       <div className="flex-shrink-0 px-3 py-1.5 bg-white rounded-lg border border-slate-200 mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <select
-            value={selectedDoctor?.id || ''}
-            onChange={(e) => setSelectedDoctor(doctors.find((d: Doctor) => d.id === e.target.value) || null)}
-            className="text-xs px-2 py-1 border border-slate-200 rounded bg-white"
-          >
-            {doctors.map((doc: Doctor) => (
-              <option key={doc.id} value={doc.id}>Dr. {doc.name}</option>
-            ))}
-          </select>
+          {isDoctor ? (
+            <span className="text-xs font-medium text-slate-700 px-2 py-1">Dr. {selectedDoctor?.name}</span>
+          ) : (
+            <select
+              value={selectedDoctor?.id || ''}
+              onChange={(e) => setSelectedDoctor(doctors.find((d: Doctor) => d.id === e.target.value) || null)}
+              className="text-xs px-2 py-1 border border-slate-200 rounded bg-white"
+            >
+              {doctors.map((doc: Doctor) => (
+                <option key={doc.id} value={doc.id}>Dr. {doc.name}</option>
+              ))}
+            </select>
+          )}
           <button
             onClick={isCheckedIn ? handleDoctorCheckOut : handleDoctorCheckIn}
             className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
@@ -2172,9 +2183,11 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
               </div>
               <div className="flex items-center gap-1">
                 <input type="text" placeholder="Search..." value={queueSearch} onChange={(e) => setQueueSearch(e.target.value)} className="text-[10px] px-2 py-0.5 border border-slate-200 rounded w-20 bg-white" />
-                <button onClick={() => setShowWalkInModal(true)} className="text-[10px] px-2 py-0.5 bg-[var(--color-primary)] text-white rounded hover:bg-[var(--color-primary-dark)] transition-colors font-medium">
-                  + Walk-in
-                </button>
+                {!isDoctor && (
+                  <button onClick={() => setShowWalkInModal(true)} className="text-[10px] px-2 py-0.5 bg-[var(--color-primary)] text-white rounded hover:bg-[var(--color-primary-dark)] transition-colors font-medium">
+                    + Walk-in
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex-1 p-1.5 space-y-1 overflow-y-auto">
@@ -2192,9 +2205,11 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                       <p className="text-[9px] text-slate-400">{formatTimeFromISO(entry.checkedInAt)}</p>
                     </div>
                   </div>
-                  <button onClick={() => handleUpdateStatus(entry.id, 'WAITING')} className="text-[9px] px-2 py-0.5 text-blue-600 border border-blue-300 rounded hover:bg-blue-500 hover:text-white transition-colors font-medium">
-                    Call →
-                  </button>
+                  {!isDoctor && (
+                    <button onClick={() => handleUpdateStatus(entry.id, 'WAITING')} className="text-[9px] px-2 py-0.5 text-blue-600 border border-blue-300 rounded hover:bg-blue-500 hover:text-white transition-colors font-medium">
+                      Call →
+                    </button>
+                  )}
                 </div>
               ))}
               {filterEntries(queueData?.queue || [], queueSearch, true).length === 0 && (
@@ -2221,9 +2236,11 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
               </div>
               <div className="flex items-center gap-1">
                 <input type="text" placeholder="Search..." value={scheduledSearch} onChange={(e) => setScheduledSearch(e.target.value)} className="text-[10px] px-2 py-0.5 border border-slate-200 rounded w-20 bg-white" />
-                <button onClick={() => setShowApptModal(true)} className="text-[10px] px-2 py-0.5 bg-[var(--color-primary)] text-white rounded hover:bg-[var(--color-primary-dark)] transition-colors font-medium">
-                  + Book
-                </button>
+                {!isDoctor && (
+                  <button onClick={() => setShowApptModal(true)} className="text-[10px] px-2 py-0.5 bg-[var(--color-primary)] text-white rounded hover:bg-[var(--color-primary-dark)] transition-colors font-medium">
+                    + Book
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -2235,12 +2252,14 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                         <span className="text-[9px] font-semibold text-blue-600 w-12">{formatTime12h(appt.startTime)}</span>
                         <p className="text-[10px] font-medium text-slate-700">{appt.patientName}</p>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => handleCheckInAppointment(appt.appointmentId)} className="text-[9px] px-2 py-0.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium">
-                          Check In ↑
-                        </button>
-                        <button onClick={() => handleAppointmentNoShow(appt.appointmentId)} className="text-[9px] text-slate-300 hover:text-red-500 px-0.5">✕</button>
-                      </div>
+                      {!isDoctor && (
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => handleCheckInAppointment(appt.appointmentId)} className="text-[9px] px-2 py-0.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium">
+                            Check In ↑
+                          </button>
+                          <button onClick={() => handleAppointmentNoShow(appt.appointmentId)} className="text-[9px] text-slate-300 hover:text-red-500 px-0.5">✕</button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2278,9 +2297,11 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                     <span className="w-5 h-5 bg-amber-500 text-white rounded-full flex items-center justify-center text-[9px] font-semibold">{entry.queueNumber}</span>
                     <p className="text-[10px] font-medium text-slate-700">{getPatientName(entry)}</p>
                   </div>
-                  <button onClick={() => handleUpdateStatus(entry.id, 'WITH_DOCTOR')} disabled={!isCheckedIn || queueData?.withDoctor !== null} className="text-[9px] px-2 py-0.5 text-amber-700 border border-amber-300 rounded hover:bg-amber-500 hover:text-white disabled:opacity-40 transition-colors font-medium">
-                    Send →
-                  </button>
+                  {!isDoctor && (
+                    <button onClick={() => handleUpdateStatus(entry.id, 'WITH_DOCTOR')} disabled={!isCheckedIn || queueData?.withDoctor !== null} className="text-[9px] px-2 py-0.5 text-amber-700 border border-amber-300 rounded hover:bg-amber-500 hover:text-white disabled:opacity-40 transition-colors font-medium">
+                      Send →
+                    </button>
+                  )}
                 </div>
               ))}
               {filterEntries(queueData?.waiting || [], waitingSearch).length === 0 && (
@@ -2387,8 +2408,8 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
         </div>
       </div>
 
-      {/* Walk-in Modal */}
-      {showWalkInModal && (
+      {/* Walk-in Modal (manager only) */}
+      {!isDoctor && showWalkInModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm mx-4">
             <div className="px-4 py-3 border-b flex items-center justify-between">
@@ -2443,8 +2464,8 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
         </div>
       )}
 
-      {/* Appointment Check-in Modal */}
-      {showApptModal && (
+      {/* Appointment Check-in Modal (manager only) */}
+      {!isDoctor && showApptModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm mx-4">
             <div className="px-4 py-3 border-b flex items-center justify-between">
@@ -2633,7 +2654,7 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
 // ============================================================================
 // SLOT CARD COMPONENT
 // ============================================================================
-function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock }: { slot: Slot; onBook: () => void; onCancel: () => void; onBlock: () => void; onUnblock: () => void }) {
+function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock, readOnly }: { slot: Slot; onBook: () => void; onCancel: () => void; onBlock: () => void; onUnblock: () => void; readOnly?: boolean }) {
   const isAvailable = slot.status === 'AVAILABLE';
   const isBooked = slot.status === 'BOOKED';
   const isBlocked = slot.status === 'BLOCKED';
@@ -2642,11 +2663,11 @@ function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock }: { slot: Slot; 
     <div
       className={`
         px-1.5 py-1 rounded flex items-center justify-between text-[10px]
-        ${isAvailable ? 'bg-white border border-slate-200 hover:border-[var(--color-primary)] cursor-pointer' : ''}
+        ${isAvailable ? `bg-white border border-slate-200 ${readOnly ? '' : 'hover:border-[var(--color-primary)] cursor-pointer'}` : ''}
         ${isBooked ? 'bg-blue-50 border border-blue-100' : ''}
         ${isBlocked ? 'bg-slate-100 border border-slate-200' : ''}
       `}
-      onClick={() => isAvailable && onBook()}
+      onClick={() => !readOnly && isAvailable && onBook()}
     >
       <div className="flex items-center gap-1">
         <span className="font-medium text-slate-700">{formatTime12h(slot.startTime)}</span>
@@ -2659,21 +2680,23 @@ function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock }: { slot: Slot; 
         )}
         {isBlocked && <span className="text-slate-400">Blocked</span>}
       </div>
-      <div className="flex items-center gap-0.5">
-        {isAvailable && (
-          <button onClick={(e) => { e.stopPropagation(); onBlock(); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600" title="Block">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-            </svg>
-          </button>
-        )}
-        {isBooked && (
-          <button onClick={(e) => { e.stopPropagation(); onCancel(); }} className="text-[9px] text-red-500 hover:text-red-700">Cancel</button>
-        )}
-        {isBlocked && (
-          <button onClick={(e) => { e.stopPropagation(); onUnblock(); }} className="text-[9px] text-green-600 hover:text-green-800">Unblock</button>
-        )}
-      </div>
+      {!readOnly && (
+        <div className="flex items-center gap-0.5">
+          {isAvailable && (
+            <button onClick={(e) => { e.stopPropagation(); onBlock(); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600" title="Block">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+            </button>
+          )}
+          {isBooked && (
+            <button onClick={(e) => { e.stopPropagation(); onCancel(); }} className="text-[9px] text-red-500 hover:text-red-700">Cancel</button>
+          )}
+          {isBlocked && (
+            <button onClick={(e) => { e.stopPropagation(); onUnblock(); }} className="text-[9px] text-green-600 hover:text-green-800">Unblock</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

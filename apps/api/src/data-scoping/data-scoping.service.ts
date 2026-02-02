@@ -246,7 +246,12 @@ export class DataScopingService {
     }
 
     // 6. Get scoping rules for this role
-    const rules = role ? await this.getRulesForRole(role) : [];
+    // STAFF is an operational role with full hospital access (same as manager).
+    // Always fall back to HOSPITAL_MANAGER rules so staff gets all_hospital scope.
+    let rules = role ? await this.getRulesForRole(role) : [];
+    if (rules.length === 0 && (role === 'STAFF' || role === 'HOSPITAL_STAFF')) {
+      rules = await this.getRulesForRole('HOSPITAL_MANAGER');
+    }
     const ruleMap: Record<string, string> = {};
     for (const r of rules) {
       ruleMap[r.dataDomain] = r.scopeType;

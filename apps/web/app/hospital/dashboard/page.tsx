@@ -13,6 +13,11 @@ const DoctorDashboard = dynamic(
   { loading: () => null }
 );
 
+const StaffDashboard = dynamic(
+  () => import('../../../components/hospital/StaffDashboard').then((m) => m.StaffDashboard),
+  { loading: () => null }
+);
+
 // Lazy-load recharts
 import { Cell } from 'recharts';
 const AreaChart = dynamic(() => import('recharts').then((m) => m.AreaChart), { ssr: false });
@@ -644,8 +649,9 @@ export default function HospitalDashboardPage() {
 
   const licensePct = stats.licensesTotal > 0 ? Math.round((stats.licensesUsed / stats.licensesTotal) * 100) : 0;
 
-  // Show doctor-specific dashboard (after all hooks)
+  // Show role-specific dashboards (after all hooks)
   if (userRole === 'DOCTOR') return <DoctorDashboard />;
+  if (userRole === 'STAFF' || userRole === 'HOSPITAL_STAFF') return <StaffDashboard />;
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[400px]">

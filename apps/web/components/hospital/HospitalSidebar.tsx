@@ -128,6 +128,10 @@ export function HospitalSidebar() {
         href: '/hospital/doctors',
         icon: icons.doctors
       });
+    }
+
+    // Patients - visible to managers, doctors, and staff
+    if (isManager || isDoctor || isStaff) {
       managementItems.push({
         label: 'Patients',
         href: '/hospital/patients',

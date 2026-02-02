@@ -5,6 +5,13 @@ import { useAuth } from '../AuthProvider';
 import { apiFetch } from '../../lib/api';
 import { useHospitalTimezone } from '../../hooks/useHospitalTimezone';
 
+interface DoctorProfile {
+  id: string;
+  userId: string;
+  name: string;
+  specialization?: string;
+}
+
 interface QueueEntry {
   id: string;
   queueNumber: number;
@@ -19,7 +26,6 @@ interface QueueEntry {
   withDoctorAt?: string;
   completedAt?: string;
   waitTimeMinutes?: number;
-  consultationMinutes?: number;
   patient?: {
     id: string;
     firstName: string;
@@ -28,78 +34,106 @@ interface QueueEntry {
   };
 }
 
-interface CheckinEvent {
+interface ScheduledAppointment {
   id: string;
-  eventType: 'CHECK_IN' | 'CHECK_OUT';
-  eventTime: string;
+  appointmentId: string;
+  startTime: string;
+  endTime: string;
+  patientId: string;
+  patientName: string;
+  patientPhone?: string;
+  isCheckedIn: boolean;
+  reasonForVisit?: string;
+}
+
+interface DoctorCheckin {
+  status: 'NOT_CHECKED_IN' | 'CHECKED_IN' | 'ON_BREAK' | 'CHECKED_OUT';
+  checkedInAt?: string;
 }
 
 interface DailyQueueData {
   date: string;
-  checkinEvents: CheckinEvent[];
-  isCheckedIn: boolean;
+  doctorCheckin: DoctorCheckin | null;
   queue: QueueEntry[];
+  waiting: QueueEntry[];
   withDoctor: QueueEntry | null;
   completed: QueueEntry[];
+  scheduled: ScheduledAppointment[];
   stats: {
-    totalInQueue: number;
-    totalWithDoctor: number;
+    totalQueue: number;
+    totalWaiting: number;
+    totalScheduled: number;
     totalCompleted: number;
   };
 }
 
-// formatTime is provided by useHospitalTimezone hook inside DoctorQueue
+const ITEMS_PER_PAGE = 10;
 
-function formatDuration(minutes: number): string {
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-  const hrs = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
-}
-
-function calculateMinutes(start: string, end: string): number {
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-  return Math.round((endDate.getTime() - startDate.getTime()) / 60000);
-}
-
-function getPriorityBadge(priority: string) {
-  switch (priority) {
-    case 'EMERGENCY':
-      return { bg: 'bg-red-100', text: 'text-red-700', label: 'EMR' };
-    case 'URGENT':
-      return { bg: 'bg-amber-100', text: 'text-amber-700', label: 'URG' };
-    default:
-      return null;
-  }
+function formatTime12h(time24: string): string {
+  if (!time24) return '';
+  const [hours, minutes] = time24.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
 }
 
 export function DoctorQueue() {
   const { profile } = useAuth();
-  const { formatShortDate, formatTime, timezone } = useHospitalTimezone();
+  const { getCurrentTime, formatTime: formatTimeHospital } = useHospitalTimezone();
 
-  const [loading, setLoading] = useState(true);
+  const formatTimeFromISO = (isoString: string) => formatTimeHospital(isoString);
+
+  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
   const [queueData, setQueueData] = useState<DailyQueueData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Get today's date string in hospital timezone
-  const getToday = useCallback(() => {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    return formatter.format(now);
-  }, [timezone]);
+  // Search states
+  const [waitingSearch, setWaitingSearch] = useState('');
+  const [queueSearch, setQueueSearch] = useState('');
+  const [scheduledSearch, setScheduledSearch] = useState('');
+  const [completedSearch, setCompletedSearch] = useState('');
 
+  // Pagination states
+  const [scheduledPage, setScheduledPage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(1);
+
+  const getToday = useCallback(() => {
+    const now = getCurrentTime();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, [getCurrentTime]);
+
+  // Fetch doctor profile
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/v1/doctors/me');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.profile) {
+            setDoctorProfile({
+              id: data.profile.id,
+              userId: data.profile.userId,
+              name: data.user?.fullName || profile?.fullName || 'Doctor',
+              specialization: data.profile.specialization,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch doctor profile:', error);
+      }
+    })();
+  }, [profile?.fullName]);
+
+  // Fetch queue data using the full daily queue endpoint
   const fetchQueueData = useCallback(async () => {
+    if (!doctorProfile) return;
     try {
       const today = getToday();
-      const res = await apiFetch(`/v1/doctors/me/queue?date=${today}`);
+      const res = await apiFetch(`/v1/queue/daily?doctorProfileId=${doctorProfile.id}&date=${today}`);
       if (res.ok) {
         const data = await res.json();
         setQueueData(data);
@@ -109,25 +143,27 @@ export function DoctorQueue() {
     } finally {
       setLoading(false);
     }
-  }, [getToday]);
+  }, [doctorProfile, getToday]);
 
   useEffect(() => {
-    fetchQueueData();
-    const interval = setInterval(fetchQueueData, 30000);
-    return () => clearInterval(interval);
-  }, [fetchQueueData]);
+    if (doctorProfile) {
+      fetchQueueData();
+      const interval = setInterval(fetchQueueData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [doctorProfile, fetchQueueData]);
 
-  const handleCheckIn = async () => {
+  // Check-in/out handlers
+  const handleDoctorCheckIn = async () => {
+    if (!doctorProfile) return;
     setActionLoading('checkin');
     try {
-      const today = getToday();
-      const res = await apiFetch('/v1/doctors/me/checkin', {
+      const res = await apiFetch('/v1/queue/doctor/check-in', {
         method: 'POST',
-        body: JSON.stringify({ date: today }),
+        body: JSON.stringify({ doctorProfileId: doctorProfile.id }),
       });
-      if (res.ok) {
-        fetchQueueData();
-      } else {
+      if (res.ok) fetchQueueData();
+      else {
         const errorData = await res.json().catch(() => ({}));
         alert(errorData.message || 'Failed to check in.');
       }
@@ -138,17 +174,16 @@ export function DoctorQueue() {
     }
   };
 
-  const handleCheckOut = async () => {
+  const handleDoctorCheckOut = async () => {
+    if (!doctorProfile) return;
     setActionLoading('checkout');
     try {
-      const today = getToday();
-      const res = await apiFetch('/v1/doctors/me/checkout', {
+      const res = await apiFetch('/v1/queue/doctor/check-out', {
         method: 'POST',
-        body: JSON.stringify({ date: today }),
+        body: JSON.stringify({ doctorProfileId: doctorProfile.id }),
       });
-      if (res.ok) {
-        fetchQueueData();
-      } else {
+      if (res.ok) fetchQueueData();
+      else {
         const errorData = await res.json().catch(() => ({}));
         alert(errorData.message || 'Failed to check out.');
       }
@@ -162,12 +197,11 @@ export function DoctorQueue() {
   const handleComplete = async (entryId: string) => {
     setActionLoading(entryId);
     try {
-      const res = await apiFetch(`/v1/queue/${entryId}/complete`, {
-        method: 'POST',
+      const res = await apiFetch(`/v1/queue/${entryId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'COMPLETED' }),
       });
-      if (res.ok) {
-        fetchQueueData();
-      }
+      if (res.ok) fetchQueueData();
     } catch (error) {
       console.error('Failed to complete:', error);
     } finally {
@@ -175,278 +209,380 @@ export function DoctorQueue() {
     }
   };
 
-  const isCheckedIn = queueData?.isCheckedIn ?? false;
-  const doctorName = profile?.fullName || 'Doctor';
-  const todayFormatted = formatShortDate(new Date());
+  const getPatientName = (entry: QueueEntry) => {
+    if (entry.patient) return `${entry.patient.firstName} ${entry.patient.lastName}`;
+    return entry.walkInName || 'Unknown';
+  };
 
-  if (loading) {
+  const getPatientPhone = (entry: QueueEntry) => {
+    return entry.patient?.phone || entry.walkInPhone || '';
+  };
+
+  // Filter functions
+  const filterEntries = (entries: QueueEntry[], search: string, sortByPriority: boolean = false) => {
+    let filtered = entries;
+    if (search) {
+      const lower = search.toLowerCase();
+      filtered = entries.filter(e => getPatientName(e).toLowerCase().includes(lower) || getPatientPhone(e).includes(search));
+    }
+    if (sortByPriority) {
+      const priorityOrder: Record<string, number> = { EMERGENCY: 0, URGENT: 1, NORMAL: 2 };
+      filtered = [...filtered].sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+    }
+    return filtered;
+  };
+
+  const filterScheduled = (appointments: ScheduledAppointment[], search: string) => {
+    if (!search) return appointments;
+    const lower = search.toLowerCase();
+    return appointments.filter(a => a.patientName.toLowerCase().includes(lower) || a.patientPhone?.includes(search));
+  };
+
+  // Reset pagination when search changes
+  useEffect(() => { setScheduledPage(1); }, [scheduledSearch]);
+  useEffect(() => { setCompletedPage(1); }, [completedSearch]);
+
+  const doctorStatus = queueData?.doctorCheckin?.status || 'NOT_CHECKED_IN';
+  const isCheckedIn = doctorStatus === 'CHECKED_IN';
+
+  // Paginated data
+  const filteredScheduled = filterScheduled(queueData?.scheduled || [], scheduledSearch).filter(s => !s.isCheckedIn);
+  const filteredCompleted = filterEntries(queueData?.completed || [], completedSearch);
+  const scheduledTotalPages = Math.ceil(filteredScheduled.length / ITEMS_PER_PAGE);
+  const completedTotalPages = Math.ceil(filteredCompleted.length / ITEMS_PER_PAGE);
+  const paginatedScheduled = filteredScheduled.slice((scheduledPage - 1) * ITEMS_PER_PAGE, scheduledPage * ITEMS_PER_PAGE);
+  const paginatedCompleted = filteredCompleted.slice((completedPage - 1) * ITEMS_PER_PAGE, completedPage * ITEMS_PER_PAGE);
+
+  if (loading && !queueData) {
     return (
-      <div className="flex items-center justify-center min-h-[300px]">
-        <div className="w-5 h-5 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-full">
+        <div className="w-5 h-5 border-2 border-[#1e3a5f] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  const currentPatient = queueData?.withDoctor;
-  const patientName = currentPatient?.patient
-    ? `${currentPatient.patient.firstName} ${currentPatient.patient.lastName}`
-    : currentPatient?.walkInName || 'Walk-in';
-  const priorityBadge = currentPatient ? getPriorityBadge(currentPatient.priority) : null;
-
   return (
-    <div className="page-fullheight flex flex-col bg-gray-50 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-gray-100 overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 py-2 bg-white border-b">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-sm font-semibold text-gray-900">My Queue</h1>
-            <p className="text-[11px] text-gray-500">Dr. {doctorName} • {todayFormatted}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCheckIn}
-              disabled={actionLoading === 'checkin'}
-              className="flex items-center gap-1 px-2.5 py-1 bg-green-600 text-white text-[11px] rounded font-medium hover:bg-green-700 disabled:opacity-50"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14" />
-              </svg>
-              {actionLoading === 'checkin' ? '...' : 'In'}
-            </button>
-            <button
-              onClick={handleCheckOut}
-              disabled={actionLoading === 'checkout'}
-              className="flex items-center gap-1 px-2.5 py-1 bg-gray-600 text-white text-[11px] rounded font-medium hover:bg-gray-700 disabled:opacity-50"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7" />
-              </svg>
-              {actionLoading === 'checkout' ? '...' : 'Out'}
-            </button>
-          </div>
+      <div className="flex-shrink-0 px-3 py-1 bg-white border-b flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-700">
+            Dr. {doctorProfile?.name || profile?.fullName}
+          </span>
+          <button
+            onClick={isCheckedIn ? handleDoctorCheckOut : handleDoctorCheckIn}
+            disabled={actionLoading === 'checkin' || actionLoading === 'checkout'}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium disabled:opacity-50 ${
+              isCheckedIn ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isCheckedIn ? 'bg-green-500' : 'bg-gray-400'}`} />
+            {actionLoading === 'checkin' || actionLoading === 'checkout' ? '...' : isCheckedIn ? 'Checked In' : 'Check In'}
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded">{queueData?.stats.totalWaiting || 0} waiting</span>
+          <span className="px-1.5 py-0.5 bg-[#e8f0f8] text-[#1e3a5f] rounded">{queueData?.stats.totalQueue || 0} queue</span>
+          <span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded">{queueData?.stats.totalScheduled || 0} scheduled</span>
+          <span className="px-1.5 py-0.5 bg-green-50 text-green-600 rounded">{queueData?.stats.totalCompleted || 0} completed</span>
         </div>
       </div>
 
-      {/* Check-in Events - Compact */}
-      {queueData?.checkinEvents && queueData.checkinEvents.length > 0 && (
-        <div className="flex-shrink-0 px-4 py-1.5 bg-gray-100 border-b">
-          <div className="flex items-center gap-2 text-[10px] overflow-x-auto">
-            {queueData.checkinEvents.map((event) => (
-              <span
-                key={event.id}
-                className={`px-1.5 py-0.5 rounded ${
-                  event.eventType === 'CHECK_IN' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'
-                }`}
-              >
-                {event.eventType === 'CHECK_IN' ? 'In' : 'Out'} {formatTime(event.eventTime)}
-              </span>
-            ))}
-            <span className={`ml-auto px-1.5 py-0.5 rounded font-medium ${
-              isCheckedIn ? 'bg-green-500 text-white' : 'bg-gray-300 text-gray-600'
-            }`}>
-              {isCheckedIn ? 'IN' : 'OUT'}
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* Main Content */}
       <div className="flex-1 flex gap-2 p-2 min-h-0 overflow-hidden">
-        {/* Left Column - Current Patient + Queue */}
-        <div className="flex-1 flex flex-col gap-2 min-h-0">
-          {/* Current Patient - Compact */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <div className="px-2.5 py-1.5 border-b border-gray-100 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-blue-500" />
-              <span className="text-xs font-semibold text-gray-900">Current Patient</span>
+        {/* Left Column */}
+        <div className="w-[520px] flex flex-col gap-1.5 flex-shrink-0 min-h-0">
+          {/* With Doctor */}
+          <div className="h-[90px] bg-[#e8f0f8] rounded border border-[#c5d8ea] shadow-sm flex flex-col">
+            <div className="flex-shrink-0 px-2 py-1 border-b border-[#c5d8ea] flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-[#1e3a5f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="text-sm font-medium text-[#1e3a5f]">With Doctor</span>
             </div>
-
-            <div className="p-2.5">
-              {!currentPatient ? (
-                <div className="text-center py-4">
-                  <p className="text-xs text-gray-500">No patient currently</p>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  {/* Queue Number */}
-                  <div className="w-12 h-12 bg-blue-500 text-white rounded-lg flex items-center justify-center text-lg font-bold flex-shrink-0">
-                    #{currentPatient.queueNumber}
-                  </div>
-
-                  {/* Patient Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-semibold text-gray-900 truncate">{patientName}</span>
-                      {priorityBadge && (
-                        <span className={`px-1 py-0.5 text-[8px] font-medium rounded ${priorityBadge.bg} ${priorityBadge.text}`}>
-                          {priorityBadge.label}
-                        </span>
-                      )}
+            <div className="flex-1 px-2 py-1 flex items-center">
+              {!isCheckedIn ? (
+                <p className="text-xs text-gray-500 w-full text-center flex items-center justify-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
+                  Not checked in
+                </p>
+              ) : queueData?.withDoctor ? (
+                <div className="w-full bg-white rounded p-1.5 border border-[#c5d8ea] flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-6 h-6 bg-[#1e3a5f] text-white rounded-full flex items-center justify-center text-xs font-bold">
+                      {queueData.withDoctor.queueNumber}
+                    </span>
+                    <div>
+                      <p className="text-xs font-medium text-gray-800">{getPatientName(queueData.withDoctor)}</p>
+                      <p className="text-xs text-gray-500">
+                        {formatTimeFromISO(queueData.withDoctor.checkedInAt)}
+                        {queueData.withDoctor.reasonForVisit && ` \u2022 ${queueData.withDoctor.reasonForVisit}`}
+                      </p>
                     </div>
-                    <p className="text-[10px] text-gray-500">
-                      {currentPatient.entryType === 'SCHEDULED' ? 'Appointment' : 'Walk-in'}
-                      {currentPatient.reasonForVisit && ` • ${currentPatient.reasonForVisit}`}
-                    </p>
                   </div>
-
-                  {/* Complete Button */}
                   <button
-                    onClick={() => handleComplete(currentPatient.id)}
-                    disabled={actionLoading === currentPatient.id}
-                    className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded hover:bg-green-700 disabled:opacity-50"
+                    onClick={() => handleComplete(queueData.withDoctor!.id)}
+                    disabled={actionLoading === queueData.withDoctor.id}
+                    className="text-xs px-2 py-0.5 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
                   >
-                    {actionLoading === currentPatient.id ? '...' : 'Complete'}
+                    {actionLoading === queueData.withDoctor.id ? '...' : 'Complete'}
                   </button>
                 </div>
+              ) : (
+                <p className="text-xs text-gray-500 w-full text-center">No patient with doctor</p>
               )}
             </div>
           </div>
 
-          {/* Queue Section */}
-          <div className="flex-1 bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col min-h-0">
-            <div className="px-2.5 py-1.5 border-b border-gray-100 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-amber-500" />
-              <span className="text-xs font-semibold text-gray-900">In Queue</span>
-              <span className="text-[10px] text-gray-500">({queueData?.queue?.length || 0})</span>
+          {/* Waiting */}
+          <div className="h-[150px] bg-orange-50 rounded border border-orange-200 shadow-sm flex flex-col">
+            <div className="flex-shrink-0 px-2 py-1 border-b border-orange-200 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                <span className="text-sm font-medium text-orange-800">Waiting ({queueData?.waiting?.length || 0})</span>
+              </div>
+              <div className="relative">
+                <svg className="w-3 h-3 text-gray-400 absolute left-1.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={waitingSearch}
+                  onChange={(e) => setWaitingSearch(e.target.value)}
+                  className="text-xs pl-5 pr-1 py-0.5 border border-orange-200 rounded bg-white w-20"
+                />
+              </div>
             </div>
-
-            <div className="flex-1 overflow-auto p-2">
-              {!queueData?.queue || queueData.queue.length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-xs text-gray-500">No patients in queue</p>
+            <div className="flex-1 px-1.5 py-1 space-y-1 overflow-y-auto">
+              {filterEntries(queueData?.waiting || [], waitingSearch).map(entry => (
+                <div key={entry.id} className="bg-white rounded p-1.5 border border-orange-100 flex items-center">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="w-5 h-5 bg-orange-400 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">
+                      {entry.queueNumber}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-700 truncate">{getPatientName(entry)}</p>
+                      <p className="text-xs text-gray-400">
+                        {formatTimeFromISO(entry.checkedInAt)}
+                        {entry.reasonForVisit && ` \u2022 ${entry.reasonForVisit}`}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {queueData.queue.map((entry) => {
-                    const queuePatientName = entry.patient
-                      ? `${entry.patient.firstName} ${entry.patient.lastName}`
-                      : entry.walkInName || 'Walk-in';
-                    const queuePriorityBadge = getPriorityBadge(entry.priority);
+              ))}
+              {filterEntries(queueData?.waiting || [], waitingSearch).length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-1">No patients waiting</p>
+              )}
+            </div>
+          </div>
 
-                    return (
-                      <div
-                        key={entry.id}
-                        className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-100"
-                      >
-                        {/* Queue Number */}
-                        <div className="w-8 h-8 bg-amber-100 text-amber-700 rounded flex items-center justify-center text-sm font-bold flex-shrink-0">
-                          {entry.queueNumber}
-                        </div>
-
-                        {/* Patient Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs font-medium text-gray-900 truncate">{queuePatientName}</span>
-                            {queuePriorityBadge && (
-                              <span className={`px-1 py-0.5 text-[7px] font-medium rounded ${queuePriorityBadge.bg} ${queuePriorityBadge.text}`}>
-                                {queuePriorityBadge.label}
-                              </span>
-                            )}
-                            {entry.status === 'WAITING' && (
-                              <span className="px-1 py-0.5 text-[7px] font-medium rounded bg-blue-100 text-blue-700">
-                                READY
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[9px] text-gray-500">
-                            In: {formatTime(entry.checkedInAt)}
-                            {entry.reasonForVisit && ` • ${entry.reasonForVisit}`}
-                          </p>
-                        </div>
+          {/* Queue */}
+          <div className="flex-1 min-h-0 bg-white rounded border border-gray-200 shadow-sm flex flex-col">
+            <div className="flex-shrink-0 px-2 py-1 border-b border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+                <span className="text-sm font-medium text-gray-800">Queue ({queueData?.queue?.length || 0})</span>
+              </div>
+              <div className="relative">
+                <svg className="w-3 h-3 text-gray-400 absolute left-1.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={queueSearch}
+                  onChange={(e) => setQueueSearch(e.target.value)}
+                  className="text-xs pl-5 pr-1 py-0.5 border border-gray-200 rounded w-20"
+                />
+              </div>
+            </div>
+            <div className="flex-1 px-1.5 py-1 space-y-1 overflow-y-auto">
+              {filterEntries(queueData?.queue || [], queueSearch, true).map(entry => (
+                <div
+                  key={entry.id}
+                  className={`rounded p-1.5 border flex items-center ${
+                    entry.priority === 'EMERGENCY' ? 'bg-red-50 border-red-200' :
+                    entry.priority === 'URGENT' ? 'bg-orange-50 border-orange-200' :
+                    'bg-gray-50 border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${
+                      entry.priority === 'EMERGENCY' ? 'bg-red-500' :
+                      entry.priority === 'URGENT' ? 'bg-orange-500' :
+                      'bg-[#1e3a5f]'
+                    }`}>
+                      {entry.queueNumber}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1">
+                        <p className="text-xs font-medium text-gray-700 truncate">{getPatientName(entry)}</p>
+                        {entry.priority !== 'NORMAL' && (
+                          <span className={`px-1 py-0 text-[8px] font-bold rounded ${
+                            entry.priority === 'EMERGENCY' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                          }`}>
+                            {entry.priority === 'EMERGENCY' ? 'EMR' : 'URG'}
+                          </span>
+                        )}
                       </div>
-                    );
-                  })}
+                      <p className="text-xs text-gray-400">
+                        {formatTimeFromISO(entry.checkedInAt)}
+                        {entry.reasonForVisit && ` \u2022 ${entry.reasonForVisit}`}
+                        {entry.entryType === 'SCHEDULED' && <span className="ml-1 text-purple-500">[Appt]</span>}
+                      </p>
+                    </div>
+                  </div>
                 </div>
+              ))}
+              {filterEntries(queueData?.queue || [], queueSearch, true).length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-4">No patients in queue</p>
               )}
             </div>
           </div>
         </div>
 
-        {/* Right Column - Completed */}
-        <div className="w-[300px] bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col min-h-0">
-          <div className="px-2.5 py-1.5 border-b border-gray-100 flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-xs font-semibold text-gray-900">Completed</span>
-            <span className="text-[10px] text-gray-500">({queueData?.completed?.length || 0})</span>
-          </div>
-
-          <div className="flex-1 overflow-auto">
-            {!queueData?.completed || queueData.completed.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-xs text-gray-500">No completed yet</p>
+        {/* Right Column */}
+        <div className="flex-1 flex flex-col gap-1.5 min-h-0">
+          {/* Scheduled */}
+          <div className="h-[45%] min-h-0 bg-white rounded border border-gray-200 shadow-sm flex flex-col">
+            <div className="flex-shrink-0 px-2 py-1 border-b border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm font-medium text-gray-800">Scheduled ({queueData?.scheduled?.filter(s => !s.isCheckedIn).length || 0})</span>
               </div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {/* Header */}
-                <div className="px-2 py-1 bg-gray-50 flex items-center text-[8px] font-medium text-gray-500 uppercase">
-                  <div className="w-6">#</div>
-                  <div className="flex-1">Patient</div>
-                  <div className="w-12 text-center">In</div>
-                  <div className="w-12 text-center">Out</div>
-                  <div className="w-10 text-center">Dur</div>
+              <div className="relative">
+                <svg className="w-3 h-3 text-gray-400 absolute left-1.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={scheduledSearch}
+                  onChange={(e) => setScheduledSearch(e.target.value)}
+                  className="text-xs pl-5 pr-1 py-0.5 border border-gray-200 rounded w-20"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-medium text-gray-600">Time</th>
+                    <th className="px-2 py-1 text-left font-medium text-gray-600">Patient</th>
+                    <th className="px-2 py-1 text-left font-medium text-gray-600">Phone</th>
+                    <th className="px-2 py-1 text-left font-medium text-gray-600">Reason</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {paginatedScheduled.map(appt => (
+                    <tr key={appt.id} className="hover:bg-gray-50">
+                      <td className="px-2 py-1 text-gray-700">{formatTime12h(appt.startTime)}</td>
+                      <td className="px-2 py-1 font-medium text-gray-800">{appt.patientName}</td>
+                      <td className="px-2 py-1 text-gray-500">{appt.patientPhone || '-'}</td>
+                      <td className="px-2 py-1 text-gray-500 truncate max-w-[120px]">{appt.reasonForVisit || '-'}</td>
+                    </tr>
+                  ))}
+                  {paginatedScheduled.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-2 py-4 text-center text-gray-500">No scheduled appointments</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {scheduledTotalPages > 1 && (
+              <div className="flex-shrink-0 flex items-center justify-between px-2 py-1 border-t border-gray-200 bg-gray-50">
+                <span className="text-[10px] text-gray-500">{filteredScheduled.length} total</span>
+                <div className="flex items-center gap-0.5">
+                  <button onClick={() => setScheduledPage(p => Math.max(1, p - 1))} disabled={scheduledPage === 1} className="px-1.5 py-0.5 text-[10px] border rounded hover:bg-gray-100 disabled:opacity-50">Prev</button>
+                  <span className="text-[10px] text-gray-600 px-1">{scheduledPage}/{scheduledTotalPages}</span>
+                  <button onClick={() => setScheduledPage(p => Math.min(scheduledTotalPages, p + 1))} disabled={scheduledPage === scheduledTotalPages} className="px-1.5 py-0.5 text-[10px] border rounded hover:bg-gray-100 disabled:opacity-50">Next</button>
                 </div>
-
-                {queueData.completed.map((entry) => {
-                  const completedName = entry.patient
-                    ? `${entry.patient.firstName} ${entry.patient.lastName}`
-                    : entry.walkInName || 'Walk-in';
-                  const duration = entry.withDoctorAt && entry.completedAt
-                    ? calculateMinutes(entry.withDoctorAt, entry.completedAt)
-                    : 0;
-
-                  return (
-                    <div key={entry.id} className="px-2 py-1.5 flex items-center hover:bg-gray-50">
-                      <div className="w-6">
-                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-100 text-green-700 text-[8px] font-medium">
-                          {entry.queueNumber}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[10px] font-medium text-gray-900 truncate">{completedName}</p>
-                      </div>
-                      <div className="w-12 text-center text-[9px] text-gray-600">
-                        {formatTime(entry.checkedInAt)}
-                      </div>
-                      <div className="w-12 text-center text-[9px] text-gray-600">
-                        {entry.completedAt ? formatTime(entry.completedAt) : '-'}
-                      </div>
-                      <div className="w-10 text-center">
-                        <span className={`inline-flex px-1 py-0.5 rounded text-[8px] font-medium ${
-                          duration <= 15 ? 'bg-green-100 text-green-700' :
-                          duration <= 30 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-                        }`}>
-                          {duration > 0 ? formatDuration(duration) : '-'}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             )}
           </div>
 
-          {/* Summary */}
-          {queueData?.completed && queueData.completed.length > 0 && (
-            <div className="px-2 py-1.5 border-t border-gray-100 bg-gray-50">
-              <div className="flex items-center justify-between text-[9px]">
-                <span className="text-gray-500">Total: <span className="font-semibold text-gray-900">{queueData.completed.length}</span></span>
-                <span className="text-gray-500">
-                  Avg: <span className="font-semibold text-gray-900">
-                    {formatDuration(
-                      Math.round(
-                        queueData.completed.reduce((sum, e) => {
-                          if (e.withDoctorAt && e.completedAt) {
-                            return sum + calculateMinutes(e.withDoctorAt, e.completedAt);
-                          }
-                          return sum;
-                        }, 0) / (queueData.completed.length || 1)
-                      )
-                    )}
-                  </span>
-                </span>
+          {/* Completed */}
+          <div className="flex-1 min-h-0 bg-green-50 rounded border border-green-200 shadow-sm flex flex-col">
+            <div className="flex-shrink-0 px-2 py-1 border-b border-green-200 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-sm font-medium text-green-800">Completed ({queueData?.completed?.length || 0})</span>
+              </div>
+              <div className="relative">
+                <svg className="w-3 h-3 text-gray-400 absolute left-1.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={completedSearch}
+                  onChange={(e) => setCompletedSearch(e.target.value)}
+                  className="text-xs pl-5 pr-1 py-0.5 border border-green-200 rounded bg-white w-20"
+                />
               </div>
             </div>
-          )}
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-green-100/50 sticky top-0">
+                  <tr>
+                    <th className="px-2 py-1 text-left font-medium text-green-700">Patient</th>
+                    <th className="px-2 py-1 text-left font-medium text-green-700">In</th>
+                    <th className="px-2 py-1 text-left font-medium text-green-700">Done</th>
+                    <th className="px-2 py-1 text-left font-medium text-green-700">Wait</th>
+                    <th className="px-2 py-1 text-left font-medium text-green-700">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-green-100">
+                  {paginatedCompleted.map(entry => (
+                    <tr key={entry.id} className="hover:bg-green-100/30">
+                      <td className="px-2 py-1 font-medium text-gray-800">{getPatientName(entry)}</td>
+                      <td className="px-2 py-1 text-gray-600">{formatTimeFromISO(entry.checkedInAt)}</td>
+                      <td className="px-2 py-1 text-gray-600">
+                        {entry.completedAt ? formatTimeFromISO(entry.completedAt) : '-'}
+                      </td>
+                      <td className="px-2 py-1 text-gray-600">
+                        {entry.waitTimeMinutes ? `${entry.waitTimeMinutes}m` : '-'}
+                      </td>
+                      <td className="px-2 py-1">
+                        <span className={`px-1 py-0 rounded text-xs font-medium ${
+                          entry.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                          entry.status === 'NO_SHOW' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {entry.status === 'COMPLETED' ? 'Done' : entry.status === 'NO_SHOW' ? 'No Show' : 'Left'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {paginatedCompleted.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-2 py-4 text-center text-gray-500">No completed yet</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {completedTotalPages > 1 && (
+              <div className="flex-shrink-0 flex items-center justify-between px-2 py-1 border-t border-green-200 bg-green-100/50">
+                <span className="text-[10px] text-green-700">{filteredCompleted.length} total</span>
+                <div className="flex items-center gap-0.5">
+                  <button onClick={() => setCompletedPage(p => Math.max(1, p - 1))} disabled={completedPage === 1} className="px-1.5 py-0.5 text-[10px] border border-green-200 rounded bg-white hover:bg-green-50 disabled:opacity-50">Prev</button>
+                  <span className="text-[10px] text-green-700 px-1">{completedPage}/{completedTotalPages}</span>
+                  <button onClick={() => setCompletedPage(p => Math.min(completedTotalPages, p + 1))} disabled={completedPage === completedTotalPages} className="px-1.5 py-0.5 text-[10px] border border-green-200 rounded bg-white hover:bg-green-50 disabled:opacity-50">Next</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

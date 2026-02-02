@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/AuthProvider';
 import { apiFetch } from '../../../lib/api';
 import PhoneInput from '../../../components/PhoneInput';
@@ -31,6 +31,24 @@ interface Patient {
   updatedAt: string;
 }
 
+interface PatientAppointment {
+  id: string;
+  patientId: string;
+  patientName: string;
+  doctorProfileId: string;
+  doctorName: string;
+  doctorSpecialization?: string;
+  appointmentDate: string;
+  startTime: string;
+  endTime: string;
+  status: 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+  reasonForVisit?: string;
+  cancellationReason?: string;
+  notes?: string;
+  bookedAt: string;
+  createdAt: string;
+}
+
 function calculateAge(dateOfBirth?: string, now?: Date): string {
   if (!dateOfBirth) return '—';
   const today = now || new Date();
@@ -45,8 +63,11 @@ function calculateAge(dateOfBirth?: string, now?: Date): string {
 
 function PatientsPageContent() {
   const searchParams = useSearchParams();
-  const { currentHospital } = useAuth();
+  const router = useRouter();
+  const { currentHospital, profile } = useAuth();
   const { getCurrentTime } = useHospitalTimezone();
+  const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');
+  const isDoctor = userRole === 'DOCTOR';
   const [patients, setPatients] = useState<Patient[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,6 +85,16 @@ function PatientsPageContent() {
     emergencyContactName: '', emergencyContactPhone: '', notes: '', status: 'active',
   });
 
+  // Appointments modal state
+  const [showApptModal, setShowApptModal] = useState(false);
+  const [apptPatient, setApptPatient] = useState<Patient | null>(null);
+  const [apptList, setApptList] = useState<PatientAppointment[]>([]);
+  const [apptLoading, setApptLoading] = useState(false);
+  const [apptTab, setApptTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [showCancelConfirm, setShowCancelConfirm] = useState<string | null>(null);
+
   // Auto-dismiss banners
   useEffect(() => {
     if (!message) return;
@@ -73,8 +104,8 @@ function PatientsPageContent() {
 
   useEffect(() => {
     fetchPatients();
-    if (searchParams.get('action') === 'add') setShowModal(true);
-  }, [searchParams]);
+    if (searchParams.get('action') === 'add' && !isDoctor) setShowModal(true);
+  }, [searchParams, isDoctor]);
 
   async function fetchPatients() {
     try {
@@ -130,6 +161,53 @@ function PatientsPageContent() {
     }
   }
 
+  // Appointments modal functions
+  const openApptModal = useCallback(async (patient: Patient) => {
+    setApptPatient(patient);
+    setApptList([]);
+    setApptLoading(true);
+    setApptTab('upcoming');
+    setShowApptModal(true);
+    setShowCancelConfirm(null);
+    setCancelReason('');
+    try {
+      const res = await apiFetch(`/v1/appointments?patientId=${patient.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setApptList(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch patient appointments:', error);
+    } finally {
+      setApptLoading(false);
+    }
+  }, []);
+
+  async function handleCancelAppointment(appointmentId: string) {
+    setCancellingId(appointmentId);
+    try {
+      const res = await apiFetch(`/v1/appointments/${appointmentId}/cancel`, {
+        method: 'PATCH',
+        body: JSON.stringify({ cancellationReason: cancelReason || 'Cancelled by hospital' }),
+      });
+      if (res.ok) {
+        setApptList(prev => prev.map(a => a.id === appointmentId ? { ...a, status: 'CANCELLED' as const, cancellationReason: cancelReason || 'Cancelled by hospital' } : a));
+        setShowCancelConfirm(null);
+        setCancelReason('');
+        setMessage({ type: 'success', text: 'Appointment cancelled' });
+      }
+    } catch (error) {
+      console.error('Failed to cancel appointment:', error);
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  const today = getCurrentTime();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const upcomingAppts = apptList.filter(a => a.appointmentDate >= todayStr && (a.status === 'SCHEDULED' || a.status === 'CONFIRMED'));
+  const pastAppts = apptList.filter(a => a.appointmentDate < todayStr || a.status === 'COMPLETED' || a.status === 'CANCELLED' || a.status === 'NO_SHOW');
+
   // Filter patients
   const filteredPatients = patients.filter(patient => {
     if (!searchQuery) return true;
@@ -151,15 +229,36 @@ function PatientsPageContent() {
   const activePatients = patients.filter(p => p.status === 'active').length;
 
   // Helper components (matching Doctors page)
-  const Pagination = ({ page, totalPages: tp, setPage }: { page: number; totalPages: number; setPage: (p: number) => void }) => tp <= 1 ? null : (
-    <div className="flex items-center justify-between px-3 py-1.5 border-t border-slate-100 bg-slate-50/50 shrink-0">
-      <span className="text-[10px] text-slate-400">Page {page} of {tp}</span>
-      <div className="flex gap-1">
-        <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1} className="px-2 py-0.5 text-[10px] rounded border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">Prev</button>
-        <button onClick={() => setPage(Math.min(tp, page + 1))} disabled={page >= tp} className="px-2 py-0.5 text-[10px] rounded border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">Next</button>
+  const Pagination = ({ page, totalPages: tp, setPage }: { page: number; totalPages: number; setPage: (p: number) => void }) => {
+    if (tp <= 1) return null;
+    // Build page number array with ellipsis
+    const pages: (number | string)[] = [];
+    if (tp <= 7) {
+      for (let i = 1; i <= tp; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (page > 3) pages.push('...');
+      for (let i = Math.max(2, page - 1); i <= Math.min(tp - 1, page + 1); i++) pages.push(i);
+      if (page < tp - 2) pages.push('...');
+      pages.push(tp);
+    }
+    return (
+      <div className="flex items-center justify-between px-3 py-2 border-t border-slate-200 bg-slate-50 sticky bottom-0">
+        <span className="text-[11px] text-slate-500">Page {page} of {tp} · {filteredPatients.length} patient{filteredPatients.length !== 1 ? 's' : ''}</span>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1} className="px-2.5 py-1 text-[11px] font-medium rounded border border-slate-200 text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">Prev</button>
+          {pages.map((p, i) =>
+            typeof p === 'string' ? (
+              <span key={`ellipsis-${i}`} className="px-1 text-[11px] text-slate-400">…</span>
+            ) : (
+              <button key={p} onClick={() => setPage(p)} className={`w-7 h-7 text-[11px] font-medium rounded border ${p === page ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-100'}`}>{p}</button>
+            )
+          )}
+          <button onClick={() => setPage(Math.min(tp, page + 1))} disabled={page >= tp} className="px-2.5 py-1 text-[11px] font-medium rounded border border-slate-200 text-slate-600 bg-white hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">Next</button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const SearchInput = ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) => (
     <div className="relative">
@@ -200,12 +299,14 @@ function PatientsPageContent() {
               <span className={`text-[9px] px-1.5 py-0.5 rounded ${message.type === 'success' ? 'bg-sky-50 text-sky-700' : 'bg-red-50 text-red-700'}`}>{message.text}</span>
             )}
           </div>
-          <button onClick={() => { resetForm(); setShowModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Add Patient</button>
+          {!isDoctor && (
+            <button onClick={() => { resetForm(); setShowModal(true); }} className="px-2 py-1 text-[10px] font-medium text-white bg-[#1e3a5f] rounded hover:bg-[#162f4d]">+ Add Patient</button>
+          )}
         </div>
         <div className="flex-1 min-h-0 overflow-auto">
           {!dataLoaded ? (
             <table className="w-full text-[11px]">
-              <thead className="bg-slate-50 sticky top-0">
+              <thead className="bg-slate-50 sticky top-0 z-[1]">
                 <tr>
                   <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Patient</th>
                   <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">Phone</th>
@@ -220,7 +321,7 @@ function PatientsPageContent() {
             </table>
           ) : pagedPatients.length > 0 ? (
             <table className="w-full text-[11px]">
-              <thead className="bg-slate-50 sticky top-0">
+              <thead className="bg-slate-50 sticky top-0 z-[1]">
                 <tr>
                   <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500">Patient</th>
                   <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-500 hidden sm:table-cell">Phone</th>
@@ -236,9 +337,9 @@ function PatientsPageContent() {
                   <tr key={p.id} className="hover:bg-slate-50">
                     <td className="px-3 py-1.5">
                       <div className="flex items-center gap-2">
-                        <div>
-                          <div className="font-medium text-slate-700">{p.firstName} {p.lastName}</div>
-                          {p.email && <div className="text-[10px] text-slate-400 sm:hidden">{p.email}</div>}
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-700 truncate">{p.firstName} {p.lastName}</div>
+                          {p.email && <div className="text-[10px] text-slate-400 sm:hidden truncate">{p.email}</div>}
                         </div>
                       </div>
                     </td>
@@ -255,8 +356,10 @@ function PatientsPageContent() {
                     </td>
                     <td className="px-3 py-1.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button onClick={() => handleEdit(p)} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-sky-200 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>Edit</button>
-                        <button onClick={() => window.location.href = `/hospital/appointments`} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>Appointments</button>
+                        {!isDoctor && (
+                          <button onClick={() => handleEdit(p)} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-sky-200 text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>Edit</button>
+                        )}
+                        <button onClick={() => openApptModal(p)} className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-semibold rounded border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"><svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>Appointments</button>
                       </div>
                     </td>
                   </tr>
@@ -270,12 +373,13 @@ function PatientsPageContent() {
               <p className="text-[10px] text-slate-400">{searchQuery ? 'Try a different search' : 'Add patients to get started'}</p>
             </div>
           )}
+          {/* Pagination inside scroll area — appears right after table rows */}
+          <Pagination page={currentPage} totalPages={totalPages} setPage={setCurrentPage} />
         </div>
-        <Pagination page={currentPage} totalPages={totalPages} setPage={setCurrentPage} />
       </div>
 
-      {/* Add/Edit Patient Modal */}
-      {showModal && (
+      {/* Add/Edit Patient Modal — managers only */}
+      {showModal && !isDoctor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowModal(false)}>
           <div className="w-full max-w-3xl bg-white rounded-xl shadow-xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
@@ -334,6 +438,177 @@ function PatientsPageContent() {
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
               <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100">Cancel</button>
               <button onClick={handleSubmit} disabled={saving || !formData.firstName || !formData.lastName} className="px-5 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{saving ? 'Saving...' : editingPatient ? 'Update Patient' : 'Add Patient'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Patient Appointments Modal */}
+      {showApptModal && apptPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setShowApptModal(false); setShowCancelConfirm(null); }}>
+          <div className="w-full max-w-2xl bg-white rounded-xl shadow-xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-800">Appointments</h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">{apptPatient.firstName} {apptPatient.lastName}</p>
+              </div>
+              <button onClick={() => { setShowApptModal(false); setShowCancelConfirm(null); }} className="p-1.5 rounded-lg hover:bg-slate-100">
+                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-4 px-5 border-b border-slate-200 shrink-0">
+              <button
+                onClick={() => { setApptTab('upcoming'); setShowCancelConfirm(null); }}
+                className={`pb-2 pt-2 text-xs font-medium border-b-2 transition-colors ${apptTab === 'upcoming' ? 'border-[#1e3a5f] text-[#1e3a5f]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              >
+                Upcoming ({upcomingAppts.length})
+              </button>
+              <button
+                onClick={() => { setApptTab('past'); setShowCancelConfirm(null); }}
+                className={`pb-2 pt-2 text-xs font-medium border-b-2 transition-colors ${apptTab === 'past' ? 'border-[#1e3a5f] text-[#1e3a5f]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+              >
+                Past ({pastAppts.length})
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3">
+              {apptLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="bg-slate-50 rounded-lg p-3 animate-pulse">
+                      <div className="h-3 bg-slate-200 rounded w-1/3 mb-2" />
+                      <div className="h-2.5 bg-slate-100 rounded w-1/2" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  {(apptTab === 'upcoming' ? upcomingAppts : pastAppts).length === 0 ? (
+                    <div className="py-10 text-center">
+                      <svg className="w-8 h-8 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      <p className="text-xs text-slate-500">{apptTab === 'upcoming' ? 'No upcoming appointments' : 'No past appointments'}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(apptTab === 'upcoming' ? upcomingAppts : pastAppts)
+                        .sort((a, b) => apptTab === 'upcoming'
+                          ? `${a.appointmentDate}${a.startTime}`.localeCompare(`${b.appointmentDate}${b.startTime}`)
+                          : `${b.appointmentDate}${b.startTime}`.localeCompare(`${a.appointmentDate}${a.startTime}`)
+                        )
+                        .map(appt => {
+                          const statusColors: Record<string, string> = {
+                            SCHEDULED: 'bg-blue-50 text-blue-700 border-blue-200',
+                            CONFIRMED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                            COMPLETED: 'bg-green-50 text-green-700 border-green-200',
+                            CANCELLED: 'bg-red-50 text-red-700 border-red-200',
+                            NO_SHOW: 'bg-amber-50 text-amber-700 border-amber-200',
+                          };
+                          const apptDate = new Date(appt.appointmentDate + 'T00:00:00');
+                          const dateLabel = apptDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+                          const startParts = appt.startTime.split(':');
+                          const startHour = parseInt(startParts[0]);
+                          const startMin = startParts[1];
+                          const startAmPm = startHour >= 12 ? 'PM' : 'AM';
+                          const startH = startHour > 12 ? startHour - 12 : startHour === 0 ? 12 : startHour;
+                          const endParts = appt.endTime.split(':');
+                          const endHour = parseInt(endParts[0]);
+                          const endMin = endParts[1];
+                          const endAmPm = endHour >= 12 ? 'PM' : 'AM';
+                          const endH = endHour > 12 ? endHour - 12 : endHour === 0 ? 12 : endHour;
+                          const timeLabel = `${startH}:${startMin} ${startAmPm} – ${endH}:${endMin} ${endAmPm}`;
+
+                          return (
+                            <div key={appt.id} className="bg-white border border-slate-200 rounded-lg p-3 hover:border-slate-300 transition-colors">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[11px] font-semibold text-slate-800">{dateLabel}</span>
+                                    <span className="text-[10px] text-slate-500">{timeLabel}</span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${statusColors[appt.status] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                                      {appt.status.replace('_', ' ')}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-1.5">
+                                    <svg className="w-3 h-3 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                                    <span className="text-[11px] text-slate-700">{appt.doctorName}</span>
+                                    {appt.doctorSpecialization && <span className="text-[10px] text-slate-400">· {appt.doctorSpecialization}</span>}
+                                  </div>
+                                  {appt.reasonForVisit && (
+                                    <p className="text-[10px] text-slate-500 mt-1">Reason: {appt.reasonForVisit}</p>
+                                  )}
+                                  {appt.status === 'CANCELLED' && appt.cancellationReason && (
+                                    <p className="text-[10px] text-red-500 mt-1">Cancelled: {appt.cancellationReason}</p>
+                                  )}
+                                </div>
+
+                                {/* Manager actions for upcoming appointments */}
+                                {!isDoctor && apptTab === 'upcoming' && (appt.status === 'SCHEDULED' || appt.status === 'CONFIRMED') && (
+                                  <div className="shrink-0">
+                                    {showCancelConfirm === appt.id ? (
+                                      <div className="flex flex-col gap-1.5 w-44">
+                                        <input
+                                          type="text"
+                                          placeholder="Reason (optional)"
+                                          value={cancelReason}
+                                          onChange={e => setCancelReason(e.target.value)}
+                                          className="px-2 py-1 text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-red-300"
+                                        />
+                                        <div className="flex gap-1">
+                                          <button
+                                            onClick={() => handleCancelAppointment(appt.id)}
+                                            disabled={cancellingId === appt.id}
+                                            className="flex-1 px-2 py-1 text-[9px] font-medium text-white bg-red-500 rounded hover:bg-red-600 disabled:opacity-50"
+                                          >
+                                            {cancellingId === appt.id ? 'Cancelling...' : 'Confirm Cancel'}
+                                          </button>
+                                          <button
+                                            onClick={() => { setShowCancelConfirm(null); setCancelReason(''); }}
+                                            className="px-2 py-1 text-[9px] font-medium text-slate-500 border border-slate-200 rounded hover:bg-slate-50"
+                                          >
+                                            No
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="flex flex-col gap-1">
+                                        <button
+                                          onClick={() => {
+                                            setShowApptModal(false);
+                                            router.push('/hospital/appointments');
+                                          }}
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-[#1e3a5f] border border-[#1e3a5f]/30 rounded hover:bg-[#1e3a5f]/5 transition-colors"
+                                        >
+                                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                          Reschedule
+                                        </button>
+                                        <button
+                                          onClick={() => setShowCancelConfirm(appt.id)}
+                                          className="inline-flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+                                        >
+                                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50 rounded-b-xl shrink-0">
+              <span className="text-[10px] text-slate-400">{apptList.length} total appointment{apptList.length !== 1 ? 's' : ''}</span>
+              <button onClick={() => { setShowApptModal(false); setShowCancelConfirm(null); }} className="px-4 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100">Close</button>
             </div>
           </div>
         </div>

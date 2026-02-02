@@ -290,8 +290,8 @@ BEGIN
     RETURN false; -- Hospital doesn't have subscription
   END IF;
 
-  -- For HOSPITAL_MANAGER: subscription is enough (no license required)
-  IF v_user_role = 'HOSPITAL_MANAGER' THEN
+  -- For HOSPITAL_MANAGER / STAFF: subscription is enough (no license required)
+  IF v_user_role IN ('HOSPITAL_MANAGER', 'STAFF', 'HOSPITAL_STAFF') THEN
     RETURN true;
   END IF;
 
