@@ -197,6 +197,7 @@ export class PatientsService {
     try {
       // Fetch hospital name for the message
       const adminClient = this.supabase.getAdminClient();
+      if (!adminClient) return;
       const { data: hospital } = await adminClient
         .from('hospitals')
         .select('name')

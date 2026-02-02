@@ -44,7 +44,7 @@ export function HospitalGuard({ children }: HospitalGuardProps) {
   }
 
   // Check if user has any valid hospital role (or is super admin)
-  const validRoles = ['HOSPITAL_MANAGER', 'DOCTOR', 'STAFF'];
+  const validRoles = ['HOSPITAL_MANAGER', 'DOCTOR', 'STAFF', 'HOSPITAL_STAFF'];
   const hasHospitalAccess = validRoles.includes(currentHospital?.role || '') || profile?.isSuperAdmin;
 
   if (!user || !currentHospitalId || !hasHospitalAccess) {

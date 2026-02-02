@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Post,
-  Put,
   Patch,
   Delete,
   Param,
@@ -13,6 +12,7 @@ import {
   BadRequestException,
   UseInterceptors,
   UploadedFile,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DoctorsService } from './doctors.service';
@@ -21,6 +21,8 @@ import { SupabaseGuard, AuthenticatedRequest } from '../supabase/supabase.guard'
 @Controller('v1/doctors')
 @UseGuards(SupabaseGuard)
 export class DoctorsController {
+  private readonly logger = new Logger(DoctorsController.name);
+
   constructor(private doctorsService: DoctorsService) {}
 
   /**
@@ -68,7 +70,6 @@ export class DoctorsController {
     }
 
     const userId = req.user.id;
-    console.log(`[DoctorsController] Doctor ${userId} checking in for hospital ${hospitalId}`);
     return this.doctorsService.doctorCheckIn(userId, hospitalId, body.date);
   }
 
@@ -87,7 +88,6 @@ export class DoctorsController {
     }
 
     const userId = req.user.id;
-    console.log(`[DoctorsController] Doctor ${userId} checking out for hospital ${hospitalId}`);
     return this.doctorsService.doctorCheckOut(userId, hospitalId, body.date);
   }
 
@@ -106,7 +106,6 @@ export class DoctorsController {
     }
 
     const userId = req.user.id;
-    console.log(`[DoctorsController] Getting queue for doctor ${userId} on ${date}`);
     return this.doctorsService.getDoctorQueue(userId, hospitalId, date);
   }
 
@@ -196,6 +195,11 @@ export class DoctorsController {
         shiftStart: string | null;
         shiftEnd: string | null;
       }>;
+      shiftTimingConfig?: {
+        morning: { start: string; end: string };
+        evening: { start: string; end: string };
+        night: { start: string; end: string };
+      };
     },
     @Req() req: AuthenticatedRequest,
   ) {
@@ -205,7 +209,7 @@ export class DoctorsController {
     }
 
     const userId = req.user.id;
-    return this.doctorsService.saveSchedules(userId, hospitalId, body.schedules);
+    return this.doctorsService.saveSchedules(userId, hospitalId, body.schedules, body.shiftTimingConfig);
   }
 
   /**
@@ -340,38 +344,6 @@ export class DoctorsController {
   }
 
   /**
-   * Update current doctor's own profile
-   * PATCH /v1/doctors/me
-   */
-  @Patch('me')
-  async updateMyProfile(
-    @Body() body: {
-      phone?: string;
-      dateOfBirth?: string;
-      gender?: string;
-      address?: string;
-      emergencyContact?: string;
-      emergencyPhone?: string;
-      specialization?: string;
-      qualification?: string;
-      licenseNumber?: string;
-      experience?: number;
-      consultationFee?: number;
-      education?: string;
-      bio?: string;
-    },
-    @Req() req: AuthenticatedRequest,
-  ) {
-    const hospitalId = req.hospitalId;
-    if (!hospitalId) {
-      throw new BadRequestException('Hospital context required');
-    }
-
-    const userId = req.user.id;
-    return this.doctorsService.updateDoctorProfile(userId, hospitalId, body);
-  }
-
-  /**
    * Upload avatar for current doctor
    * POST /v1/doctors/me/avatar
    */
@@ -485,7 +457,6 @@ export class DoctorsController {
       throw new BadRequestException('Hospital context required');
     }
 
-    console.log(`[DoctorsController] Getting time-off for doctor ${userId} in hospital ${hospitalId}`);
     return this.doctorsService.getTimeOff(userId, hospitalId);
   }
 
@@ -508,7 +479,6 @@ export class DoctorsController {
       throw new BadRequestException('Start date and end date are required');
     }
 
-    console.log(`[DoctorsController] Adding time-off for doctor ${userId}:`, body);
     return this.doctorsService.addTimeOff(
       userId,
       hospitalId,
@@ -533,7 +503,6 @@ export class DoctorsController {
       throw new BadRequestException('Hospital context required');
     }
 
-    console.log(`[DoctorsController] Deleting time-off ${timeOffId} for doctor ${userId}`);
     return this.doctorsService.deleteTimeOff(timeOffId, userId, hospitalId);
   }
 
@@ -612,6 +581,11 @@ export class DoctorsController {
         shiftStart: string | null;
         shiftEnd: string | null;
       }>;
+      shiftTimingConfig?: {
+        morning: { start: string; end: string };
+        evening: { start: string; end: string };
+        night: { start: string; end: string };
+      };
     },
     @Req() req: AuthenticatedRequest,
   ) {
@@ -624,7 +598,6 @@ export class DoctorsController {
       throw new BadRequestException('Schedules array is required');
     }
 
-    console.log(`[DoctorsController] Saving schedules for doctor ${userId}:`, body.schedules);
-    return this.doctorsService.saveSchedules(userId, hospitalId, body.schedules);
+    return this.doctorsService.saveSchedules(userId, hospitalId, body.schedules, body.shiftTimingConfig);
   }
 }

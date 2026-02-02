@@ -12,7 +12,9 @@ function LoginForm() {
   const router = useRouter();
   const { signIn, user, profile, hospitals, currentHospitalId, loading: authLoading } = useAuth();
   const searchParams = useSearchParams();
-  const idleLogout = searchParams.get('reason') === 'idle';
+  const reason = searchParams.get('reason');
+  const idleLogout = reason === 'idle';
+  const expiredSession = reason === 'expired';
   const redirectPath = searchParams.get('redirect');
 
   useEffect(() => {
@@ -128,6 +130,12 @@ function LoginForm() {
             {idleLogout && !error && (
               <div className="bg-amber-50 border border-amber-200 text-amber-700 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm">
                 Your session expired due to inactivity. Please sign in again.
+              </div>
+            )}
+
+            {expiredSession && !error && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-700 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm">
+                Your session has expired. Please sign in again.
               </div>
             )}
 

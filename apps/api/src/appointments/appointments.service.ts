@@ -63,7 +63,7 @@ export class AppointmentsService {
     // Verify doctor profile exists and belongs to hospital
     const { data: doctorProfile, error: profileError } = await adminClient
       .from('doctor_profiles')
-      .select('id, user_id, hospital_id, appointment_duration_minutes')
+      .select('id, user_id, hospital_id, appointment_duration_minutes, shift_timing_config')
       .eq('id', dto.doctorProfileId)
       .eq('hospital_id', hospitalId)
       .single();
@@ -73,6 +73,7 @@ export class AppointmentsService {
     }
 
     const durationMinutes = doctorProfile.appointment_duration_minutes || 30;
+    const shiftTimingConfig = doctorProfile.shift_timing_config || null;
 
     // Get doctor's weekly schedules
     const { data: schedules, error: scheduleError } = await adminClient
@@ -127,9 +128,9 @@ export class AppointmentsService {
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
 
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
       const dateStr = d.toISOString().split('T')[0];
-      const dayOfWeek = d.getDay(); // 0 = Sunday
+      const dayOfWeek = d.getUTCDay(); // 0 = Sunday
 
       // Check if doctor works on this day
       const schedule = scheduleMap.get(dayOfWeek);
@@ -150,6 +151,7 @@ export class AppointmentsService {
         durationMinutes,
         hospitalId,
         dto.doctorProfileId,
+        shiftTimingConfig,
       );
 
       for (const slot of daySlots) {
@@ -392,9 +394,9 @@ export class AppointmentsService {
       throw new BadRequestException('Admin client not available');
     }
 
-    // Calculate start and end of month
-    const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
-    const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+    // Calculate start and end of month (use UTC to avoid timezone offset)
+    const startDate = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0];
+    const endDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0];
 
     // Get time-off entries that overlap this month
     const { data: timeOffs } = await adminClient
@@ -410,7 +412,7 @@ export class AppointmentsService {
     (timeOffs || []).forEach((to: any) => {
       const s = to.start_date < startDate ? startDate : to.start_date;
       const e = to.end_date > endDate ? endDate : to.end_date;
-      for (let d = new Date(s + 'T00:00:00'); d.toISOString().split('T')[0] <= e; d.setDate(d.getDate() + 1)) {
+      for (let d = new Date(s + 'T00:00:00Z'); d.toISOString().split('T')[0] <= e; d.setUTCDate(d.getUTCDate() + 1)) {
         timeOffDates.add(d.toISOString().split('T')[0]);
       }
     });
@@ -440,7 +442,7 @@ export class AppointmentsService {
 
     // Build calendar days
     const calendarDays: CalendarDayDto[] = [];
-    const daysInMonth = new Date(year, month, 0).getDate();
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -1138,7 +1140,7 @@ export class AppointmentsService {
       throw new BadRequestException('Admin client not available');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = await this.getHospitalToday(hospitalId);
 
     // Get all future booked appointments for this doctor
     const { data: appointments } = await adminClient
@@ -1202,8 +1204,8 @@ export class AppointmentsService {
       let isConflict = false;
 
       if (changeType === 'schedule' && payload.schedules) {
-        const apptDate = new Date(appt.appointment_date + 'T00:00:00');
-        const dayOfWeek = apptDate.getDay();
+        const apptDate = new Date(appt.appointment_date + 'T00:00:00Z');
+        const dayOfWeek = apptDate.getUTCDay();
         const proposed = payload.schedules.find(s => s.dayOfWeek === dayOfWeek);
 
         if (!proposed || !proposed.isWorking) {
@@ -1284,7 +1286,7 @@ export class AppointmentsService {
       throw new BadRequestException('Admin client not available');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = await this.getHospitalToday(hospitalId);
     this.logger.log(`[regenerateSlots] Starting for doctor ${doctorProfileId}, hospital ${hospitalId}, today=${today}, cancelling ${cancelAppointmentIds.length} appointments`);
     let cancelledCount = 0;
 
@@ -1341,10 +1343,10 @@ export class AppointmentsService {
     }
     this.logger.log(`[regenerateSlots] Deleted ${deletedCount || 0} AVAILABLE slots from ${today} onward`);
 
-    // 3. Regenerate slots for 1 year from today
-    const endDate = new Date();
-    endDate.setFullYear(endDate.getFullYear() + 1);
-    const endDateStr = endDate.toISOString().split('T')[0];
+    // 3. Regenerate slots for 3 months from today
+    const todayDate = new Date(today + 'T00:00:00Z');
+    todayDate.setUTCMonth(todayDate.getUTCMonth() + 3);
+    const endDateStr = todayDate.toISOString().split('T')[0];
 
     const result = await this.generateSlots(
       {
@@ -1387,6 +1389,26 @@ export class AppointmentsService {
 
   // ============ Private Helper Methods ============
 
+  /**
+   * Get today's date in the hospital's local timezone (YYYY-MM-DD).
+   */
+  private async getHospitalToday(hospitalId: string): Promise<string> {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) return new Date().toISOString().split('T')[0];
+    const { data } = await adminClient
+      .from('hospitals')
+      .select('timezone')
+      .eq('id', hospitalId)
+      .single();
+    const tz = data?.timezone || 'UTC';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }
+
   private isDateInTimeOff(date: string, timeOffs: TimeOff[]): boolean {
     for (const to of timeOffs) {
       if (date >= to.startDate && date <= to.endDate) {
@@ -1403,6 +1425,7 @@ export class AppointmentsService {
     durationMinutes: number,
     hospitalId: string,
     doctorProfileId: string,
+    shiftTimingConfig?: any,
   ): any[] {
     const slots: any[] = [];
 
@@ -1414,7 +1437,7 @@ export class AppointmentsService {
     while (currentMinutes + durationMinutes <= endMinutes) {
       const startTime = this.minutesToTime(currentMinutes);
       const endTime = this.minutesToTime(currentMinutes + durationMinutes);
-      const period = this.getPeriodFromTime(startTime);
+      const period = this.getPeriodFromTime(startTime, shiftTimingConfig);
 
       slots.push({
         hospital_id: hospitalId,
@@ -1444,11 +1467,21 @@ export class AppointmentsService {
     return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:00`;
   }
 
-  private getPeriodFromTime(time: string): string {
-    const hour = parseInt(time.split(':')[0], 10);
+  private getPeriodFromTime(time: string, shiftTimingConfig?: any): string {
+    if (shiftTimingConfig) {
+      const timeMinutes = this.timeToMinutes(time);
+      const morningEnd = this.timeToMinutes(shiftTimingConfig.morning?.end || '14:00');
+      const eveningEnd = this.timeToMinutes(shiftTimingConfig.evening?.end || '22:00');
+      const morningStart = this.timeToMinutes(shiftTimingConfig.morning?.start || '06:00');
 
-    if (hour >= 6 && hour < 12) return 'MORNING';
-    if (hour >= 12 && hour < 22) return 'EVENING';
+      if (timeMinutes >= morningStart && timeMinutes < morningEnd) return 'MORNING';
+      if (timeMinutes >= morningEnd && timeMinutes < eveningEnd) return 'EVENING';
+      return 'NIGHT';
+    }
+
+    const hour = parseInt(time.split(':')[0], 10);
+    if (hour >= 6 && hour < 14) return 'MORNING';
+    if (hour >= 14 && hour < 22) return 'EVENING';
     return 'NIGHT';
   }
 

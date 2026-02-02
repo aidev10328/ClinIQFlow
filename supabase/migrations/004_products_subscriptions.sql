@@ -257,7 +257,7 @@ DECLARE
 BEGIN
   -- Check if super admin (bypasses all checks)
   SELECT is_super_admin INTO v_is_super_admin
-  FROM profiles WHERE id = p_user_id;
+  FROM profiles WHERE user_id = p_user_id;
 
   IF v_is_super_admin = true THEN
     RETURN true;
@@ -327,7 +327,7 @@ DECLARE
 BEGIN
   -- Check if super admin
   SELECT is_super_admin INTO v_is_super_admin
-  FROM profiles WHERE id = p_user_id;
+  FROM profiles WHERE user_id = p_user_id;
 
   -- Get user's role
   SELECT role INTO v_user_role

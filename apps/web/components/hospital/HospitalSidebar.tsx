@@ -3,10 +3,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../AuthProvider';
-import { useOptimisticPathname } from '../../lib/hooks/useOptimisticPathname';
-import { usePrefetchRoute } from '../../lib/hooks/usePrefetchRoute';
 
 interface NavItem {
   label: string;
@@ -97,8 +95,7 @@ const icons = {
 };
 
 export function HospitalSidebar() {
-  const { pathname, handleNavClick } = useOptimisticPathname();
-  const prefetchRoute = usePrefetchRoute();
+  const pathname = usePathname();
   const { currentHospital, profile, canAccessProduct, hospitals, setCurrentHospitalId, signOut } = useAuth();
 
   // Get user role
@@ -267,8 +264,7 @@ export function HospitalSidebar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  onMouseEnter={() => prefetchRoute(item.href)}
-                  onClick={() => { handleNavClick(item.href); setMobileOpen(false); }}
+                  onClick={() => setMobileOpen(false)}
                   className={`admin-nav-item ${isActive(item.href) ? 'active' : ''}`}
                 >
                   {item.icon}

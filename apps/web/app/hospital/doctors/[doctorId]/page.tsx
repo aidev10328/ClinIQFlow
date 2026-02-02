@@ -275,7 +275,8 @@ export default function DoctorDetailPage() {
     try {
       const res = await apiFetch(`/v1/doctors/${doctorId}/schedules`);
       if (res.ok) {
-        const data = await res.json();
+        const rawData = await res.json();
+        const data = Array.isArray(rawData) ? rawData : (rawData.schedules || []);
         if (data && data.length > 0) {
           const newSchedule = DAYS_OF_WEEK.map((_, idx) => {
             const dbSchedule = data.find((s: any) => s.day_of_week === idx);
@@ -452,7 +453,7 @@ export default function DoctorDetailPage() {
 
       const res = await apiFetch(`/v1/doctors/${doctorId}/schedules`, {
         method: 'PATCH',
-        body: JSON.stringify({ schedules: schedulesToSave }),
+        body: JSON.stringify({ schedules: schedulesToSave, shiftTimingConfig: shiftTimings }),
       });
 
       if (res.ok) {

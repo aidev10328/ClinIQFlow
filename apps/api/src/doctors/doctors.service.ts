@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
 export class DoctorsService {
+  private readonly logger = new Logger(DoctorsService.name);
+
   constructor(private supabaseService: SupabaseService) {}
 
   /**
@@ -49,7 +51,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error creating doctor profile:', error);
+      this.logger.error('[DoctorsService] Error creating doctor profile:', error);
       throw error;
     }
 
@@ -75,7 +77,7 @@ export class DoctorsService {
       .order('start_date', { ascending: true });
 
     if (error) {
-      console.error('[DoctorsService] Error fetching time-off:', error);
+      this.logger.error('[DoctorsService] Error fetching time-off:', error);
       throw error;
     }
 
@@ -113,7 +115,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error adding time-off:', error);
+      this.logger.error('[DoctorsService] Error adding time-off:', error);
       throw error;
     }
 
@@ -139,7 +141,7 @@ export class DoctorsService {
       .eq('doctor_profile_id', profile.id);
 
     if (error) {
-      console.error('[DoctorsService] Error deleting time-off:', error);
+      this.logger.error('[DoctorsService] Error deleting time-off:', error);
       throw error;
     }
 
@@ -185,7 +187,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error updating appointment duration:', error);
+      this.logger.error('[DoctorsService] Error updating appointment duration:', error);
       throw error;
     }
 
@@ -212,11 +214,14 @@ export class DoctorsService {
       .order('day_of_week', { ascending: true });
 
     if (error) {
-      console.error('[DoctorsService] Error fetching schedules:', error);
+      this.logger.error('[DoctorsService] Error fetching schedules:', error);
       throw error;
     }
 
-    return data || [];
+    return {
+      schedules: data || [],
+      shiftTimingConfig: profile.shift_timing_config || null,
+    };
   }
 
   /**
@@ -232,6 +237,11 @@ export class DoctorsService {
       shiftStart: string | null;
       shiftEnd: string | null;
     }>,
+    shiftTimingConfig?: {
+      morning: { start: string; end: string };
+      evening: { start: string; end: string };
+      night: { start: string; end: string };
+    },
   ) {
     const adminClient = this.supabaseService.getAdminClient();
     if (!adminClient) {
@@ -261,11 +271,23 @@ export class DoctorsService {
       .select();
 
     if (error) {
-      console.error('[DoctorsService] Error saving schedules:', error);
+      this.logger.error('[DoctorsService] Error saving schedules:', error);
       throw error;
     }
 
-    console.log(`[DoctorsService] Saved ${data.length} schedules for doctor ${userId}`);
+    // Save shift timing config to doctor_profiles if provided
+    if (shiftTimingConfig) {
+      const { error: configError } = await adminClient
+        .from('doctor_profiles')
+        .update({ shift_timing_config: shiftTimingConfig })
+        .eq('id', profile.id);
+
+      if (configError) {
+        this.logger.error('[DoctorsService] Error saving shift timing config:', configError);
+      }
+    }
+
+    this.logger.log(`[DoctorsService] Saved ${data.length} schedules for doctor ${userId}`);
     return data;
   }
 
@@ -604,7 +626,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error updating profile:', error);
+      this.logger.error('[DoctorsService] Error updating profile:', error);
       throw error;
     }
 
@@ -648,7 +670,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error updating avatar:', error);
+      this.logger.error('[DoctorsService] Error updating avatar:', error);
       throw error;
     }
 
@@ -786,7 +808,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error updating doctor profile:', error);
+      this.logger.error('[DoctorsService] Error updating doctor profile:', error);
       throw error;
     }
 
@@ -855,7 +877,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error creating check-in event:', error);
+      this.logger.error('[DoctorsService] Error creating check-in event:', error);
       throw error;
     }
 
@@ -892,7 +914,7 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      console.error('[DoctorsService] Error creating check-out event:', error);
+      this.logger.error('[DoctorsService] Error creating check-out event:', error);
       throw error;
     }
 
@@ -934,7 +956,7 @@ export class DoctorsService {
       .order('queue_number', { ascending: true });
 
     if (error) {
-      console.error('[DoctorsService] Error fetching queue:', error);
+      this.logger.error('[DoctorsService] Error fetching queue:', error);
       throw error;
     }
 
@@ -1026,7 +1048,7 @@ export class DoctorsService {
       .lte('appointment_date', endDate);
 
     if (error) {
-      console.error('[DoctorsService] Error fetching calendar:', error);
+      this.logger.error('[DoctorsService] Error fetching calendar:', error);
       throw error;
     }
 
@@ -1068,7 +1090,7 @@ export class DoctorsService {
       .order('start_time', { ascending: true });
 
     if (error) {
-      console.error('[DoctorsService] Error fetching appointments:', error);
+      this.logger.error('[DoctorsService] Error fetching appointments:', error);
       throw error;
     }
 

@@ -387,11 +387,15 @@ export default function AppointmentsPage() {
         apiFetch(`/v1/doctors/${doctorUserId}/time-off`),
         apiFetch(`/v1/doctors/${doctorUserId}/appointment-duration`),
       ]);
-      const rawSchedules = schedulesRes.ok ? await schedulesRes.json() : [];
+      const schedulesData = schedulesRes.ok ? await schedulesRes.json() : { schedules: [], shiftTimingConfig: null };
       const rawTimeOffs = timeOffsRes.ok ? await timeOffsRes.json() : [];
 
+      // Support both old format (array) and new format ({ schedules, shiftTimingConfig })
+      const rawSchedules = Array.isArray(schedulesData) ? schedulesData : (schedulesData.schedules || []);
+      const savedTimingConfig = Array.isArray(schedulesData) ? null : schedulesData.shiftTimingConfig;
+
       // Transform snake_case API data to camelCase for DoctorDetails
-      const timings: ShiftTimingConfig = { ...DEFAULT_SHIFT_TIMINGS };
+      const timings: ShiftTimingConfig = savedTimingConfig ? { ...savedTimingConfig } : { ...DEFAULT_SHIFT_TIMINGS };
       const mappedSchedules: DoctorSchedule[] = DAYS_FULL.map((_, idx) => {
         const dbSched = rawSchedules.find((s: any) => (s.dayOfWeek ?? s.day_of_week) === idx);
         if (dbSched && (dbSched.isWorking ?? dbSched.is_working)) {
@@ -414,15 +418,17 @@ export default function AppointmentsPage() {
         return { dayOfWeek: idx, isWorking: false, morningShift: false, eveningShift: false, nightShift: false };
       });
 
-      // Extract shift timings from first working day to populate schedule editor
-      for (const sched of mappedSchedules) {
-        if (sched.isWorking && sched.shiftStart && sched.shiftEnd) {
-          const startHour = parseInt(sched.shiftStart.split(':')[0]);
-          const endHour = parseInt(sched.shiftEnd.split(':')[0]);
-          if (startHour < 14) timings.morning = { start: sched.shiftStart, end: endHour <= 14 ? sched.shiftEnd : timings.morning.end };
-          if (endHour > 14 || (startHour >= 14 && startHour < 22)) timings.evening = { start: startHour >= 14 ? sched.shiftStart : timings.evening.start, end: endHour <= 22 ? sched.shiftEnd : timings.evening.end };
-          if (endHour <= 6 || startHour >= 22) timings.night = { start: startHour >= 22 ? sched.shiftStart : timings.night.start, end: endHour <= 6 ? sched.shiftEnd : timings.night.end };
-          break;
+      // Use saved shift timing config if available; otherwise derive from first working day
+      if (!savedTimingConfig) {
+        for (const sched of mappedSchedules) {
+          if (sched.isWorking && sched.shiftStart && sched.shiftEnd) {
+            const startHour = parseInt(sched.shiftStart.split(':')[0]);
+            const endHour = parseInt(sched.shiftEnd.split(':')[0]);
+            if (startHour < 14) timings.morning = { start: sched.shiftStart, end: endHour <= 14 ? sched.shiftEnd : timings.morning.end };
+            if (endHour > 14 || (startHour >= 14 && startHour < 22)) timings.evening = { start: startHour >= 14 ? sched.shiftStart : timings.evening.start, end: endHour <= 22 ? sched.shiftEnd : timings.evening.end };
+            if (endHour <= 6 || startHour >= 22) timings.night = { start: startHour >= 22 ? sched.shiftStart : timings.night.start, end: endHour <= 6 ? sched.shiftEnd : timings.night.end };
+            break;
+          }
         }
       }
       setScheduleShiftTimings(timings);
@@ -647,7 +653,7 @@ export default function AppointmentsPage() {
     const [res] = await Promise.all([
       apiFetch(`/v1/doctors/${scheduleDoctor.userId}/schedules`, {
         method: 'PATCH',
-        body: JSON.stringify({ schedules: schedulesToSave }),
+        body: JSON.stringify({ schedules: schedulesToSave, shiftTimingConfig: scheduleShiftTimings }),
       }),
       apiFetch(`/v1/doctors/${scheduleDoctor.userId}/appointment-duration`, {
         method: 'PATCH',
@@ -680,7 +686,7 @@ export default function AppointmentsPage() {
       const error = await res.json();
       alert(error.message || 'Failed to save schedule');
     }
-  }, [scheduleDoctor, buildSchedulesToSave, scheduleApptDuration, selectedDoctor, fetchCalendar, fetchSlots, fetchDoctorDetails]);
+  }, [scheduleDoctor, buildSchedulesToSave, scheduleApptDuration, scheduleShiftTimings, selectedDoctor, fetchCalendar, fetchSlots, fetchDoctorDetails]);
 
   // Handler: Save schedule (with conflict detection)
   const handleSaveSchedule = async () => {
@@ -715,13 +721,31 @@ export default function AppointmentsPage() {
           setShowConflictModal(true);
           return; // Don't setSavingSchedule(false) — modal controls this
         }
+
+        // No conflicts — show confirmation with slot regeneration info
+        const slotsToDelete = data.summary?.slotsToDelete || 0;
+        setConflictData({
+          conflicts: [],
+          summary: data.summary || { totalAppointments: 0, totalQueueEntries: 0, dateRange: { from: '', to: '' }, slotsToDelete },
+        });
+        setPendingSaveAction(() => async () => {
+          await executeSaveSchedule([]);
+        });
+        setShowConflictModal(true);
+        return;
       }
 
-      // No conflicts — save directly with empty cancel list
-      await executeSaveSchedule([]);
+      // Conflict check failed — still show confirmation
+      setConflictData({
+        conflicts: [],
+        summary: { totalAppointments: 0, totalQueueEntries: 0, dateRange: { from: '', to: '' }, slotsToDelete: 0 },
+      });
+      setPendingSaveAction(() => async () => {
+        await executeSaveSchedule([]);
+      });
+      setShowConflictModal(true);
     } catch (error: any) {
       alert(error.message || 'Failed to save schedule');
-    } finally {
       setSavingSchedule(false);
     }
   };
@@ -2854,83 +2878,112 @@ function ConflictWarningModal({ conflictData, resolving, onConfirm, onCancel }: 
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const hasConflicts = conflictData.conflicts.length > 0;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 rounded-t-lg flex items-center gap-2">
-          <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
+        <div className={`px-4 py-3 border-b rounded-t-lg flex items-center gap-2 ${hasConflicts ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'}`}>
+          {hasConflicts ? (
+            <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          )}
           <div>
-            <h3 className="font-semibold text-amber-900 text-sm">Schedule Change Conflicts</h3>
-            <p className="text-[11px] text-amber-700">This change will affect existing appointments</p>
+            <h3 className={`font-semibold text-sm ${hasConflicts ? 'text-amber-900' : 'text-blue-900'}`}>
+              {hasConflicts ? 'Schedule Change Conflicts' : 'Confirm Schedule Change'}
+            </h3>
+            <p className={`text-[11px] ${hasConflicts ? 'text-amber-700' : 'text-blue-700'}`}>
+              {hasConflicts ? 'This change will affect existing appointments' : 'Existing slots will be regenerated with the new schedule'}
+            </p>
           </div>
         </div>
 
         {/* Summary */}
-        <div className="px-4 py-2 bg-amber-50/50 border-b border-slate-200">
+        <div className={`px-4 py-2 border-b border-slate-200 ${hasConflicts ? 'bg-amber-50/50' : 'bg-slate-50'}`}>
           <div className="flex items-center gap-4 text-[11px]">
-            <div className="flex items-center gap-1">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-700 font-bold text-[10px]">
-                {conflictData.summary.totalAppointments}
-              </span>
-              <span className="text-slate-600">appointment{conflictData.summary.totalAppointments !== 1 ? 's' : ''} to cancel</span>
-            </div>
-            {conflictData.summary.totalQueueEntries > 0 && (
-              <div className="flex items-center gap-1">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-700 font-bold text-[10px]">
-                  {conflictData.summary.totalQueueEntries}
-                </span>
-                <span className="text-slate-600">queue entr{conflictData.summary.totalQueueEntries !== 1 ? 'ies' : 'y'}</span>
-              </div>
+            {hasConflicts && (
+              <>
+                <div className="flex items-center gap-1">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-700 font-bold text-[10px]">
+                    {conflictData.summary.totalAppointments}
+                  </span>
+                  <span className="text-slate-600">appointment{conflictData.summary.totalAppointments !== 1 ? 's' : ''} to cancel</span>
+                </div>
+                {conflictData.summary.totalQueueEntries > 0 && (
+                  <div className="flex items-center gap-1">
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-700 font-bold text-[10px]">
+                      {conflictData.summary.totalQueueEntries}
+                    </span>
+                    <span className="text-slate-600">queue entr{conflictData.summary.totalQueueEntries !== 1 ? 'ies' : 'y'}</span>
+                  </div>
+                )}
+              </>
             )}
-            <div className="flex items-center gap-1 ml-auto">
+            <div className={`flex items-center gap-1 ${hasConflicts ? 'ml-auto' : ''}`}>
               <span className="text-slate-500">{conflictData.summary.slotsToDelete} slots to regenerate</span>
             </div>
           </div>
         </div>
 
-        {/* Conflict Table */}
-        <div className="flex-1 overflow-auto px-4 py-2">
-          <table className="w-full text-[11px]">
-            <thead className="sticky top-0 bg-white">
-              <tr className="border-b border-slate-200 text-slate-500 text-left">
-                <th className="py-1.5 font-medium">Date</th>
-                <th className="py-1.5 font-medium">Time</th>
-                <th className="py-1.5 font-medium">Patient</th>
-                <th className="py-1.5 font-medium">Status</th>
-                <th className="py-1.5 font-medium text-center">Queue</th>
-              </tr>
-            </thead>
-            <tbody>
-              {conflictData.conflicts.map((c) => (
-                <tr key={c.appointmentId} className={`border-b border-slate-100 ${c.hasQueueEntry ? 'bg-amber-50/50' : ''}`}>
-                  <td className="py-1.5 text-slate-700">{fmtDateStr(c.appointmentDate, { weekday: true })}</td>
-                  <td className="py-1.5 text-slate-700">{formatTime12h(c.startTime)} - {formatTime12h(c.endTime)}</td>
-                  <td className="py-1.5 font-medium text-slate-800">{c.patientName}</td>
-                  <td className="py-1.5">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${c.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="py-1.5 text-center">
-                    {c.hasQueueEntry ? (
-                      <span className="inline-block w-4 h-4 rounded-full bg-orange-200 text-orange-700 text-[9px] leading-4 text-center font-bold">Q</span>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
-                  </td>
+        {/* Conflict Table — only when there are conflicts */}
+        {hasConflicts && (
+          <div className="flex-1 overflow-auto px-4 py-2">
+            <table className="w-full text-[11px]">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-slate-200 text-slate-500 text-left">
+                  <th className="py-1.5 font-medium">Date</th>
+                  <th className="py-1.5 font-medium">Time</th>
+                  <th className="py-1.5 font-medium">Patient</th>
+                  <th className="py-1.5 font-medium">Status</th>
+                  <th className="py-1.5 font-medium text-center">Queue</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {conflictData.conflicts.map((c) => (
+                  <tr key={c.appointmentId} className={`border-b border-slate-100 ${c.hasQueueEntry ? 'bg-amber-50/50' : ''}`}>
+                    <td className="py-1.5 text-slate-700">{fmtDateStr(c.appointmentDate, { weekday: true })}</td>
+                    <td className="py-1.5 text-slate-700">{formatTime12h(c.startTime)} - {formatTime12h(c.endTime)}</td>
+                    <td className="py-1.5 font-medium text-slate-800">{c.patientName}</td>
+                    <td className="py-1.5">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${c.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {c.status}
+                      </span>
+                    </td>
+                    <td className="py-1.5 text-center">
+                      {c.hasQueueEntry ? (
+                        <span className="inline-block w-4 h-4 rounded-full bg-orange-200 text-orange-700 text-[9px] leading-4 text-center font-bold">Q</span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* No conflicts — simple confirmation message */}
+        {!hasConflicts && (
+          <div className="px-4 py-4">
+            <p className="text-[12px] text-slate-600">
+              Saving will update the schedule and regenerate all future appointment slots based on the new settings. No existing booked appointments will be affected.
+            </p>
+          </div>
+        )}
 
         {/* Warning note */}
         <div className="px-4 py-2 border-t border-slate-100">
-          <p className="text-[10px] text-red-600">
-            Confirming will cancel the above appointments, remove related queue entries, and regenerate all future slots based on the new schedule.
+          <p className={`text-[10px] ${hasConflicts ? 'text-red-600' : 'text-slate-500'}`}>
+            {hasConflicts
+              ? 'Confirming will cancel the above appointments, remove related queue entries, and regenerate all future slots based on the new schedule.'
+              : 'All future available slots will be deleted and regenerated according to the updated schedule.'}
           </p>
         </div>
 
@@ -2943,10 +2996,10 @@ function ConflictWarningModal({ conflictData, resolving, onConfirm, onCancel }: 
             {resolving ? (
               <>
                 <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>
-                Resolving...
+                Saving...
               </>
             ) : (
-              'Confirm & Regenerate'
+              hasConflicts ? 'Confirm & Regenerate' : 'Save & Regenerate Slots'
             )}
           </button>
         </div>

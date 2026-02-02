@@ -27,6 +27,23 @@ export class QueueService {
   }
 
   /**
+   * Get today's date in the hospital's local timezone (YYYY-MM-DD).
+   */
+  private async getHospitalToday(hospitalId: string): Promise<string> {
+    const adminClient = this.getAdminClientOrThrow();
+    const { data } = await adminClient
+      .from('hospitals')
+      .select('timezone')
+      .eq('id', hospitalId)
+      .single();
+
+    const tz = data?.timezone || 'UTC';
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatter.format(now); // en-CA locale returns YYYY-MM-DD
+  }
+
+  /**
    * Get daily queue for a doctor
    */
   async getDailyQueue(
@@ -35,6 +52,7 @@ export class QueueService {
     date: string,
   ): Promise<DailyQueueResponseDto> {
     const adminClient = this.getAdminClientOrThrow();
+    if (!date) date = await this.getHospitalToday(hospitalId);
 
     // Get hospital holidays
     const { data: hospitalData } = await adminClient
@@ -188,8 +206,8 @@ export class QueueService {
   ): Promise<QueueEntryDto> {
     const adminClient = this.getAdminClientOrThrow();
 
-    // Get current date in hospital timezone (simplified - using UTC date)
-    const today = new Date().toISOString().split('T')[0];
+    // Get current date in hospital's local timezone
+    const today = await this.getHospitalToday(hospitalId);
 
     // Get next queue number
     const { data: maxQueue } = await adminClient
@@ -263,7 +281,7 @@ export class QueueService {
       throw new BadRequestException('Appointment cannot be checked in');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = await this.getHospitalToday(hospitalId);
 
     // Check if already in queue
     const { data: existing } = await adminClient
@@ -354,7 +372,7 @@ export class QueueService {
       throw new BadRequestException('Appointment cannot be marked as no-show');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = await this.getHospitalToday(hospitalId);
 
     // Check if already in queue
     const { data: existing } = await adminClient
@@ -613,7 +631,7 @@ export class QueueService {
     userId: string,
   ): Promise<any> {
     const adminClient = this.getAdminClientOrThrow();
-    const today = new Date().toISOString().split('T')[0];
+    const today = await this.getHospitalToday(hospitalId);
 
     // Upsert doctor check-in
     const { data, error } = await adminClient
@@ -648,7 +666,7 @@ export class QueueService {
     doctorProfileId: string,
   ): Promise<any> {
     const adminClient = this.getAdminClientOrThrow();
-    const today = new Date().toISOString().split('T')[0];
+    const today = await this.getHospitalToday(hospitalId);
 
     const { data, error } = await adminClient
       .from('doctor_daily_checkins')

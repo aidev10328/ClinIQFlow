@@ -41,6 +41,16 @@ export function middleware(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 
   if (isProtected) {
+    // Check for browser session cookie (session cookie = cleared on browser close)
+    const hasSessionCookie = request.cookies.has('clinqflow_session');
+
+    if (!hasSessionCookie) {
+      // No active browser session → redirect to login
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
     // Check for Supabase auth cookies (set by @supabase/ssr)
     const hasAuthCookie = request.cookies.getAll().some(
       (c) => c.name.includes('auth-token') || c.name.includes('sb-')

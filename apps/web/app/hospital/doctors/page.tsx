@@ -438,10 +438,12 @@ function DoctorsContent() {
         setScheduleDoctorProfileId(profileData.id);
       }
       if (res.ok) {
-        const data = await res.json();
-        // Extract shift timings from first working day's schedule to populate the timing dropdowns
-        const timings: ShiftTimingConfig = { ...DEFAULT_SHIFT_TIMINGS };
-        for (const dbSched of data) {
+        const rawData = await res.json();
+        const data = Array.isArray(rawData) ? rawData : (rawData.schedules || []);
+        const savedTimingConfig = Array.isArray(rawData) ? null : rawData.shiftTimingConfig;
+        // Use saved shift timing config if available, otherwise extract from first working day
+        const timings: ShiftTimingConfig = savedTimingConfig ? { ...savedTimingConfig } : { ...DEFAULT_SHIFT_TIMINGS };
+        if (!savedTimingConfig) for (const dbSched of data) {
           if (dbSched.is_working && dbSched.shift_start && dbSched.shift_end) {
             const start = dbSched.shift_start.slice(0, 5); // "HH:MM:SS" → "HH:MM"
             const end = dbSched.shift_end.slice(0, 5);
@@ -519,7 +521,7 @@ function DoctorsContent() {
     console.log('[executeSaveSchedule] Saving schedules:', JSON.stringify(schedulesToSave.filter((s: any) => s.isWorking).map((s: any) => ({ day: s.dayOfWeek, start: s.shiftStart, end: s.shiftEnd }))));
     console.log('[executeSaveSchedule] doctorProfileId:', scheduleDoctorProfileId);
     const [res] = await Promise.all([
-      apiFetch(`/v1/doctors/${scheduleDoctorId}/schedules`, { method: 'PATCH', body: JSON.stringify({ schedules: schedulesToSave }) }),
+      apiFetch(`/v1/doctors/${scheduleDoctorId}/schedules`, { method: 'PATCH', body: JSON.stringify({ schedules: schedulesToSave, shiftTimingConfig: scheduleShiftTimings }) }),
       apiFetch(`/v1/doctors/${scheduleDoctorId}/appointment-duration`, { method: 'PATCH', body: JSON.stringify({ appointmentDurationMinutes: scheduleApptDuration }) }),
     ]);
     if (res.ok) {

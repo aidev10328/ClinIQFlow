@@ -2,7 +2,7 @@ import { Controller, Post, Body, Get, UseGuards, Req, UnauthorizedException } fr
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
-@Controller('auth')
+@Controller('v1/auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 

@@ -7,7 +7,7 @@ const nextConfig = {
     formats: ['image/avif', 'image/webp'],
   },
   experimental: {
-    optimizePackageImports: ['date-fns', 'recharts', '@tanstack/react-query'],
+    optimizePackageImports: ['date-fns', 'recharts', '@tanstack/react-query', 'react-markdown'],
   },
   modularizeImports: {
     'date-fns': {

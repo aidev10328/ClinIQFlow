@@ -66,6 +66,41 @@ const SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour inactivity timeout
 const SESSION_CHECK_INTERVAL = 30000; // Check every 30 seconds
 const LAST_ACTIVITY_KEY = 'clinqflow_last_activity';
 const ACTIVITY_THROTTLE_MS = 60000; // Update last-activity at most once per minute
+const SESSION_COOKIE_NAME = 'clinqflow_session';
+const BROWSER_SESSION_KEY = 'clinqflow_browser_session';
+
+/**
+ * sessionStorage is reliably cleared when the browser is closed — unlike session cookies
+ * which some browsers (Chrome "Continue where you left off", Safari "Reopen windows")
+ * restore on relaunch. sessionStorage is the authoritative check.
+ */
+function hasBrowserSession(): boolean {
+  if (typeof window === 'undefined') return false;
+  return sessionStorage.getItem(BROWSER_SESSION_KEY) === '1';
+}
+
+function markBrowserSession() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.setItem(BROWSER_SESSION_KEY, '1');
+}
+
+function clearBrowserSession() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(BROWSER_SESSION_KEY);
+}
+
+/** Set a session cookie for middleware — supplementary to sessionStorage. */
+function setSessionCookie() {
+  if (typeof document === 'undefined') return;
+  const isSecure = window.location.protocol === 'https:';
+  document.cookie = `${SESSION_COOKIE_NAME}=1; path=/; SameSite=Lax${isSecure ? '; Secure' : ''}`;
+}
+
+/** Delete the session cookie. */
+function clearSessionCookie() {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0`;
+}
 
 function loadAuthCache(): { user: User; profile: UserProfile; hospitals: Hospital[] } | null {
   if (typeof window === 'undefined') return null;
@@ -103,17 +138,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [legalStatus, setLegalStatus] = useState<LegalStatus>('unknown');
   const [cacheApplied, setCacheApplied] = useState(false);
 
-  // Apply localStorage cache after mount to avoid hydration mismatch
+  // Apply localStorage cache after mount to avoid hydration mismatch.
+  // Only load cache if the browser session is still active (session cookie exists).
+  // Session cookies are cleared when the browser is closed, so a missing cookie
+  // means this is a new browser session and the user must log in again.
   useEffect(() => {
-    const cached = loadAuthCache();
-    if (cached) {
-      setUser(cached.user);
-      setProfile(cached.profile);
-      setHospitals(cached.hospitals);
-    }
-    const savedHospitalId = localStorage.getItem('clinqflow_hospital_id');
-    if (savedHospitalId) {
-      setCurrentHospitalIdState(savedHospitalId);
+    if (hasBrowserSession()) {
+      const cached = loadAuthCache();
+      if (cached) {
+        setUser(cached.user);
+        setProfile(cached.profile);
+        setHospitals(cached.hospitals);
+      }
+      const savedHospitalId = localStorage.getItem('clinqflow_hospital_id');
+      if (savedHospitalId) {
+        setCurrentHospitalIdState(savedHospitalId);
+      }
     }
     setCacheApplied(true);
   }, []);
@@ -292,6 +332,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // --- Supabase auth mode ---
       const initSupabaseAuth = async () => {
         try {
+          // If no session cookie, browser was closed — clear all persisted auth
+          if (!hasBrowserSession()) {
+            console.log('[AuthProvider] No browser session cookie — clearing auth state');
+            clearAuthCache();
+            localStorage.removeItem('clinqflow_hospital_id');
+            localStorage.removeItem(LAST_ACTIVITY_KEY);
+            localStorage.removeItem('clinqflow_api_token');
+            await supabase!.auth.signOut();
+            if (mounted) {
+              setUser(null);
+              setProfile(null);
+              setHospitals([]);
+              setSession(null);
+              setEntitlements(null);
+              setCurrentHospitalIdState(null);
+              setLoading(false);
+            }
+            return;
+          }
+
           console.log('[AuthProvider] Initializing Supabase auth...');
 
           const timeoutPromise = new Promise<never>((_, reject) => {
@@ -443,6 +503,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const initApiAuth = async () => {
         if (typeof window !== 'undefined') {
+          // If no session cookie, browser was closed — clear persisted auth
+          if (!hasBrowserSession()) {
+            console.log('[AuthProvider] No browser session cookie — clearing API auth');
+            clearAuthCache();
+            localStorage.removeItem('clinqflow_hospital_id');
+            localStorage.removeItem(LAST_ACTIVITY_KEY);
+            localStorage.removeItem('clinqflow_api_token');
+            if (mounted) setLoading(false);
+            return;
+          }
+
           const savedToken = localStorage.getItem('clinqflow_api_token');
           if (savedToken) {
             setApiToken(savedToken);
@@ -547,6 +618,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const authPromise = supabase.auth.signInWithPassword({ email, password });
         const { error } = await Promise.race([authPromise, timeoutPromise]);
         if (!error && typeof window !== 'undefined') {
+          markBrowserSession();
+          setSessionCookie();
           localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
         }
         return { error };
@@ -557,7 +630,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       // API-based auth
       try {
-        const res = await fetch(`${API_BASE}/auth/login`, {
+        const res = await fetch(`${API_BASE}/v1/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password }),
@@ -569,6 +642,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (token) {
             setApiToken(token);
             if (typeof window !== 'undefined') {
+              markBrowserSession();
+              setSessionCookie();
               localStorage.setItem('clinqflow_api_token', token);
               localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
             }
@@ -595,6 +670,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured && supabase) {
       await supabase.auth.signOut();
     }
+    clearBrowserSession();
+    clearSessionCookie();
     if (typeof window !== 'undefined') {
       localStorage.removeItem('clinqflow_hospital_id');
       localStorage.removeItem('clinqflow_api_token');

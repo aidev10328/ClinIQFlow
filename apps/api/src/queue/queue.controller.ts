@@ -66,8 +66,8 @@ export class QueueController {
       throw new BadRequestException('doctorProfileId query parameter required');
     }
 
-    // Default to today if no date provided
-    const queueDate = date || new Date().toISOString().split('T')[0];
+    // Date is required from frontend (hospital-timezone-aware); keep fallback for safety
+    const queueDate = date || '';
 
     return this.queueService.getDailyQueue(hospitalId, doctorProfileId, queueDate);
   }

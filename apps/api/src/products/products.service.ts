@@ -890,17 +890,21 @@ export class ProductsService {
     dto: BulkAssignLicensesDto,
     assignedBy: string,
   ): Promise<{ assigned: number; failed: string[] }> {
+    const results = await Promise.allSettled(
+      dto.doctorIds.map((doctorId) =>
+        this.assignLicense(hospitalId, { doctorId, productCode: dto.productCode }, assignedBy),
+      ),
+    );
+
     const failed: string[] = [];
     let assigned = 0;
-
-    for (const doctorId of dto.doctorIds) {
-      try {
-        await this.assignLicense(hospitalId, { doctorId, productCode: dto.productCode }, assignedBy);
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
         assigned++;
-      } catch (e) {
-        failed.push(doctorId);
+      } else {
+        failed.push(dto.doctorIds[i]);
       }
-    }
+    });
 
     return { assigned, failed };
   }
@@ -1078,24 +1082,28 @@ export class ProductsService {
       };
     }
 
-    const byProduct: LicenseStatsDto['byProduct'] = [];
+    // Fetch all active license counts in a single query
+    const { data: licenses } = await adminClient
+      .from('doctor_product_licenses')
+      .select('product_code')
+      .eq('hospital_id', hospitalId)
+      .eq('status', 'ACTIVE');
 
-    for (const item of subscription.items) {
-      // Count active licenses
-      const { count: used } = await adminClient
-        .from('doctor_product_licenses')
-        .select('id', { count: 'exact', head: true })
-        .eq('hospital_id', hospitalId)
-        .eq('status', 'ACTIVE');
+    const licenseCounts: Record<string, number> = {};
+    for (const lic of licenses || []) {
+      licenseCounts[lic.product_code] = (licenseCounts[lic.product_code] || 0) + 1;
+    }
 
-      byProduct.push({
+    const byProduct: LicenseStatsDto['byProduct'] = subscription.items.map((item) => {
+      const used = licenseCounts[item.productCode] || 0;
+      return {
         productCode: item.productCode,
         productName: item.productName,
         totalLicenses: item.doctorLimit,
-        usedLicenses: used || 0,
-        availableLicenses: item.doctorLimit - (used || 0),
-      });
-    }
+        usedLicenses: used,
+        availableLicenses: item.doctorLimit - used,
+      };
+    });
 
     return {
       hospitalId,

@@ -280,11 +280,12 @@ export default function HospitalDashboardPage() {
   );
   const actualDoctorProfileId = selectedDoctorProfileData?.id || null;
 
-  const { data: doctorScheduleRaw = [] } = useApiQuery<DoctorScheduleRaw[]>(
+  const { data: doctorScheduleData } = useApiQuery<any>(
     ['hospital', 'doctor-schedule', selectedDoctorId || ''],
     selectedDoctorId ? `/v1/doctors/${selectedDoctorId}/schedules` : '',
     { enabled: !!selectedDoctorId }
   );
+  const doctorScheduleRaw: DoctorScheduleRaw[] = Array.isArray(doctorScheduleData) ? doctorScheduleData : (doctorScheduleData?.schedules || []);
   const doctorSchedule = useMemo(() => doctorScheduleRaw.map(normalizeSchedule), [doctorScheduleRaw]);
 
   interface TimeOffEntry { id: string; start_date: string; end_date: string; reason?: string; status: string; }

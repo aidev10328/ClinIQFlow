@@ -339,15 +339,12 @@ export class ProductsController {
   @UseGuards(SupabaseGuard)
   async getHospitalSubscription(@Req() req: AuthenticatedRequest) {
     const hospitalId = req.hospitalId;
-    console.log('[getHospitalSubscription] User:', req.user.id, 'Hospital:', hospitalId);
     if (!hospitalId) {
       throw new BadRequestException('x-hospital-id header required');
     }
 
     await this.requireHospitalManager(req.user.id, hospitalId);
-    const result = await this.productsService.getHospitalSubscription(hospitalId);
-    console.log('[getHospitalSubscription] Result:', result ? 'found' : 'null', 'items:', result?.items?.length || 0);
-    return result;
+    return this.productsService.getHospitalSubscription(hospitalId);
   }
 
   /**

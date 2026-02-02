@@ -4,9 +4,13 @@ import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
+// Debounce flag to prevent multiple simultaneous 401 redirects
+let isRedirectingToLogin = false;
+
 // ── GET response cache ──────────────────────────────────────────────
 // Caches successful GET responses for 2 min so page revisits are instant.
 const CACHE_TTL = 2 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 100;
 const responseCache = new Map<string, { body: string; status: number; ts: number }>();
 
 function getCached(key: string): Response | null {
@@ -35,6 +39,31 @@ export function invalidateApiCache(pathPrefix?: string) {
 }
 
 /**
+ * Handle 401 — session expired or invalid token.
+ * Clears all auth state and redirects to login.
+ */
+function handleUnauthorized() {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname.startsWith('/login')) return;
+  if (isRedirectingToLogin) return;
+
+  isRedirectingToLogin = true;
+  localStorage.removeItem('clinqflow_auth_cache');
+  localStorage.removeItem('clinqflow_hospital_id');
+  localStorage.removeItem('clinqflow_api_token');
+  localStorage.removeItem('clinqflow_last_activity');
+  sessionStorage.removeItem('clinqflow_browser_session');
+  document.cookie = 'clinqflow_session=; path=/; max-age=0';
+
+  const supabase = getSupabaseClient();
+  if (isSupabaseConfigured && supabase) {
+    supabase.auth.signOut().catch(() => {});
+  }
+
+  window.location.href = '/login?reason=expired';
+}
+
+/**
  * Handle special API response codes that require redirects
  */
 async function handleSpecialResponses(res: Response): Promise<void> {
@@ -51,8 +80,6 @@ async function handleSpecialResponses(res: Response): Promise<void> {
 
     // Handle AGREEMENT_REQUIRED - redirect to legal accept page
     if (data.code === 'AGREEMENT_REQUIRED' && typeof window !== 'undefined') {
-      console.log('[apiFetch] Agreement required, redirecting to /legal/accept');
-      // Use replace to avoid adding to history
       window.location.replace('/legal/accept');
       // Throw to prevent further processing
       throw new Error('Redirecting to legal accept page');
@@ -60,7 +87,6 @@ async function handleSpecialResponses(res: Response): Promise<void> {
 
     // Handle HOSPITAL_CONTEXT_REQUIRED - redirect to hospital selector
     if (data.code === 'HOSPITAL_CONTEXT_REQUIRED' && typeof window !== 'undefined') {
-      console.log('[apiFetch] Hospital context required, redirecting to /select-hospital');
       const currentPath = window.location.pathname;
       window.location.replace(`/select-hospital?redirect=${encodeURIComponent(currentPath)}`);
       throw new Error('Redirecting to hospital selector');
@@ -106,8 +132,6 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
-    } else {
-      console.warn('[apiFetch] No token available for path:', path);
     }
 
     // Add hospital ID header if set
@@ -124,7 +148,6 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
           const { impersonatedUser } = JSON.parse(impersonationData);
           if (impersonatedUser?.id) {
             headers['x-impersonate-user-id'] = impersonatedUser.id;
-            console.log('[apiFetch] Impersonating user:', impersonatedUser.email);
           }
         } catch (e) {
           // Ignore parse errors
@@ -155,6 +178,12 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
     });
     clearTimeout(timeoutId);
 
+    // Handle 401 — expired or invalid token → redirect to login
+    if (res.status === 401) {
+      handleUnauthorized();
+      return res;
+    }
+
     // Handle special response codes (AGREEMENT_REQUIRED, HOSPITAL_CONTEXT_REQUIRED)
     await handleSpecialResponses(res);
 
@@ -162,6 +191,11 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
     if (isGet && res.ok) {
       const cloned = res.clone();
       cloned.text().then((body) => {
+        // Evict oldest entries if cache is full
+        if (responseCache.size >= MAX_CACHE_ENTRIES) {
+          const firstKey = responseCache.keys().next().value;
+          if (firstKey) responseCache.delete(firstKey);
+        }
         responseCache.set(path, { body, status: res.status, ts: Date.now() });
       });
     }
