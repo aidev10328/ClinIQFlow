@@ -126,6 +126,16 @@ export function HospitalSidebar() {
         href: '/hospital/details',
         icon: icons.hospital
       });
+      managementItems.push({
+        label: 'Doctors',
+        href: '/hospital/doctors',
+        icon: icons.doctors
+      });
+      managementItems.push({
+        label: 'Patients',
+        href: '/hospital/patients',
+        icon: icons.patients
+      });
     }
 
     // My Profile - doctors only

@@ -83,6 +83,15 @@ export class SlotsForDateDto {
     booked: number;
     blocked: number;
   };
+  isTimeOff?: boolean;
+  timeOffReason?: string;
+  cancelledAppointments?: {
+    appointmentId: string;
+    patientName: string;
+    startTime: string;
+    endTime: string;
+    status: string;
+  }[];
 }
 
 export class GenerateSlotsResponseDto {

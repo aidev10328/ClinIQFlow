@@ -13,11 +13,7 @@ export default function Nav() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState<string>('');
 
-  // Hide Nav on pages that have their own layout (login, hospital portal, admin console)
-  const hideNav = pathname === '/login' || pathname.startsWith('/hospital') || pathname.startsWith('/admin') || pathname.startsWith('/doctor');
-  if (hideNav) return null;
-
-  // Find current hospital
+  // Find current hospital (must be before useEffect)
   const currentHospital = hospitals.find(h => h.id === currentHospitalId);
 
   // Update time display every minute
@@ -33,6 +29,10 @@ export default function Nav() {
 
     return () => clearInterval(interval);
   }, [currentHospital?.timezone]);
+
+  // Hide Nav on pages that have their own layout (login, hospital portal, admin console)
+  const hideNav = pathname === '/login' || pathname.startsWith('/hospital') || pathname.startsWith('/admin') || pathname.startsWith('/doctor');
+  if (hideNav) return null;
 
   async function handleLogout() {
     await signOut();

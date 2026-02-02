@@ -104,11 +104,6 @@ export default function QueuePage() {
   const isDoctor = userRole === 'DOCTOR';
   const isManager = userRole === 'SUPER_ADMIN' || userRole === 'HOSPITAL_MANAGER';
 
-  // Show doctor-specific queue view for doctors
-  if (isDoctor) {
-    return <DoctorQueue />;
-  }
-
   // Manager/Staff queue view below
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
@@ -351,6 +346,11 @@ export default function QueuePage() {
   // Reset pagination when search changes
   useEffect(() => { setScheduledPage(1); }, [scheduledSearch]);
   useEffect(() => { setCompletedPage(1); }, [completedSearch]);
+
+  // Show doctor-specific queue view for doctors (after all hooks)
+  if (isDoctor) {
+    return <DoctorQueue />;
+  }
 
   // Paginated data
   const filteredScheduled = filterScheduled(queueData?.scheduled || [], scheduledSearch).filter(s => !s.isCheckedIn);

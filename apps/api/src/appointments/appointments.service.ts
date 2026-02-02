@@ -108,15 +108,6 @@ export class AppointmentsService {
       endDate: t.end_date,
     }));
 
-    // Get hospital holidays
-    const { data: hospitalData } = await adminClient
-      .from('hospitals')
-      .select('hospital_holidays')
-      .eq('id', hospitalId)
-      .single();
-
-    const hospitalHolidays: { month: number; day: number; name: string }[] = hospitalData?.hospital_holidays || [];
-
     // Get existing slots to avoid duplicates
     const { data: existingSlots } = await adminClient
       .from('appointment_slots')
@@ -151,11 +142,6 @@ export class AppointmentsService {
         continue;
       }
 
-      // Check if date is a hospital holiday
-      if (this.isHospitalHoliday(d, hospitalHolidays)) {
-        continue;
-      }
-
       // Generate slots for this day
       const daySlots = this.generateDaySlots(
         dateStr,
@@ -177,16 +163,21 @@ export class AppointmentsService {
       }
     }
 
-    // Bulk insert slots
+    // Bulk insert slots in batches of 500 to avoid Supabase row limits
     if (slotsToCreate.length > 0) {
-      const { error: insertError } = await adminClient
-        .from('appointment_slots')
-        .insert(slotsToCreate);
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < slotsToCreate.length; i += BATCH_SIZE) {
+        const batch = slotsToCreate.slice(i, i + BATCH_SIZE);
+        const { error: insertError } = await adminClient
+          .from('appointment_slots')
+          .insert(batch);
 
-      if (insertError) {
-        this.logger.error(`Failed to insert slots: ${insertError.message}`);
-        throw new BadRequestException('Failed to generate slots');
+        if (insertError) {
+          this.logger.error(`Failed to insert slots batch ${Math.floor(i / BATCH_SIZE) + 1}: ${insertError.message}`);
+          throw new BadRequestException('Failed to generate slots');
+        }
       }
+      this.logger.log(`[generateSlots] Inserted ${slotsToCreate.length} slots in ${Math.ceil(slotsToCreate.length / BATCH_SIZE)} batches`);
     }
 
     return {
@@ -211,6 +202,18 @@ export class AppointmentsService {
     if (!adminClient) {
       throw new BadRequestException('Admin client not available');
     }
+
+    // Check if this date falls within a time-off period
+    const { data: timeOffEntries } = await adminClient
+      .from('doctor_time_off')
+      .select('start_date, end_date, reason')
+      .eq('doctor_profile_id', doctorProfileId)
+      .eq('status', 'approved')
+      .lte('start_date', date)
+      .gte('end_date', date);
+
+    const isTimeOff = (timeOffEntries || []).length > 0;
+    const timeOffReason = isTimeOff ? (timeOffEntries![0].reason || 'Day Off') : undefined;
 
     // Get slots for this date
     const { data: slots, error } = await adminClient
@@ -278,8 +281,12 @@ export class AppointmentsService {
       patientMap.set(p.id, `${p.first_name} ${p.last_name}`);
     });
 
-    // Map slots to response DTOs
-    const slotResponses: SlotResponseDto[] = (slots || []).map((s: any) => {
+    // Map slots to response DTOs — filter out AVAILABLE slots on time-off days
+    const filteredSlots = isTimeOff
+      ? (slots || []).filter((s: any) => s.status !== 'AVAILABLE')
+      : (slots || []);
+
+    const slotResponses: SlotResponseDto[] = filteredSlots.map((s: any) => {
       const appointment = appointmentMap.get(s.id);
       return {
         id: s.id,
@@ -321,6 +328,40 @@ export class AppointmentsService {
       year: 'numeric',
     });
 
+    // On time-off days, also fetch cancelled appointments so staff can reschedule
+    let cancelledAppointments: any[] | undefined;
+    if (isTimeOff) {
+      const { data: cancelled } = await adminClient
+        .from('appointments')
+        .select('id, appointment_date, start_time, end_time, status, patient_id')
+        .eq('doctor_profile_id', doctorProfileId)
+        .eq('hospital_id', hospitalId)
+        .eq('appointment_date', date)
+        .eq('status', 'CANCELLED')
+        .order('start_time');
+
+      if (cancelled && cancelled.length > 0) {
+        const cPatientIds = cancelled.map((a: any) => a.patient_id);
+        const { data: cPatients } = await adminClient
+          .from('patients')
+          .select('id, first_name, last_name')
+          .in('id', cPatientIds);
+
+        const cPatientMap = new Map<string, string>();
+        (cPatients || []).forEach((p: any) => {
+          cPatientMap.set(p.id, `${p.first_name} ${p.last_name}`);
+        });
+
+        cancelledAppointments = cancelled.map((a: any) => ({
+          appointmentId: a.id,
+          patientName: cPatientMap.get(a.patient_id) || 'Unknown',
+          startTime: a.start_time,
+          endTime: a.end_time,
+          status: a.status,
+        }));
+      }
+    }
+
     return {
       date,
       formattedDate,
@@ -328,6 +369,11 @@ export class AppointmentsService {
       evening,
       night,
       stats,
+      ...(isTimeOff && {
+        isTimeOff: true,
+        timeOffReason,
+        ...(cancelledAppointments && cancelledAppointments.length > 0 && { cancelledAppointments }),
+      }),
     };
   }
 
@@ -350,6 +396,25 @@ export class AppointmentsService {
     const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
     const endDate = new Date(year, month, 0).toISOString().split('T')[0];
 
+    // Get time-off entries that overlap this month
+    const { data: timeOffs } = await adminClient
+      .from('doctor_time_off')
+      .select('start_date, end_date')
+      .eq('doctor_profile_id', doctorProfileId)
+      .eq('status', 'approved')
+      .lte('start_date', endDate)
+      .gte('end_date', startDate);
+
+    // Build time-off date set for this month
+    const timeOffDates = new Set<string>();
+    (timeOffs || []).forEach((to: any) => {
+      const s = to.start_date < startDate ? startDate : to.start_date;
+      const e = to.end_date > endDate ? endDate : to.end_date;
+      for (let d = new Date(s + 'T00:00:00'); d.toISOString().split('T')[0] <= e; d.setDate(d.getDate() + 1)) {
+        timeOffDates.add(d.toISOString().split('T')[0]);
+      }
+    });
+
     // Get all slots for the month
     const { data: slots } = await adminClient
       .from('appointment_slots')
@@ -359,14 +424,14 @@ export class AppointmentsService {
       .gte('slot_date', startDate)
       .lte('slot_date', endDate);
 
-    // Group by date
+    // Group by date — exclude AVAILABLE slots on time-off days
     const dateMap = new Map<string, { available: number; booked: number }>();
     (slots || []).forEach((s: any) => {
       if (!dateMap.has(s.slot_date)) {
         dateMap.set(s.slot_date, { available: 0, booked: 0 });
       }
       const day = dateMap.get(s.slot_date)!;
-      if (s.status === 'AVAILABLE') {
+      if (s.status === 'AVAILABLE' && !timeOffDates.has(s.slot_date)) {
         day.available++;
       } else if (s.status === 'BOOKED') {
         day.booked++;
@@ -1037,6 +1102,289 @@ export class AppointmentsService {
     return doctors;
   }
 
+  /**
+   * Check for conflicts when schedule/duration/time-off changes
+   */
+  async checkScheduleConflicts(
+    doctorProfileId: string,
+    hospitalId: string,
+    changeType: 'schedule' | 'duration' | 'timeoff',
+    payload: {
+      schedules?: { dayOfWeek: number; isWorking: boolean; shiftStart: string | null; shiftEnd: string | null }[];
+      durationMinutes?: number;
+      startDate?: string;
+      endDate?: string;
+    },
+  ): Promise<{
+    conflicts: {
+      appointmentId: string;
+      patientName: string;
+      appointmentDate: string;
+      startTime: string;
+      endTime: string;
+      status: string;
+      hasQueueEntry: boolean;
+      queueEntryId?: string;
+    }[];
+    summary: {
+      totalAppointments: number;
+      totalQueueEntries: number;
+      dateRange: { from: string; to: string };
+      slotsToDelete: number;
+    };
+  }> {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Get all future booked appointments for this doctor
+    const { data: appointments } = await adminClient
+      .from('appointments')
+      .select('id, appointment_date, start_time, end_time, status, patient_id, slot_id')
+      .eq('doctor_profile_id', doctorProfileId)
+      .eq('hospital_id', hospitalId)
+      .gte('appointment_date', today)
+      .in('status', ['SCHEDULED', 'CONFIRMED']);
+
+    if (!appointments || appointments.length === 0) {
+      // Count future AVAILABLE slots that would be deleted
+      const { count: availableCount } = await adminClient
+        .from('appointment_slots')
+        .select('id', { count: 'exact', head: true })
+        .eq('doctor_profile_id', doctorProfileId)
+        .eq('hospital_id', hospitalId)
+        .gte('slot_date', today)
+        .eq('status', 'AVAILABLE');
+
+      return {
+        conflicts: [],
+        summary: {
+          totalAppointments: 0,
+          totalQueueEntries: 0,
+          dateRange: { from: today, to: today },
+          slotsToDelete: availableCount || 0,
+        },
+      };
+    }
+
+    // Get patient names
+    const patientIds = [...new Set(appointments.map((a: any) => a.patient_id))];
+    const { data: patients } = await adminClient
+      .from('patients')
+      .select('id, first_name, last_name')
+      .in('id', patientIds);
+
+    const patientMap = new Map<string, string>();
+    (patients || []).forEach((p: any) => {
+      patientMap.set(p.id, `${p.first_name} ${p.last_name}`.trim());
+    });
+
+    // Get queue entries for those appointments
+    const appointmentIds = appointments.map((a: any) => a.id);
+    const { data: queueEntries } = await adminClient
+      .from('queue_entries')
+      .select('id, appointment_id, status')
+      .in('appointment_id', appointmentIds)
+      .in('status', ['QUEUED', 'WAITING']);
+
+    const queueMap = new Map<string, string>();
+    (queueEntries || []).forEach((q: any) => {
+      queueMap.set(q.appointment_id, q.id);
+    });
+
+    // Determine which appointments are conflicts based on change type
+    const conflicts: any[] = [];
+
+    for (const appt of appointments as any[]) {
+      let isConflict = false;
+
+      if (changeType === 'schedule' && payload.schedules) {
+        const apptDate = new Date(appt.appointment_date + 'T00:00:00');
+        const dayOfWeek = apptDate.getDay();
+        const proposed = payload.schedules.find(s => s.dayOfWeek === dayOfWeek);
+
+        if (!proposed || !proposed.isWorking) {
+          // Day is no longer a working day
+          isConflict = true;
+        } else if (proposed.shiftStart && proposed.shiftEnd) {
+          // Check if appointment time falls outside new shift window
+          const apptStart = this.timeToMinutes(appt.start_time);
+          const apptEnd = this.timeToMinutes(appt.end_time);
+          const shiftStart = this.timeToMinutes(proposed.shiftStart);
+          const shiftEnd = this.timeToMinutes(proposed.shiftEnd);
+          if (apptStart < shiftStart || apptEnd > shiftEnd) {
+            isConflict = true;
+          }
+        }
+      } else if (changeType === 'duration') {
+        // Duration change affects all slot boundaries
+        isConflict = true;
+      } else if (changeType === 'timeoff' && payload.startDate && payload.endDate) {
+        // Check if appointment date falls within time-off range
+        if (appt.appointment_date >= payload.startDate && appt.appointment_date <= payload.endDate) {
+          isConflict = true;
+        }
+      }
+
+      if (isConflict) {
+        const queueEntryId = queueMap.get(appt.id);
+        conflicts.push({
+          appointmentId: appt.id,
+          patientName: patientMap.get(appt.patient_id) || 'Unknown',
+          appointmentDate: appt.appointment_date,
+          startTime: appt.start_time,
+          endTime: appt.end_time,
+          status: appt.status,
+          hasQueueEntry: !!queueEntryId,
+          queueEntryId: queueEntryId || undefined,
+        });
+      }
+    }
+
+    // Count future AVAILABLE slots
+    const { count: availableCount } = await adminClient
+      .from('appointment_slots')
+      .select('id', { count: 'exact', head: true })
+      .eq('doctor_profile_id', doctorProfileId)
+      .eq('hospital_id', hospitalId)
+      .gte('slot_date', today)
+      .eq('status', 'AVAILABLE');
+
+    const dates = conflicts.map(c => c.appointmentDate).sort();
+
+    return {
+      conflicts,
+      summary: {
+        totalAppointments: conflicts.length,
+        totalQueueEntries: conflicts.filter(c => c.hasQueueEntry).length,
+        dateRange: {
+          from: dates[0] || today,
+          to: dates[dates.length - 1] || today,
+        },
+        slotsToDelete: availableCount || 0,
+      },
+    };
+  }
+
+  /**
+   * Regenerate slots: cancel conflicting appointments, delete future AVAILABLE slots, regenerate
+   */
+  async regenerateSlots(
+    doctorProfileId: string,
+    hospitalId: string,
+    userId: string,
+    accessToken: string,
+    cancelAppointmentIds: string[],
+  ): Promise<{ cancelled: number; slotsDeleted: number; slotsGenerated: number }> {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    this.logger.log(`[regenerateSlots] Starting for doctor ${doctorProfileId}, hospital ${hospitalId}, today=${today}, cancelling ${cancelAppointmentIds.length} appointments`);
+    let cancelledCount = 0;
+
+    // 1. Cancel conflicting appointments
+    for (const appointmentId of cancelAppointmentIds) {
+      const { data: appt } = await adminClient
+        .from('appointments')
+        .select('id, slot_id, status')
+        .eq('id', appointmentId)
+        .eq('hospital_id', hospitalId)
+        .single();
+
+      if (!appt || appt.status === 'CANCELLED') continue;
+
+      // Cancel the appointment
+      await adminClient
+        .from('appointments')
+        .update({
+          status: 'CANCELLED',
+          cancellation_reason: 'Schedule change by hospital',
+          cancelled_at: new Date().toISOString(),
+        })
+        .eq('id', appointmentId);
+
+      // Set slot back to AVAILABLE
+      if (appt.slot_id) {
+        await adminClient
+          .from('appointment_slots')
+          .update({ status: 'AVAILABLE' })
+          .eq('id', appt.slot_id);
+      }
+
+      // Remove linked queue entries
+      await adminClient
+        .from('queue_entries')
+        .update({ status: 'LEFT' })
+        .eq('appointment_id', appointmentId)
+        .in('status', ['QUEUED', 'WAITING']);
+
+      cancelledCount++;
+    }
+
+    // 2. Delete all future AVAILABLE slots (they will be regenerated)
+    const { count: deletedCount, error: deleteError } = await adminClient
+      .from('appointment_slots')
+      .delete({ count: 'exact' })
+      .eq('doctor_profile_id', doctorProfileId)
+      .eq('hospital_id', hospitalId)
+      .gte('slot_date', today)
+      .eq('status', 'AVAILABLE');
+
+    if (deleteError) {
+      this.logger.error(`[regenerateSlots] Delete error: ${deleteError.message}`);
+    }
+    this.logger.log(`[regenerateSlots] Deleted ${deletedCount || 0} AVAILABLE slots from ${today} onward`);
+
+    // 3. Regenerate slots for 1 year from today
+    const endDate = new Date();
+    endDate.setFullYear(endDate.getFullYear() + 1);
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    const result = await this.generateSlots(
+      {
+        doctorProfileId,
+        startDate: today,
+        endDate: endDateStr,
+      },
+      hospitalId,
+      userId,
+      accessToken,
+    );
+
+    this.logger.log(`[regenerateSlots] Done: cancelled=${cancelledCount}, deleted=${deletedCount || 0}, generated=${result.slotsGenerated}, skipped=${result.slotsSkipped}`);
+
+    return {
+      cancelled: cancelledCount,
+      slotsDeleted: deletedCount || 0,
+      slotsGenerated: result.slotsGenerated,
+    };
+  }
+
+  /**
+   * Get the latest slot date for a doctor
+   */
+  async getLatestSlotDate(doctorProfileId: string, hospitalId: string) {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+    const { data } = await adminClient
+      .from('appointment_slots')
+      .select('slot_date')
+      .eq('doctor_profile_id', doctorProfileId)
+      .eq('hospital_id', hospitalId)
+      .order('slot_date', { ascending: false })
+      .limit(1)
+      .single();
+    return { latestSlotDate: data?.slot_date || null };
+  }
+
   // ============ Private Helper Methods ============
 
   private isDateInTimeOff(date: string, timeOffs: TimeOff[]): boolean {
@@ -1046,12 +1394,6 @@ export class AppointmentsService {
       }
     }
     return false;
-  }
-
-  private isHospitalHoliday(date: Date, holidays: { month: number; day: number; name: string }[]): boolean {
-    const month = date.getMonth() + 1; // getMonth() is 0-indexed
-    const day = date.getDate();
-    return holidays.some(h => h.month === month && h.day === day);
   }
 
   private generateDaySlots(

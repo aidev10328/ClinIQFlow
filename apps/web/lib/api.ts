@@ -135,9 +135,17 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
     console.error('[apiFetch] Error getting session:', e.message);
   }
 
-  // Add timeout to prevent hanging
+  // Pre-invalidate cache for mutations so stale data isn't served even if the request times out
+  if (!isGet) {
+    const segments = path.split('/').slice(0, 3);
+    invalidateApiCache(segments.join('/'));
+  }
+
+  // Add timeout to prevent hanging (longer for slot regeneration)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  const isSlotRegeneration = path.includes('/slots/regenerate') || path.includes('/slots/generate');
+  const timeoutMs = isSlotRegeneration ? 60000 : 10000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -158,9 +166,8 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
       });
     }
 
-    // Mutations invalidate related cache entries
+    // Also invalidate after mutation completes (in case data was re-cached during the request)
     if (!isGet) {
-      // Extract the resource prefix (e.g., /v1/patients from /v1/patients/123)
       const segments = path.split('/').slice(0, 3);
       invalidateApiCache(segments.join('/'));
     }

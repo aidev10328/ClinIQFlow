@@ -246,7 +246,6 @@ export default function HospitalDashboardPage() {
   const [weekOffset, setWeekOffset] = useState(0);
 
   const userRole = profile?.isSuperAdmin ? 'SUPER_ADMIN' : (currentHospital?.role || 'STAFF');
-  if (userRole === 'DOCTOR') return <DoctorDashboard />;
 
   // ─── Data Scoping Context ────────────────────────────────────────────────
   const { data: scopingContext } = useApiQuery<{
@@ -643,6 +642,9 @@ export default function HospitalDashboardPage() {
   const nextMonth = () => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); } else setCalMonth(calMonth + 1); };
 
   const licensePct = stats.licensesTotal > 0 ? Math.round((stats.licensesUsed / stats.licensesTotal) * 100) : 0;
+
+  // Show doctor-specific dashboard (after all hooks)
+  if (userRole === 'DOCTOR') return <DoctorDashboard />;
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[400px]">

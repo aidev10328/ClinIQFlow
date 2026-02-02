@@ -57,6 +57,74 @@ export class AppointmentsController {
   }
 
   /**
+   * Check for conflicts when schedule/duration/time-off changes
+   * POST /v1/appointments/slots/check-conflicts
+   */
+  @Post('slots/check-conflicts')
+  async checkScheduleConflicts(
+    @Body() body: { doctorProfileId: string; changeType: 'schedule' | 'duration' | 'timeoff'; payload: any },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException('x-hospital-id header is required');
+    }
+    if (!body.doctorProfileId) {
+      throw new BadRequestException('doctorProfileId is required');
+    }
+    return this.appointmentsService.checkScheduleConflicts(
+      body.doctorProfileId,
+      hospitalId,
+      body.changeType,
+      body.payload || {},
+    );
+  }
+
+  /**
+   * Regenerate slots: cancel conflicts, delete future AVAILABLE slots, regenerate
+   * POST /v1/appointments/slots/regenerate
+   */
+  @Post('slots/regenerate')
+  async regenerateSlots(
+    @Body() body: { doctorProfileId: string; cancelAppointmentIds: string[] },
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException('x-hospital-id header is required');
+    }
+    if (!body.doctorProfileId) {
+      throw new BadRequestException('doctorProfileId is required');
+    }
+    return this.appointmentsService.regenerateSlots(
+      body.doctorProfileId,
+      hospitalId,
+      req.user.id,
+      req.accessToken,
+      body.cancelAppointmentIds || [],
+    );
+  }
+
+  /**
+   * Get the latest slot date for a doctor
+   * GET /v1/appointments/slots/latest
+   */
+  @Get('slots/latest')
+  async getLatestSlotDate(
+    @Query('doctorProfileId') doctorProfileId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException('x-hospital-id header is required');
+    }
+    if (!doctorProfileId) {
+      throw new BadRequestException('doctorProfileId query parameter is required');
+    }
+    return this.appointmentsService.getLatestSlotDate(doctorProfileId, hospitalId);
+  }
+
+  /**
    * Get slots for a specific date
    * GET /v1/appointments/slots/date/:date
    */
