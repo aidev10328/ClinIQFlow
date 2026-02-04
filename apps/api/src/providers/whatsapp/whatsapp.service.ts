@@ -15,7 +15,7 @@ export class WhatsAppService {
   private readonly phoneNumberId: string;
   private readonly templateName: string;
   private readonly templateLanguage: string;
-  private readonly apiVersion = 'v21.0';
+  private readonly apiVersion = 'v22.0';
 
   constructor(private configService: ConfigService) {
     this.enabled = this.configService.get<string>('WHATSAPP_ENABLED') === 'true';
@@ -83,7 +83,7 @@ export class WhatsAppService {
     }
 
     try {
-      this.logger.debug(`Sending WhatsApp template "${templateName}" to ${cleanPhone}`);
+      this.logger.debug(`Sending WhatsApp template "${templateName}" to ${cleanPhone} via ${url}`);
 
       const response = await fetch(url, {
         method: 'POST',

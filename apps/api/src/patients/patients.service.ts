@@ -171,90 +171,85 @@ export class PatientsService {
 
     const patient = this.mapPatient(data);
 
-    // Send WhatsApp welcome notification (non-blocking)
-    if (dto.phone && this.whatsapp.isEnabled()) {
-      this.sendPatientWhatsAppNotification(dto.phone, patient, hospitalId).catch(err => {
-        this.logger.error(`Failed to send WhatsApp notification: ${err.message}`);
-      });
-    }
-
-    // Trigger n8n webhook (non-blocking)
-    this.triggerN8nPatientCreated(patient, hospitalId).catch(err => {
-      this.logger.error(`Failed to trigger n8n webhook: ${err.message}`);
+    // Send WhatsApp first, then trigger n8n with the result (non-blocking)
+    this.sendWhatsAppThenTriggerN8n(dto.phone, patient, hospitalId).catch(err => {
+      this.logger.error(`Post-creation pipeline error: ${err.message}`);
     });
 
     return patient;
   }
 
   /**
-   * Send WhatsApp welcome message to newly created patient
+   * Send WhatsApp welcome, then trigger n8n with the result.
+   * ClinIQFlow is the sole WhatsApp sender — n8n receives the outcome
+   * so it can handle follow-up logic (retry, escalate, CRM update, etc.)
+   * without needing WhatsApp credentials.
    */
-  private async sendPatientWhatsAppNotification(
-    phone: string,
+  private async sendWhatsAppThenTriggerN8n(
+    phone: string | undefined,
     patient: any,
     hospitalId: string,
   ) {
+    const adminClient = this.supabase.getAdminClient();
+
+    // Fetch hospital name (shared by both WhatsApp and n8n)
+    let hospitalName = '';
     try {
-      // Fetch hospital name for the message
-      const adminClient = this.supabase.getAdminClient();
-      if (!adminClient) return;
       const { data: hospital } = await adminClient
         .from('hospitals')
         .select('name')
         .eq('id', hospitalId)
         .single();
-
-      const hospitalName = hospital?.name || 'our hospital';
-      const patientName = `${patient.firstName} ${patient.lastName}`.trim();
-
-      const result = await this.whatsapp.sendPatientWelcome(
-        phone,
-        patientName,
-        hospitalName,
-      );
-
-      if (result.success) {
-        this.logger.log(`WhatsApp welcome sent to patient ${patient.id} (${phone})`);
-
-        // Log notification in database
-        await adminClient.from('whatsapp_notifications').insert({
-          hospital_id: hospitalId,
-          patient_id: patient.id,
-          recipient_phone: phone,
-          template_name: 'patient_welcome',
-          status: 'sent',
-          wa_message_id: result.messageId,
-        });
-      } else {
-        this.logger.warn(`WhatsApp welcome failed for patient ${patient.id}: ${result.error}`);
-
-        await adminClient.from('whatsapp_notifications').insert({
-          hospital_id: hospitalId,
-          patient_id: patient.id,
-          recipient_phone: phone,
-          template_name: 'patient_welcome',
-          status: 'failed',
-          error_message: result.error,
-        });
-      }
+      hospitalName = hospital?.name || '';
     } catch (err) {
-      this.logger.error(`WhatsApp notification error for patient in hospital ${hospitalId}: ${err}`);
+      this.logger.warn(`Could not fetch hospital name for ${hospitalId}`);
     }
-  }
 
-  private async triggerN8nPatientCreated(patient: any, hospitalId: string) {
-    try {
-      const adminClient = this.supabase.getAdminClient();
-      let hospitalName = '';
-      if (adminClient) {
-        const { data: hospital } = await adminClient
-          .from('hospitals')
-          .select('name')
-          .eq('id', hospitalId)
-          .single();
-        hospitalName = hospital?.name || '';
+    // Step 1: Send WhatsApp welcome
+    let whatsappResult: { sent: boolean; messageId?: string; error?: string } = { sent: false };
+
+    if (phone && this.whatsapp.isEnabled()) {
+      try {
+        const patientName = `${patient.firstName} ${patient.lastName}`.trim();
+        const result = await this.whatsapp.sendPatientWelcome(
+          phone,
+          patientName,
+          hospitalName || 'our hospital',
+        );
+
+        if (result.success) {
+          whatsappResult = { sent: true, messageId: result.messageId };
+          this.logger.log(`WhatsApp welcome sent to patient ${patient.id} (${phone})`);
+
+          await adminClient.from('whatsapp_notifications').insert({
+            hospital_id: hospitalId,
+            patient_id: patient.id,
+            recipient_phone: phone,
+            template_name: 'patient_welcome',
+            status: 'sent',
+            wa_message_id: result.messageId,
+          });
+        } else {
+          whatsappResult = { sent: false, error: result.error };
+          this.logger.warn(`WhatsApp welcome failed for patient ${patient.id}: ${result.error}`);
+
+          await adminClient.from('whatsapp_notifications').insert({
+            hospital_id: hospitalId,
+            patient_id: patient.id,
+            recipient_phone: phone,
+            template_name: 'patient_welcome',
+            status: 'failed',
+            error_message: result.error,
+          });
+        }
+      } catch (err) {
+        whatsappResult = { sent: false, error: err instanceof Error ? err.message : String(err) };
+        this.logger.error(`WhatsApp notification error for patient in hospital ${hospitalId}: ${err}`);
       }
+    }
 
+    // Step 2: Trigger n8n with patient data + WhatsApp result
+    try {
       await this.n8n.onPatientCreated({
         id: patient.id,
         firstName: patient.firstName,
@@ -263,6 +258,7 @@ export class PatientsService {
         email: patient.email,
         hospitalId,
         hospitalName,
+        whatsappResult,
       });
     } catch (err) {
       this.logger.error(`n8n webhook error for patient ${patient.id}: ${err}`);

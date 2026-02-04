@@ -86,6 +86,7 @@ export class N8nService {
     email?: string;
     hospitalId: string;
     hospitalName?: string;
+    whatsappResult?: { sent: boolean; messageId?: string; error?: string };
   }) {
     return this.triggerWebhook('ddc295ed-4c5d-4243-8dce-f271ded16955', {
       patientId: patient.id,
@@ -95,6 +96,7 @@ export class N8nService {
       email: patient.email,
       hospitalId: patient.hospitalId,
       hospitalName: patient.hospitalName,
+      whatsappResult: patient.whatsappResult || { sent: false },
     });
   }
 
