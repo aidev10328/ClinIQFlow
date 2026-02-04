@@ -191,6 +191,7 @@ export class PatientsService {
     hospitalId: string,
   ) {
     const adminClient = this.supabase.getAdminClient();
+    if (!adminClient) return;
 
     // Fetch hospital name (shared by both WhatsApp and n8n)
     let hospitalName = '';

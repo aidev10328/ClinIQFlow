@@ -1,23 +1,27 @@
+# Build context must be the monorepo root:
+#   docker build -f apps/api/Dockerfile .
+
 # Stage 1: Build
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json* ./
-COPY prisma ./prisma/
+# Copy monorepo root package files
+COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm ci
+# Copy API package.json for workspace install
+COPY apps/api/package.json ./apps/api/
 
-# Generate Prisma client
-RUN npx prisma generate
+# Install all dependencies
+RUN npm ci --workspace=apps/api --include-workspace-root
 
-# Copy source code
-COPY tsconfig.json ./
-COPY src ./src/
+# Copy prisma schema and generate client
+COPY apps/api/prisma ./apps/api/prisma/
+RUN cd apps/api && npx prisma generate
 
-# Build
-RUN npm run build
+# Copy API source and build
+COPY apps/api/tsconfig.json ./apps/api/
+COPY apps/api/src ./apps/api/src/
+RUN cd apps/api && npm run build
 
 # Stage 2: Production
 FROM node:20-alpine AS runner
@@ -25,13 +29,21 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy package files and install production deps only
-COPY package.json package-lock.json* ./
-COPY prisma ./prisma/
-RUN npm ci --omit=dev && npx prisma generate
+# Copy monorepo root package files
+COPY package.json package-lock.json ./
+COPY apps/api/package.json ./apps/api/
+
+# Install production deps only
+RUN npm ci --workspace=apps/api --include-workspace-root --omit=dev
+
+# Generate Prisma client
+COPY apps/api/prisma ./apps/api/prisma/
+RUN cd apps/api && npx prisma generate
 
 # Copy built output
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+
+WORKDIR /app/apps/api
 
 EXPOSE 4005
 
