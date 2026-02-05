@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '../AuthProvider';
 
@@ -180,11 +179,13 @@ export function HospitalSidebar() {
     ];
     sections.push({ title: 'ClinIQ Brief', items: cliniqBriefItems });
 
-    // ClinIQPay section - Payments
-    const cliniqPayItems: NavItem[] = [
-      { label: 'Payments', href: '/hospital/payments', icon: icons.payments },
-    ];
-    sections.push({ title: 'ClinIQPay', items: cliniqPayItems });
+    // ClinIQPay section - Payments (not shown for staff)
+    if (!isStaff) {
+      const cliniqPayItems: NavItem[] = [
+        { label: 'Payments', href: '/hospital/payments', icon: icons.payments },
+      ];
+      sections.push({ title: 'ClinIQPay', items: cliniqPayItems });
+    }
 
     return sections;
   }, [isManager, isDoctor, isStaff, hasAppointments]);
@@ -231,16 +232,24 @@ export function HospitalSidebar() {
 
   const sidebarContent = (
     <>
-      {/* ClinIQFlow Logo at Top */}
+      {/* Hospital Logo at Top */}
       <div className="admin-sidebar-header">
         <Link href="/hospital/dashboard" className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-white border-2 border-[var(--color-primary)] flex items-center justify-center shadow-sm">
-            <svg className="w-4 h-4 text-[var(--color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          </div>
+          {currentHospital?.logoUrl ? (
+            <img
+              src={currentHospital.logoUrl}
+              alt={currentHospital.name || 'Hospital'}
+              className="w-7 h-7 rounded-lg object-contain flex-shrink-0"
+            />
+          ) : (
+            <div className="w-7 h-7 rounded-lg bg-[var(--color-primary)] flex items-center justify-center shadow-sm flex-shrink-0">
+              <span className="text-white font-bold text-xs">
+                {currentHospital?.name?.charAt(0) || 'H'}
+              </span>
+            </div>
+          )}
           <div className="flex-1 min-w-0">
-            <span className="font-bold text-slate-900 text-xs block">ClinIQ Flow</span>
+            <span className="font-bold text-slate-900 text-xs block truncate">{currentHospital?.name || 'Hospital'}</span>
           </div>
         </Link>
       </div>
@@ -283,16 +292,16 @@ export function HospitalSidebar() {
       {/* Spacer to push content to bottom */}
       <div className="flex-1 min-h-4"></div>
 
-      {/* Decorative Plant Image */}
-      <div className="px-3 pb-3 flex justify-center flex-shrink-0">
-        <Image
-          src="/images/sidebar/plant.webp"
-          alt=""
-          width={120}
-          height={120}
-          className="object-contain opacity-90"
-          priority={false}
-        />
+      {/* ClinIQ Flow Branding at Bottom */}
+      <div className="px-3 pb-3 flex-shrink-0">
+        <div className="flex items-center justify-center gap-1.5 py-2 border-t border-slate-100">
+          <div className="w-5 h-5 rounded-md bg-white border border-[var(--color-primary)] flex items-center justify-center">
+            <svg className="w-3 h-3 text-[var(--color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <span className="text-[10px] text-slate-400 font-medium">Powered by ClinIQ Flow</span>
+        </div>
       </div>
     </>
   );
@@ -311,18 +320,24 @@ export function HospitalSidebar() {
           </svg>
         </button>
 
-        {/* Branding + Hospital Name */}
+        {/* Hospital Logo + Name */}
         <Link href="/hospital/dashboard" className="flex items-center gap-2 min-w-0 flex-1 mx-2">
-          <div className="w-7 h-7 rounded-md bg-white border-2 border-[var(--color-primary)] flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 text-[var(--color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          </div>
+          {currentHospital?.logoUrl ? (
+            <img
+              src={currentHospital.logoUrl}
+              alt={currentHospital.name || 'Hospital'}
+              className="w-7 h-7 rounded-md object-contain flex-shrink-0"
+            />
+          ) : (
+            <div className="w-7 h-7 rounded-md bg-[var(--color-primary)] flex items-center justify-center flex-shrink-0">
+              <span className="text-white font-bold text-xs">
+                {currentHospital?.name?.charAt(0) || 'H'}
+              </span>
+            </div>
+          )}
           <div className="min-w-0">
-            <p className="text-xs font-bold text-slate-900 leading-tight">ClinIQ Flow</p>
-            {currentHospital && (
-              <p className="text-[10px] text-slate-500 font-medium truncate leading-tight">{currentHospital.name}</p>
-            )}
+            <p className="text-xs font-bold text-slate-900 leading-tight truncate">{currentHospital?.name || 'Hospital'}</p>
+            <p className="text-[10px] text-slate-400 font-medium leading-tight">ClinIQ Flow</p>
           </div>
         </Link>
 

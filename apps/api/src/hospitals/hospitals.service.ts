@@ -333,6 +333,17 @@ export class HospitalsService {
       profileMap.set(p.user_id, { email: p.email, full_name: p.full_name });
     }
 
+    // Fetch doctor profiles for DOCTOR members (doctorProfileId + specialization)
+    const doctorUserIds = (members || []).filter(m => m.role === 'DOCTOR').map(m => m.user_id);
+    const { data: doctorProfiles } = doctorUserIds.length > 0
+      ? await adminClient.from('doctor_profiles').select('id, user_id, specialization').in('user_id', doctorUserIds)
+      : { data: [] };
+
+    const doctorProfileMap = new Map<string, { id: string; specialization: string | null }>();
+    for (const dp of doctorProfiles || []) {
+      doctorProfileMap.set(dp.user_id, { id: dp.id, specialization: dp.specialization });
+    }
+
     // Get required documents for each role
     const { data: requiredDocs } = await adminClient
       .from('hospital_required_documents')
@@ -388,6 +399,8 @@ export class HospitalsService {
         complianceStatus = 'pending_signatures';
       }
 
+      const doctorProfile = doctorProfileMap.get(m.user_id);
+
       return {
         id: m.id,
         userId: m.user_id,
@@ -401,6 +414,9 @@ export class HospitalsService {
         hasLoggedIn,
         documentsRequired: requiredDocs.length,
         documentsSigned: acceptedDocs.size,
+        // Doctor-specific fields
+        doctorProfileId: doctorProfile?.id || null,
+        specialization: doctorProfile?.specialization || null,
       };
     });
   }

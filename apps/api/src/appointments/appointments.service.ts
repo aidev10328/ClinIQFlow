@@ -263,7 +263,7 @@ export class AppointmentsService {
     const slotIds = (slots || []).map((s: any) => s.id);
     const { data: appointments } = await adminClient
       .from('appointments')
-      .select('slot_id, id, patient_id')
+      .select('slot_id, id, patient_id, reason_for_visit, status_token')
       .in('slot_id', slotIds.length > 0 ? slotIds : ['00000000-0000-0000-0000-000000000000']);
 
     const appointmentMap = new Map<string, any>();
@@ -271,16 +271,19 @@ export class AppointmentsService {
       appointmentMap.set(a.slot_id, a);
     });
 
-    // Get patient names for booked appointments
+    // Get patient names and phones for booked appointments
     const patientIds = (appointments || []).map((a: any) => a.patient_id);
     const { data: patients } = await adminClient
       .from('patients')
-      .select('id, first_name, last_name')
+      .select('id, first_name, last_name, phone')
       .in('id', patientIds.length > 0 ? patientIds : ['00000000-0000-0000-0000-000000000000']);
 
-    const patientMap = new Map<string, string>();
+    const patientMap = new Map<string, { name: string; phone?: string }>();
     (patients || []).forEach((p: any) => {
-      patientMap.set(p.id, `${p.first_name} ${p.last_name}`);
+      patientMap.set(p.id, {
+        name: `${p.first_name} ${p.last_name}`,
+        phone: p.phone || undefined,
+      });
     });
 
     // Map slots to response DTOs — filter out AVAILABLE slots on time-off days
@@ -290,6 +293,7 @@ export class AppointmentsService {
 
     const slotResponses: SlotResponseDto[] = filteredSlots.map((s: any) => {
       const appointment = appointmentMap.get(s.id);
+      const patient = appointment ? patientMap.get(appointment.patient_id) : undefined;
       return {
         id: s.id,
         hospitalId: s.hospital_id,
@@ -303,7 +307,10 @@ export class AppointmentsService {
         status: s.status as SlotStatus,
         appointmentId: appointment?.id,
         patientId: appointment?.patient_id,
-        patientName: appointment ? patientMap.get(appointment.patient_id) : undefined,
+        patientName: patient?.name,
+        reasonForVisit: appointment?.reason_for_visit || undefined,
+        patientPhone: patient?.phone,
+        statusToken: appointment?.status_token || undefined,
         createdAt: s.created_at,
       };
     });
@@ -739,6 +746,7 @@ export class AppointmentsService {
       bookedAt: appointment.booked_at,
       bookedByUserId: appointment.booked_by_user_id,
       bookedByName,
+      statusToken: appointment.status_token,
       createdAt: appointment.created_at,
     };
   }
@@ -1385,6 +1393,332 @@ export class AppointmentsService {
       .limit(1)
       .single();
     return { latestSlotDate: data?.slot_date || null };
+  }
+
+  /**
+   * Get active appointment reasons (for dropdowns)
+   */
+  async getAppointmentReasons(): Promise<{ id: string; name: string; description: string | null }[]> {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    const { data, error } = await adminClient
+      .from('appointment_reasons')
+      .select('id, name, description')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      this.logger.error(`Failed to fetch appointment reasons: ${error.message}`);
+      return [];
+    }
+
+    return data || [];
+  }
+
+  // ============ Public (Token-Based) Methods ============
+
+  /**
+   * Get appointment status by public token (no auth required)
+   */
+  async getAppointmentStatusByToken(token: string) {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    const { data: appointment, error } = await adminClient
+      .from('appointments')
+      .select('*')
+      .eq('status_token', token)
+      .single();
+
+    if (error || !appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    // Get patient info
+    const { data: patient } = await adminClient
+      .from('patients')
+      .select('first_name, last_name, phone')
+      .eq('id', appointment.patient_id)
+      .single();
+
+    // Get doctor info
+    const { data: doctorProfile } = await adminClient
+      .from('doctor_profiles')
+      .select('user_id, specialization')
+      .eq('id', appointment.doctor_profile_id)
+      .single();
+
+    let doctorName = 'Unknown';
+    if (doctorProfile) {
+      const { data: profile } = await adminClient
+        .from('profiles')
+        .select('full_name')
+        .eq('user_id', doctorProfile.user_id)
+        .single();
+      doctorName = profile?.full_name || 'Unknown';
+    }
+
+    // Get hospital info
+    const { data: hospital } = await adminClient
+      .from('hospitals')
+      .select('name, logo_url')
+      .eq('id', appointment.hospital_id)
+      .single();
+
+    const canModify = ['SCHEDULED', 'CONFIRMED'].includes(appointment.status);
+
+    return {
+      id: appointment.id,
+      patientName: patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown',
+      doctorName,
+      doctorSpecialization: doctorProfile?.specialization || null,
+      hospitalName: hospital?.name || 'Unknown',
+      hospitalLogoUrl: hospital?.logo_url || null,
+      appointmentDate: appointment.appointment_date,
+      startTime: appointment.start_time,
+      endTime: appointment.end_time,
+      status: appointment.status,
+      reasonForVisit: appointment.reason_for_visit,
+      cancellationReason: appointment.cancellation_reason,
+      bookedAt: appointment.booked_at,
+      cancelledAt: appointment.cancelled_at,
+      completedAt: appointment.completed_at,
+      canCancel: canModify,
+      canReschedule: canModify,
+    };
+  }
+
+  /**
+   * Cancel appointment by public token (no auth required)
+   */
+  async cancelAppointmentByToken(token: string, reason?: string) {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    const { data: appointment, error } = await adminClient
+      .from('appointments')
+      .select('id, status, slot_id, hospital_id')
+      .eq('status_token', token)
+      .single();
+
+    if (error || !appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    if (!['SCHEDULED', 'CONFIRMED'].includes(appointment.status)) {
+      throw new BadRequestException('This appointment cannot be cancelled');
+    }
+
+    // Cancel the appointment
+    const { error: updateError } = await adminClient
+      .from('appointments')
+      .update({
+        status: 'CANCELLED',
+        cancellation_reason: reason || 'Cancelled by patient',
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq('id', appointment.id);
+
+    if (updateError) {
+      throw new BadRequestException('Failed to cancel appointment');
+    }
+
+    // Release the slot
+    if (appointment.slot_id) {
+      await adminClient
+        .from('appointment_slots')
+        .update({ status: 'AVAILABLE' })
+        .eq('id', appointment.slot_id);
+    }
+
+    return { success: true, message: 'Appointment cancelled successfully' };
+  }
+
+  /**
+   * Get available slots for reschedule by public token (no auth required)
+   */
+  async getAvailableSlotsForReschedule(token: string, date: string) {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    const { data: appointment, error } = await adminClient
+      .from('appointments')
+      .select('id, doctor_profile_id, hospital_id, status')
+      .eq('status_token', token)
+      .single();
+
+    if (error || !appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    if (!['SCHEDULED', 'CONFIRMED'].includes(appointment.status)) {
+      throw new BadRequestException('This appointment cannot be rescheduled');
+    }
+
+    // Get available slots for this doctor on the requested date
+    const { data: slots, error: slotsError } = await adminClient
+      .from('appointment_slots')
+      .select('id, slot_date, start_time, end_time, duration_minutes, period, status')
+      .eq('doctor_profile_id', appointment.doctor_profile_id)
+      .eq('hospital_id', appointment.hospital_id)
+      .eq('slot_date', date)
+      .eq('status', 'AVAILABLE')
+      .order('start_time');
+
+    if (slotsError) {
+      throw new BadRequestException('Failed to fetch available slots');
+    }
+
+    // Group by period
+    const morning = (slots || []).filter((s: any) => s.period === 'MORNING');
+    const evening = (slots || []).filter((s: any) => s.period === 'EVENING');
+    const night = (slots || []).filter((s: any) => s.period === 'NIGHT');
+
+    return {
+      date,
+      doctorProfileId: appointment.doctor_profile_id,
+      morning: morning.map((s: any) => ({
+        id: s.id,
+        startTime: s.start_time,
+        endTime: s.end_time,
+        durationMinutes: s.duration_minutes,
+      })),
+      evening: evening.map((s: any) => ({
+        id: s.id,
+        startTime: s.start_time,
+        endTime: s.end_time,
+        durationMinutes: s.duration_minutes,
+      })),
+      night: night.map((s: any) => ({
+        id: s.id,
+        startTime: s.start_time,
+        endTime: s.end_time,
+        durationMinutes: s.duration_minutes,
+      })),
+    };
+  }
+
+  /**
+   * Reschedule appointment by public token (no auth required)
+   * Cancels old appointment and creates new one on the selected slot
+   */
+  async rescheduleAppointmentByToken(token: string, newSlotId: string) {
+    const adminClient = this.supabaseService.getAdminClient();
+    if (!adminClient) {
+      throw new BadRequestException('Admin client not available');
+    }
+
+    // Get old appointment
+    const { data: oldAppointment, error } = await adminClient
+      .from('appointments')
+      .select('*')
+      .eq('status_token', token)
+      .single();
+
+    if (error || !oldAppointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    if (!['SCHEDULED', 'CONFIRMED'].includes(oldAppointment.status)) {
+      throw new BadRequestException('This appointment cannot be rescheduled');
+    }
+
+    // Get the new slot
+    const { data: newSlot, error: slotError } = await adminClient
+      .from('appointment_slots')
+      .select('*')
+      .eq('id', newSlotId)
+      .eq('doctor_profile_id', oldAppointment.doctor_profile_id)
+      .eq('hospital_id', oldAppointment.hospital_id)
+      .single();
+
+    if (slotError || !newSlot) {
+      throw new NotFoundException('Selected slot not found');
+    }
+
+    if (newSlot.status !== 'AVAILABLE') {
+      throw new BadRequestException('Selected slot is no longer available');
+    }
+
+    // Cancel old appointment
+    await adminClient
+      .from('appointments')
+      .update({
+        status: 'CANCELLED',
+        cancellation_reason: 'Rescheduled by patient',
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq('id', oldAppointment.id);
+
+    // Release old slot
+    if (oldAppointment.slot_id) {
+      await adminClient
+        .from('appointment_slots')
+        .update({ status: 'AVAILABLE' })
+        .eq('id', oldAppointment.slot_id);
+    }
+
+    // Create new appointment
+    const { data: newAppointment, error: createError } = await adminClient
+      .from('appointments')
+      .insert({
+        hospital_id: oldAppointment.hospital_id,
+        slot_id: newSlotId,
+        patient_id: oldAppointment.patient_id,
+        doctor_profile_id: oldAppointment.doctor_profile_id,
+        appointment_date: newSlot.slot_date,
+        start_time: newSlot.start_time,
+        end_time: newSlot.end_time,
+        status: 'SCHEDULED',
+        reason_for_visit: oldAppointment.reason_for_visit,
+        notes: oldAppointment.notes,
+        booked_by_user_id: oldAppointment.booked_by_user_id,
+      })
+      .select('id, status_token')
+      .single();
+
+    if (createError || !newAppointment) {
+      // Rollback: re-activate old appointment
+      await adminClient
+        .from('appointments')
+        .update({
+          status: oldAppointment.status,
+          cancellation_reason: null,
+          cancelled_at: null,
+        })
+        .eq('id', oldAppointment.id);
+
+      if (oldAppointment.slot_id) {
+        await adminClient
+          .from('appointment_slots')
+          .update({ status: 'BOOKED' })
+          .eq('id', oldAppointment.slot_id);
+      }
+
+      throw new BadRequestException('Failed to create new appointment. Original appointment restored.');
+    }
+
+    // Mark new slot as BOOKED
+    await adminClient
+      .from('appointment_slots')
+      .update({ status: 'BOOKED' })
+      .eq('id', newSlotId);
+
+    return {
+      success: true,
+      message: 'Appointment rescheduled successfully',
+      newToken: newAppointment.status_token,
+      newAppointmentId: newAppointment.id,
+    };
   }
 
   // ============ Private Helper Methods ============

@@ -31,7 +31,7 @@ export default function Nav() {
   }, [currentHospital?.timezone]);
 
   // Hide Nav on pages that have their own layout (login, hospital portal, admin console)
-  const hideNav = pathname === '/login' || pathname.startsWith('/hospital') || pathname.startsWith('/admin') || pathname.startsWith('/doctor');
+  const hideNav = pathname === '/login' || pathname.startsWith('/hospital') || pathname.startsWith('/admin') || pathname.startsWith('/doctor') || pathname.startsWith('/queue/status') || pathname.startsWith('/appointments/status');
   if (hideNav) return null;
 
   async function handleLogout() {

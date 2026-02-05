@@ -224,7 +224,8 @@ export class SupabaseService {
             region,
             currency,
             timezone,
-            status
+            status,
+            logo_url
           )
         `)
         .eq('user_id', uid)
@@ -256,7 +257,8 @@ export class SupabaseService {
           region,
           currency,
           timezone,
-          status
+          status,
+          logo_url
         )
       `)
       .eq('user_id', uid)
@@ -283,7 +285,7 @@ export class SupabaseService {
 
     const { data: hospitals, error } = await adminClient
       .from('hospitals')
-      .select('id, name, city, state, country, region, currency, timezone, status')
+      .select('id, name, city, state, country, region, currency, timezone, status, logo_url')
       .eq('status', 'ACTIVE')
       .order('name');
 

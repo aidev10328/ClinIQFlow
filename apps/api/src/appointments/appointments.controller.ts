@@ -253,6 +253,17 @@ export class AppointmentsController {
     );
   }
 
+  // ============ Appointment Reasons ============
+
+  /**
+   * Get active appointment reasons (for dropdowns)
+   * GET /v1/appointments/reasons
+   */
+  @Get('reasons')
+  async getAppointmentReasons() {
+    return this.appointmentsService.getAppointmentReasons();
+  }
+
   // ============ Appointment Endpoints ============
 
   /**

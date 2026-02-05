@@ -68,6 +68,9 @@ export class SlotResponseDto {
   appointmentId?: string;
   patientId?: string;
   patientName?: string;
+  reasonForVisit?: string;
+  patientPhone?: string;
+  statusToken?: string;
   createdAt: string;
 }
 

@@ -5,7 +5,7 @@ import { useAuth } from '../../../components/AuthProvider';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4005';
 
-interface Specialization {
+interface AppointmentReason {
   id: string;
   name: string;
   description: string | null;
@@ -15,31 +15,31 @@ interface Specialization {
   updated_at: string;
 }
 
-export default function SpecializationsPage() {
+export default function AppointmentReasonsPage() {
   const { session } = useAuth();
   const accessToken = session?.access_token;
-  const [specializations, setSpecializations] = useState<Specialization[]>([]);
+  const [reasons, setReasons] = useState<AppointmentReason[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingSpec, setEditingSpec] = useState<Specialization | null>(null);
+  const [editingReason, setEditingReason] = useState<AppointmentReason | null>(null);
   const [formData, setFormData] = useState({ name: '', description: '', sortOrder: 0 });
   const [saving, setSaving] = useState(false);
 
-  const fetchSpecializations = useCallback(async () => {
+  const fetchReasons = useCallback(async () => {
     if (!accessToken) return;
 
     try {
-      const res = await fetch(`${API_BASE}/v1/admin/specializations`, {
+      const res = await fetch(`${API_BASE}/v1/admin/appointment-reasons`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
       });
 
-      if (!res.ok) throw new Error('Failed to fetch specializations');
+      if (!res.ok) throw new Error('Failed to fetch appointment reasons');
 
       const data = await res.json();
-      setSpecializations(data);
+      setReasons(data);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -48,8 +48,8 @@ export default function SpecializationsPage() {
   }, [accessToken]);
 
   useEffect(() => {
-    fetchSpecializations();
-  }, [fetchSpecializations]);
+    fetchReasons();
+  }, [fetchReasons]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,12 +57,12 @@ export default function SpecializationsPage() {
 
     setSaving(true);
     try {
-      const url = editingSpec
-        ? `${API_BASE}/v1/admin/specializations/${editingSpec.id}`
-        : `${API_BASE}/v1/admin/specializations`;
+      const url = editingReason
+        ? `${API_BASE}/v1/admin/appointment-reasons/${editingReason.id}`
+        : `${API_BASE}/v1/admin/appointment-reasons`;
 
       const res = await fetch(url, {
-        method: editingSpec ? 'PATCH' : 'POST',
+        method: editingReason ? 'PATCH' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
@@ -79,7 +79,7 @@ export default function SpecializationsPage() {
         throw new Error(errData.message || 'Failed to save');
       }
 
-      await fetchSpecializations();
+      await fetchReasons();
       closeModal();
     } catch (err: any) {
       setError(err.message);
@@ -88,37 +88,37 @@ export default function SpecializationsPage() {
     }
   };
 
-  const handleToggleActive = async (spec: Specialization) => {
+  const handleToggleActive = async (reason: AppointmentReason) => {
     if (!accessToken) return;
 
     try {
       const res = await fetch(
-        `${API_BASE}/v1/admin/specializations/${spec.id}`,
+        `${API_BASE}/v1/admin/appointment-reasons/${reason.id}`,
         {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ isActive: !spec.is_active }),
+          body: JSON.stringify({ isActive: !reason.is_active }),
         }
       );
 
       if (!res.ok) throw new Error('Failed to update');
 
-      await fetchSpecializations();
+      await fetchReasons();
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  const handleDelete = async (spec: Specialization) => {
+  const handleDelete = async (reason: AppointmentReason) => {
     if (!accessToken) return;
-    if (!confirm(`Are you sure you want to delete "${spec.name}"?`)) return;
+    if (!confirm(`Are you sure you want to delete "${reason.name}"?`)) return;
 
     try {
       const res = await fetch(
-        `${API_BASE}/v1/admin/specializations/${spec.id}`,
+        `${API_BASE}/v1/admin/appointment-reasons/${reason.id}`,
         {
           method: 'DELETE',
           headers: {
@@ -132,31 +132,31 @@ export default function SpecializationsPage() {
         throw new Error(errData.message || 'Failed to delete');
       }
 
-      await fetchSpecializations();
+      await fetchReasons();
     } catch (err: any) {
       setError(err.message);
     }
   };
 
   const openAddModal = () => {
-    setFormData({ name: '', description: '', sortOrder: specializations.length + 1 });
-    setEditingSpec(null);
+    setFormData({ name: '', description: '', sortOrder: reasons.length + 1 });
+    setEditingReason(null);
     setShowAddModal(true);
   };
 
-  const openEditModal = (spec: Specialization) => {
+  const openEditModal = (reason: AppointmentReason) => {
     setFormData({
-      name: spec.name,
-      description: spec.description || '',
-      sortOrder: spec.sort_order,
+      name: reason.name,
+      description: reason.description || '',
+      sortOrder: reason.sort_order,
     });
-    setEditingSpec(spec);
+    setEditingReason(reason);
     setShowAddModal(true);
   };
 
   const closeModal = () => {
     setShowAddModal(false);
-    setEditingSpec(null);
+    setEditingReason(null);
     setFormData({ name: '', description: '', sortOrder: 0 });
   };
 
@@ -169,9 +169,9 @@ export default function SpecializationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Specializations</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Appointment Reasons</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Manage doctor specializations available across all hospitals
+            Manage visit reasons available for appointments and queue entries
           </p>
         </div>
         <button
@@ -181,7 +181,7 @@ export default function SpecializationsPage() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          Add Specialization
+          Add Reason
         </button>
       </div>
 
@@ -193,7 +193,7 @@ export default function SpecializationsPage() {
         </div>
       )}
 
-      {/* Specializations Table */}
+      {/* Reasons Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
@@ -216,47 +216,47 @@ export default function SpecializationsPage() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {specializations.length === 0 ? (
+            {reasons.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                  No specializations found. Add one to get started.
+                  No appointment reasons found. Add one to get started.
                 </td>
               </tr>
             ) : (
-              specializations.map((spec) => (
-                <tr key={spec.id} className="hover:bg-gray-50">
+              reasons.map((reason) => (
+                <tr key={reason.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {spec.sort_order}
+                    {reason.sort_order}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-medium text-gray-900">{spec.name}</span>
+                    <span className="text-sm font-medium text-gray-900">{reason.name}</span>
                   </td>
                   <td className="px-6 py-4">
                     <span className="text-sm text-gray-500 line-clamp-1">
-                      {spec.description || '-'}
+                      {reason.description || '-'}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
-                      onClick={() => handleToggleActive(spec)}
+                      onClick={() => handleToggleActive(reason)}
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        spec.is_active
+                        reason.is_active
                           ? 'bg-green-100 text-green-800'
                           : 'bg-gray-100 text-gray-600'
                       }`}
                     >
-                      {spec.is_active ? 'Active' : 'Inactive'}
+                      {reason.is_active ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                     <button
-                      onClick={() => openEditModal(spec)}
+                      onClick={() => openEditModal(reason)}
                       className="text-blue-600 hover:text-blue-800 mr-3"
                     >
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(spec)}
+                      onClick={() => handleDelete(reason)}
                       className="text-red-600 hover:text-red-800"
                     >
                       Delete
@@ -272,19 +272,19 @@ export default function SpecializationsPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <p className="text-sm text-gray-500">Total Specializations</p>
-          <p className="text-2xl font-bold text-gray-900">{specializations.length}</p>
+          <p className="text-sm text-gray-500">Total Reasons</p>
+          <p className="text-2xl font-bold text-gray-900">{reasons.length}</p>
         </div>
         <div className="bg-white rounded-xl p-4 border border-gray-200">
           <p className="text-sm text-gray-500">Active</p>
           <p className="text-2xl font-bold text-green-600">
-            {specializations.filter(s => s.is_active).length}
+            {reasons.filter(r => r.is_active).length}
           </p>
         </div>
         <div className="bg-white rounded-xl p-4 border border-gray-200">
           <p className="text-sm text-gray-500">Inactive</p>
           <p className="text-2xl font-bold text-gray-400">
-            {specializations.filter(s => !s.is_active).length}
+            {reasons.filter(r => !r.is_active).length}
           </p>
         </div>
       </div>
@@ -296,7 +296,7 @@ export default function SpecializationsPage() {
             <div className="fixed inset-0 bg-black/50" onClick={closeModal} />
             <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                {editingSpec ? 'Edit Specialization' : 'Add Specialization'}
+                {editingReason ? 'Edit Appointment Reason' : 'Add Appointment Reason'}
               </h2>
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -309,7 +309,7 @@ export default function SpecializationsPage() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="e.g., Cardiology"
+                    placeholder="e.g., Consultation"
                     required
                   />
                 </div>
@@ -353,7 +353,7 @@ export default function SpecializationsPage() {
                     disabled={saving || !formData.name.trim()}
                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {saving ? 'Saving...' : editingSpec ? 'Update' : 'Add'}
+                    {saving ? 'Saving...' : editingReason ? 'Update' : 'Add'}
                   </button>
                 </div>
               </form>

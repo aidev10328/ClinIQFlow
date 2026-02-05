@@ -10,6 +10,7 @@ import {
   QueuePriority,
   DoctorDailyStatus,
   DailyQueueResponseDto,
+  PublicQueueStatusDto,
 } from './dto/queue.dto';
 
 @Injectable()
@@ -101,6 +102,8 @@ export class QueueService {
         start_time,
         end_time,
         status,
+        status_token,
+        reason_for_visit,
         patients (id, first_name, last_name, phone)
       `)
       .eq('doctor_profile_id', doctorProfileId)
@@ -136,6 +139,7 @@ export class QueueService {
       notes: entry.notes,
       waitTimeMinutes: entry.wait_time_minutes,
       consultationTimeMinutes: entry.consultation_time_minutes,
+      statusToken: entry.status_token,
       patient: entry.patients ? {
         id: entry.patients.id,
         firstName: entry.patients.first_name,
@@ -165,7 +169,9 @@ export class QueueService {
       patientId: appt.patient_id,
       patientName: appt.patients ? `${appt.patients.first_name} ${appt.patients.last_name}` : 'Unknown',
       patientPhone: appt.patients?.phone || null,
+      reasonForVisit: appt.reason_for_visit || null,
       status: appt.status,
+      statusToken: appt.status_token || null,
       isCheckedIn: checkedInAppointmentIds.has(appt.id),
     }));
 
@@ -734,6 +740,7 @@ export class QueueService {
       notes: entry.notes,
       waitTimeMinutes: entry.wait_time_minutes,
       consultationTimeMinutes: entry.consultation_time_minutes,
+      statusToken: entry.status_token,
       patient: entry.patients ? {
         id: entry.patients.id,
         firstName: entry.patients.first_name,
@@ -741,6 +748,181 @@ export class QueueService {
         phone: entry.patients.phone,
       } : undefined,
     };
+  }
+
+  /**
+   * Get queue status by public token (no auth required)
+   */
+  async getQueueStatusByToken(token: string): Promise<PublicQueueStatusDto> {
+    const adminClient = this.getAdminClientOrThrow();
+
+    // Fetch the queue entry by token
+    const { data: entry, error } = await adminClient
+      .from('queue_entries')
+      .select('*, patients (id, first_name, last_name, phone)')
+      .eq('status_token', token)
+      .single();
+
+    if (error || !entry) {
+      throw new NotFoundException('Queue entry not found or link expired');
+    }
+
+    // Validate it's for today (link only valid for the day)
+    const hospitalId = entry.hospital_id;
+    const today = await this.getHospitalToday(hospitalId);
+    if (entry.queue_date !== today) {
+      throw new BadRequestException('This queue link has expired. Links are only valid for the day.');
+    }
+
+    // Get doctor info
+    const { data: doctor } = await adminClient
+      .from('doctor_profiles')
+      .select('full_name, appointment_duration_minutes')
+      .eq('id', entry.doctor_profile_id)
+      .single();
+
+    // Get hospital info
+    const { data: hospital } = await adminClient
+      .from('hospitals')
+      .select('name, logo_url')
+      .eq('id', hospitalId)
+      .single();
+
+    // Get doctor check-in status
+    const { data: doctorCheckin } = await adminClient
+      .from('doctor_daily_checkins')
+      .select('status')
+      .eq('doctor_profile_id', entry.doctor_profile_id)
+      .eq('checkin_date', today)
+      .single();
+
+    // Get all active queue entries for this doctor/date to calculate position
+    const { data: allEntries } = await adminClient
+      .from('queue_entries')
+      .select('id, queue_number, status, consultation_time_minutes, with_doctor_at')
+      .eq('doctor_profile_id', entry.doctor_profile_id)
+      .eq('queue_date', today)
+      .order('queue_number', { ascending: true });
+
+    const activeStatuses = ['QUEUED', 'WAITING', 'WITH_DOCTOR'];
+    const ahead = (allEntries || []).filter(
+      (e: any) => activeStatuses.includes(e.status) && e.queue_number < entry.queue_number
+    ).length;
+    const behind = (allEntries || []).filter(
+      (e: any) => activeStatuses.includes(e.status) && e.queue_number > entry.queue_number
+    ).length;
+
+    // Estimate wait time based on doctor's slot duration and actual consultation data
+    let estimatedWaitMinutes: number | null = null;
+    if (activeStatuses.includes(entry.status) && entry.status !== 'WITH_DOCTOR') {
+      // Use doctor's configured appointment duration as baseline (default 30 min)
+      const slotDuration = doctor?.appointment_duration_minutes || 30;
+
+      const completedEntries = (allEntries || []).filter(
+        (e: any) => e.status === 'COMPLETED' && e.consultation_time_minutes
+      );
+
+      // Only trust actual data if we have enough samples (3+), and enforce
+      // a minimum floor of half the slot duration to avoid skewed estimates
+      let avgConsultation = slotDuration;
+      if (completedEntries.length >= 3) {
+        const rawAvg = completedEntries.reduce((sum: number, e: any) => sum + e.consultation_time_minutes, 0) / completedEntries.length;
+        avgConsultation = Math.max(rawAvg, slotDuration / 2);
+      }
+
+      // Check if someone is currently WITH_DOCTOR and estimate their remaining time
+      const currentWithDoctor = (allEntries || []).find(
+        (e: any) => e.status === 'WITH_DOCTOR' && e.with_doctor_at
+      );
+      let remainingForCurrent = 0;
+      if (currentWithDoctor) {
+        const elapsedMs = Date.now() - new Date(currentWithDoctor.with_doctor_at).getTime();
+        const elapsedMin = elapsedMs / 60000;
+        remainingForCurrent = Math.max(0, avgConsultation - elapsedMin);
+      }
+
+      // Patients ahead excluding the one currently with doctor
+      const patientsWaitingAhead = currentWithDoctor
+        ? Math.max(0, ahead - 1)
+        : ahead;
+
+      estimatedWaitMinutes = Math.round(remainingForCurrent + (patientsWaitingAhead * avgConsultation));
+    }
+
+    // Patient name
+    const patientName = entry.patients
+      ? `${entry.patients.first_name} ${entry.patients.last_name}`
+      : entry.walk_in_name || 'Patient';
+
+    // Can cancel only if still QUEUED or WAITING
+    const canCancel = ['QUEUED', 'WAITING'].includes(entry.status);
+
+    return {
+      patientName,
+      queueNumber: entry.queue_number,
+      status: entry.status,
+      priority: entry.priority,
+      reasonForVisit: entry.reason_for_visit,
+      checkedInAt: entry.checked_in_at,
+      calledAt: entry.called_at,
+      withDoctorAt: entry.with_doctor_at,
+      completedAt: entry.completed_at,
+      waitTimeMinutes: entry.wait_time_minutes,
+      patientsAhead: ahead,
+      patientsBehind: behind,
+      estimatedWaitMinutes,
+      doctorName: doctor?.full_name || 'Doctor',
+      doctorCheckedIn: doctorCheckin?.status === 'CHECKED_IN',
+      hospitalName: hospital?.name || 'Hospital',
+      hospitalLogoUrl: hospital?.logo_url || null,
+      queueDate: entry.queue_date,
+      canCancel,
+    };
+  }
+
+  /**
+   * Cancel queue entry by public token
+   */
+  async cancelQueueByToken(token: string): Promise<{ success: boolean }> {
+    const adminClient = this.getAdminClientOrThrow();
+
+    // Fetch the entry
+    const { data: entry, error } = await adminClient
+      .from('queue_entries')
+      .select('id, status, queue_date, hospital_id')
+      .eq('status_token', token)
+      .single();
+
+    if (error || !entry) {
+      throw new NotFoundException('Queue entry not found');
+    }
+
+    // Validate it's for today
+    const today = await this.getHospitalToday(entry.hospital_id);
+    if (entry.queue_date !== today) {
+      throw new BadRequestException('This queue link has expired');
+    }
+
+    if (!['QUEUED', 'WAITING'].includes(entry.status)) {
+      throw new BadRequestException('Cannot cancel — you are already being seen or have been completed');
+    }
+
+    // Update status to LEFT
+    const { error: updateError } = await adminClient
+      .from('queue_entries')
+      .update({
+        status: 'LEFT',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', entry.id);
+
+    if (updateError) {
+      this.logger.error('Error cancelling queue entry by token:', updateError);
+      throw new BadRequestException('Failed to cancel');
+    }
+
+    this.logger.log(`Patient cancelled queue entry ${entry.id} via public link`);
+    return { success: true };
   }
 
   /**

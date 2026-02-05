@@ -107,6 +107,7 @@ export interface QueueEntryDto {
   notes: string | null;
   waitTimeMinutes: number | null;
   consultationTimeMinutes: number | null;
+  statusToken?: string;
   // Joined data
   patient?: {
     id: string;
@@ -119,6 +120,29 @@ export interface QueueEntryDto {
     startTime: string;
     endTime: string;
   };
+}
+
+// Public queue status response (for patient-facing page)
+export interface PublicQueueStatusDto {
+  patientName: string;
+  queueNumber: number;
+  status: QueueEntryStatus;
+  priority: QueuePriority;
+  reasonForVisit: string | null;
+  checkedInAt: string;
+  calledAt: string | null;
+  withDoctorAt: string | null;
+  completedAt: string | null;
+  waitTimeMinutes: number | null;
+  patientsAhead: number;
+  patientsBehind: number;
+  estimatedWaitMinutes: number | null;
+  doctorName: string;
+  doctorCheckedIn: boolean;
+  hospitalName: string;
+  hospitalLogoUrl: string | null;
+  queueDate: string;
+  canCancel: boolean;
 }
 
 export interface DoctorCheckinDto {

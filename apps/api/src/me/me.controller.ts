@@ -65,6 +65,7 @@ export class MeController {
       timezone: m.hospital?.timezone,
       role: m.role,
       isPrimary: m.is_primary,
+      logoUrl: m.hospital?.logo_url || null,
     });
 
     const hospitalsPromise = (async (): Promise<any[]> => {
@@ -76,6 +77,7 @@ export class MeController {
           id: h.id, name: h.name, city: h.city, state: h.state,
           country: h.country, region: h.region, currency: h.currency,
           timezone: h.timezone, role: 'SUPER_ADMIN', isPrimary: false,
+          logoUrl: h.logo_url || null,
         }));
       }
 
@@ -85,7 +87,7 @@ export class MeController {
           .from('hospital_memberships')
           .select(`
             id, role, is_primary, status,
-            hospital:hospitals (id, name, city, state, country, region, currency, timezone, status)
+            hospital:hospitals (id, name, city, state, country, region, currency, timezone, status, logo_url)
           `)
           .eq('user_id', req.user.id)
           .eq('status', 'ACTIVE');

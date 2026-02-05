@@ -53,6 +53,15 @@ interface Slot {
   appointmentId?: string;
   patientId?: string;
   patientName?: string;
+  reasonForVisit?: string;
+  patientPhone?: string;
+  statusToken?: string;
+}
+
+interface AppointmentReason {
+  id: string;
+  name: string;
+  description: string | null;
 }
 
 interface SlotsForDate {
@@ -238,6 +247,7 @@ export default function AppointmentsPage() {
   // Shared state
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [appointmentReasons, setAppointmentReasons] = useState<AppointmentReason[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Scheduler tab state
@@ -345,6 +355,19 @@ export default function AppointmentsPage() {
       }
     } catch (error) {
       console.error('Failed to fetch patients:', error);
+    }
+  }, []);
+
+  // Fetch appointment reasons
+  const fetchAppointmentReasons = useCallback(async () => {
+    try {
+      const res = await apiFetch('/v1/appointments/reasons');
+      if (res.ok) {
+        const data = await res.json();
+        setAppointmentReasons(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch appointment reasons:', error);
     }
   }, []);
 
@@ -477,7 +500,7 @@ export default function AppointmentsPage() {
   }, [currentHospital?.timezone]);
 
   useEffect(() => {
-    Promise.all([fetchDoctors(), fetchPatients()]);
+    Promise.all([fetchDoctors(), fetchPatients(), fetchAppointmentReasons()]);
   }, []);
 
   useEffect(() => {
@@ -527,6 +550,7 @@ export default function AppointmentsPage() {
   // Handler: Book appointment
   const handleBookAppointment = async () => {
     if (!selectedSlot || !selectedPatient) return;
+    if (!reasonForVisit) { alert('Reason for visit is required'); return; }
     setBooking(true);
     try {
       const res = await apiFetch('/v1/appointments', {
@@ -581,6 +605,33 @@ export default function AppointmentsPage() {
       alert(error.message || 'Failed to add patient');
     } finally {
       setAddingPatient(false);
+    }
+  };
+
+  // Handler: Reschedule appointment (cancel then open booking)
+  const handleRescheduleAppointment = async (slot: Slot) => {
+    if (!slot.appointmentId) return;
+    if (!confirm('This will cancel the current booking and open a new booking. Continue?')) return;
+    try {
+      const res = await apiFetch(`/v1/appointments/${slot.appointmentId}/cancel`, {
+        method: 'PATCH',
+        body: JSON.stringify({ cancellationReason: 'Rescheduled' }),
+      });
+      if (res.ok) {
+        await fetchSlots();
+        // Pre-fill the reason if available
+        if (slot.reasonForVisit) setReasonForVisit(slot.reasonForVisit);
+        // Find and select the patient
+        if (slot.patientId) {
+          const patient = patients.find(p => p.id === slot.patientId);
+          if (patient) {
+            setSelectedPatient(patient);
+            setPatientSearch(`${patient.firstName} ${patient.lastName}`);
+          }
+        }
+      }
+    } catch (error: any) {
+      alert(error.message || 'Failed to cancel appointment');
     }
   };
 
@@ -986,6 +1037,7 @@ export default function AppointmentsPage() {
           onCancelAppointment={handleCancelAppointment}
           onBlockSlot={handleBlockSlot}
           onUnblockSlot={handleUnblockSlot}
+          onRescheduleSlot={handleRescheduleAppointment}
           setShowGenerateModal={setShowGenerateModal}
           scheduleShiftTimings={scheduleShiftTimings}
           isDoctor={isDoctor}
@@ -996,6 +1048,7 @@ export default function AppointmentsPage() {
         <QueueTab
           doctors={isDoctor ? doctors.filter((d: Doctor) => d.userId === profile?.id) : doctors}
           patients={patients}
+          appointmentReasons={appointmentReasons}
           formatDateString={formatDateString}
           getHospitalToday={getHospitalToday}
           onAddPatient={() => setShowAddPatientModal(true)}
@@ -1034,6 +1087,7 @@ export default function AppointmentsPage() {
           setBookingNotes={setBookingNotes}
           booking={booking}
           handleBookAppointment={handleBookAppointment}
+          appointmentReasons={appointmentReasons}
           onClose={() => {
             setShowBookingModal(false);
             setSelectedSlot(null);
@@ -1433,6 +1487,7 @@ function SchedulerTab({
   onCancelAppointment,
   onBlockSlot,
   onUnblockSlot,
+  onRescheduleSlot,
   setShowGenerateModal,
   scheduleShiftTimings,
   isDoctor,
@@ -1727,7 +1782,7 @@ function SchedulerTab({
                 </div>
                 <div className="flex-1 p-1 overflow-y-auto space-y-0.5">
                   {slotsData.morning.map((slot: Slot) => (
-                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} readOnly={isDoctor} />
+                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} onReschedule={slot.status === 'BOOKED' ? () => onRescheduleSlot(slot) : undefined} readOnly={isDoctor} />
                   ))}
                   {slotsData.morning.length === 0 && <p className="text-center text-[10px] text-amber-400 py-2">No slots</p>}
                 </div>
@@ -1744,7 +1799,7 @@ function SchedulerTab({
                 </div>
                 <div className="flex-1 p-1 overflow-y-auto space-y-0.5">
                   {slotsData.evening.map((slot: Slot) => (
-                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} readOnly={isDoctor} />
+                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} onReschedule={slot.status === 'BOOKED' ? () => onRescheduleSlot(slot) : undefined} readOnly={isDoctor} />
                   ))}
                   {slotsData.evening.length === 0 && <p className="text-center text-[10px] text-orange-400 py-2">No slots</p>}
                 </div>
@@ -1761,7 +1816,7 @@ function SchedulerTab({
                 </div>
                 <div className="flex-1 p-1 overflow-y-auto space-y-0.5">
                   {slotsData.night.map((slot: Slot) => (
-                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} readOnly={isDoctor} />
+                    <SlotCard key={slot.id} slot={slot} onBook={() => onBookSlot(slot)} onCancel={() => slot.appointmentId && onCancelAppointment(slot.appointmentId)} onBlock={() => onBlockSlot(slot.id)} onUnblock={() => onUnblockSlot(slot.id)} onReschedule={slot.status === 'BOOKED' ? () => onRescheduleSlot(slot) : undefined} readOnly={isDoctor} />
                   ))}
                   {slotsData.night.length === 0 && <p className="text-center text-[10px] text-indigo-400 py-2">No slots</p>}
                 </div>
@@ -1959,7 +2014,7 @@ function HospitalCalendarTab({ doctors, formatDateString, getHospitalToday }: an
 // ============================================================================
 // QUEUE TAB
 // ============================================================================
-function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAddPatient, isDoctor }: any) {
+function QueueTab({ doctors, patients, appointmentReasons, formatDateString, getHospitalToday, onAddPatient, isDoctor }: any) {
   const { formatTime: formatTimeHospital } = useHospitalTimezone();
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(doctors[0] || null);
   const [queueData, setQueueData] = useState<any>(null);
@@ -2008,6 +2063,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
   const handleAddWalkIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoctor) return;
+    if (!walkInForm.reasonForVisit) { alert('Reason for visit is required'); return; }
     try {
       const res = await apiFetch('/v1/queue/walk-in', {
         method: 'POST',
@@ -2057,6 +2113,18 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
       if (res.ok) fetchQueueData();
     } catch (error) {
       alert('Failed to update status');
+    }
+  };
+
+  const handleQueueEntryNoShow = async (entryId: string) => {
+    try {
+      const res = await apiFetch(`/v1/queue/${entryId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'NO_SHOW' }),
+      });
+      if (res.ok) fetchQueueData();
+    } catch (error) {
+      alert('Failed to mark as no show');
     }
   };
 
@@ -2123,6 +2191,22 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
 
   const formatTimeFromISO = (isoString: string) => formatTimeHospital(isoString);
 
+  const [copiedToken, setCopiedToken] = React.useState<string | null>(null);
+  const copyStatusLink = (token: string) => {
+    const url = `${window.location.origin}/queue/status/${token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2000);
+    });
+  };
+  const copyApptStatusLink = (token: string) => {
+    const url = `${window.location.origin}/appointments/status/${token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2000);
+    });
+  };
+
   const doctorStatus = queueData?.doctorCheckin?.status || 'NOT_CHECKED_IN';
   const isCheckedIn = doctorStatus === 'CHECKED_IN';
 
@@ -2154,11 +2238,11 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
           )}
           <button
             onClick={isCheckedIn ? handleDoctorCheckOut : handleDoctorCheckIn}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-              isCheckedIn ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold whitespace-nowrap shadow-sm ${
+              isCheckedIn ? 'bg-green-500 text-white' : 'bg-slate-500 text-white'
             }`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${isCheckedIn ? 'bg-green-500' : 'bg-slate-400'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${isCheckedIn ? 'bg-green-200' : 'bg-slate-300'}`} />
             {isCheckedIn ? 'Checked In' : 'Check In'}
           </button>
         </div>
@@ -2176,18 +2260,34 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
         <div className="flex flex-col min-h-0 relative">
           {/* DAILY QUEUE (Top Left) */}
           <div className="flex-1 min-h-0 bg-blue-50/40 rounded-lg border border-blue-200/60 flex flex-col">
-            <div className="flex-shrink-0 px-3 py-1.5 bg-blue-100/50 border-b border-blue-200/50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-700">Daily Queue</span>
-                <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] font-medium rounded">{queueData?.queue?.length || 0}</span>
+            <div className="flex-shrink-0 px-3 py-1.5 bg-blue-100/50 border-b border-blue-200/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-700">Daily Queue</span>
+                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[9px] font-medium rounded">{queueData?.queue?.length || 0}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input type="text" placeholder="Search..." value={queueSearch} onChange={(e) => setQueueSearch(e.target.value)} className="text-[10px] px-2 py-0.5 border border-slate-200 rounded w-20 bg-white" />
+                  {!isDoctor && (
+                    <button onClick={() => setShowWalkInModal(true)} className="text-[10px] px-2 py-0.5 bg-[var(--color-primary)] text-white rounded hover:bg-[var(--color-primary-dark)] transition-colors font-medium">
+                      + Walk-in
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-1">
-                <input type="text" placeholder="Search..." value={queueSearch} onChange={(e) => setQueueSearch(e.target.value)} className="text-[10px] px-2 py-0.5 border border-slate-200 rounded w-20 bg-white" />
-                {!isDoctor && (
-                  <button onClick={() => setShowWalkInModal(true)} className="text-[10px] px-2 py-0.5 bg-[var(--color-primary)] text-white rounded hover:bg-[var(--color-primary-dark)] transition-colors font-medium">
-                    + Walk-in
-                  </button>
-                )}
+              <div className="flex items-center gap-3 mt-1">
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-[8px] text-slate-500">Emergency</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="text-[8px] text-slate-500">Urgent</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="text-[8px] text-slate-500">Normal</span>
+                </div>
               </div>
             </div>
             <div className="flex-1 p-1.5 space-y-1 overflow-y-auto">
@@ -2202,13 +2302,31 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                     }`}>{entry.queueNumber}</span>
                     <div>
                       <p className="text-[10px] font-medium text-slate-700">{getPatientName(entry)}</p>
-                      <p className="text-[9px] text-slate-400">{formatTimeFromISO(entry.checkedInAt)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-slate-400">{formatTimeFromISO(entry.checkedInAt)}</span>
+                        {entry.reasonForVisit && <span className="text-[9px] text-blue-500 truncate max-w-[100px]" title={entry.reasonForVisit}>{entry.reasonForVisit}</span>}
+                      </div>
                     </div>
                   </div>
                   {!isDoctor && (
-                    <button onClick={() => handleUpdateStatus(entry.id, 'WAITING')} className="text-[9px] px-2 py-0.5 text-blue-600 border border-blue-300 rounded hover:bg-blue-500 hover:text-white transition-colors font-medium">
-                      Call →
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => handleUpdateStatus(entry.id, 'WAITING')} className="text-[9px] px-2 py-0.5 text-blue-600 border border-blue-300 rounded hover:bg-blue-500 hover:text-white transition-colors font-medium">
+                        Call
+                      </button>
+                      <button onClick={() => handleUpdateStatus(entry.id, 'WITH_DOCTOR')} disabled={!isCheckedIn || queueData?.withDoctor !== null} className="text-[9px] px-2 py-0.5 text-emerald-600 border border-emerald-300 rounded hover:bg-emerald-500 hover:text-white disabled:opacity-40 transition-colors font-medium">
+                        Send
+                      </button>
+                      <button onClick={() => handleQueueEntryNoShow(entry.id)} className="text-[9px] px-1 py-0.5 text-slate-400 hover:text-red-500 transition-colors" title="No-show">✕</button>
+                      {entry.statusToken && (
+                        <button onClick={() => copyStatusLink(entry.statusToken)} className="text-[9px] px-1 py-0.5 text-slate-400 hover:text-blue-500 transition-colors" title={copiedToken === entry.statusToken ? 'Copied!' : 'Copy patient link'}>
+                          {copiedToken === entry.statusToken ? (
+                            <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                          ) : (
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}
@@ -2250,16 +2368,30 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                     <div key={appt.id} className="flex items-center justify-between p-1.5 bg-white rounded border border-blue-100 hover:border-blue-200">
                       <div className="flex items-center gap-2">
                         <span className="text-[9px] font-semibold text-blue-600 w-12">{formatTime12h(appt.startTime)}</span>
-                        <p className="text-[10px] font-medium text-slate-700">{appt.patientName}</p>
-                      </div>
-                      {!isDoctor && (
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => handleCheckInAppointment(appt.appointmentId)} className="text-[9px] px-2 py-0.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium">
-                            Check In ↑
-                          </button>
-                          <button onClick={() => handleAppointmentNoShow(appt.appointmentId)} className="text-[9px] text-slate-300 hover:text-red-500 px-0.5">✕</button>
+                        <div>
+                          <p className="text-[10px] font-medium text-slate-700">{appt.patientName}</p>
+                          {appt.reasonForVisit && <p className="text-[9px] text-blue-400 truncate max-w-[120px]" title={appt.reasonForVisit}>{appt.reasonForVisit}</p>}
                         </div>
-                      )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {appt.statusToken && (
+                          <button onClick={() => copyApptStatusLink(appt.statusToken)} className="text-[9px] px-1 py-0.5 text-slate-400 hover:text-blue-500 transition-colors" title={copiedToken === appt.statusToken ? 'Copied!' : 'Copy patient link'}>
+                            {copiedToken === appt.statusToken ? (
+                              <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            ) : (
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                            )}
+                          </button>
+                        )}
+                        {!isDoctor && (
+                          <>
+                            <button onClick={() => handleCheckInAppointment(appt.appointmentId)} className="text-[9px] px-2.5 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors font-semibold shadow-sm">
+                              Check In
+                            </button>
+                            <button onClick={() => handleAppointmentNoShow(appt.appointmentId)} className="text-[9px] px-1 py-0.5 text-slate-400 hover:text-red-500 transition-colors" title="No-show">✕</button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2295,12 +2427,30 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                 <div key={entry.id} className="flex items-center justify-between p-1.5 bg-white rounded border border-amber-100">
                   <div className="flex items-center gap-2">
                     <span className="w-5 h-5 bg-amber-500 text-white rounded-full flex items-center justify-center text-[9px] font-semibold">{entry.queueNumber}</span>
-                    <p className="text-[10px] font-medium text-slate-700">{getPatientName(entry)}</p>
+                    <div>
+                      <p className="text-[10px] font-medium text-slate-700">{getPatientName(entry)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-slate-400">{formatTimeFromISO(entry.calledAt || entry.checkedInAt)}</span>
+                        {entry.reasonForVisit && <span className="text-[9px] text-amber-500 truncate max-w-[100px]" title={entry.reasonForVisit}>{entry.reasonForVisit}</span>}
+                      </div>
+                    </div>
                   </div>
                   {!isDoctor && (
-                    <button onClick={() => handleUpdateStatus(entry.id, 'WITH_DOCTOR')} disabled={!isCheckedIn || queueData?.withDoctor !== null} className="text-[9px] px-2 py-0.5 text-amber-700 border border-amber-300 rounded hover:bg-amber-500 hover:text-white disabled:opacity-40 transition-colors font-medium">
-                      Send →
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => handleUpdateStatus(entry.id, 'WITH_DOCTOR')} disabled={!isCheckedIn || queueData?.withDoctor !== null} className="text-[9px] px-2 py-0.5 text-amber-700 border border-amber-300 rounded hover:bg-amber-500 hover:text-white disabled:opacity-40 transition-colors font-medium">
+                        Send
+                      </button>
+                      <button onClick={() => handleQueueEntryNoShow(entry.id)} className="text-[9px] px-1 py-0.5 text-slate-400 hover:text-red-500 transition-colors" title="No-show">✕</button>
+                      {entry.statusToken && (
+                        <button onClick={() => copyStatusLink(entry.statusToken)} className="text-[9px] px-1 py-0.5 text-slate-400 hover:text-blue-500 transition-colors" title={copiedToken === entry.statusToken ? 'Copied!' : 'Copy patient link'}>
+                          {copiedToken === entry.statusToken ? (
+                            <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                          ) : (
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}
@@ -2344,12 +2494,26 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                       </span>
                       <div>
                         <p className="text-[11px] font-medium text-slate-700">{getPatientName(queueData.withDoctor)}</p>
-                        <p className="text-[9px] text-slate-400">{formatTimeFromISO(queueData.withDoctor.checkedInAt)}</p>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-slate-400">{formatTimeFromISO(queueData.withDoctor.withDoctorAt || queueData.withDoctor.checkedInAt)}</span>
+                          {queueData.withDoctor.reasonForVisit && <span className="text-[9px] text-blue-400">{queueData.withDoctor.reasonForVisit}</span>}
+                        </div>
                       </div>
                     </div>
-                    <button onClick={() => handleUpdateStatus(queueData.withDoctor!.id, 'COMPLETED')} className="text-[9px] px-3 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 transition-colors font-medium">
-                      Complete ✓
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {queueData.withDoctor.statusToken && (
+                        <button onClick={() => copyStatusLink(queueData.withDoctor!.statusToken!)} className="text-[9px] px-1 py-0.5 text-slate-400 hover:text-blue-500 transition-colors" title={copiedToken === queueData.withDoctor.statusToken ? 'Copied!' : 'Copy patient link'}>
+                          {copiedToken === queueData.withDoctor.statusToken ? (
+                            <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                          )}
+                        </button>
+                      )}
+                      <button onClick={() => handleUpdateStatus(queueData.withDoctor!.id, 'COMPLETED')} className="text-[9px] px-3 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 transition-colors font-medium">
+                        Complete ✓
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -2378,17 +2542,23 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
               <table className="w-full text-[9px]">
                 <thead className="bg-emerald-50 sticky top-0">
                   <tr>
-                    <th className="px-2 py-1 text-left font-medium text-emerald-700">Patient</th>
-                    <th className="px-2 py-1 text-left font-medium text-emerald-700">Wait</th>
-                    <th className="px-2 py-1 text-left font-medium text-emerald-700">Status</th>
+                    <th className="px-1.5 py-1 text-left font-medium text-emerald-700">#</th>
+                    <th className="px-1.5 py-1 text-left font-medium text-emerald-700">Patient</th>
+                    <th className="px-1.5 py-1 text-left font-medium text-emerald-700">Check-in</th>
+                    <th className="px-1.5 py-1 text-left font-medium text-emerald-700">Completed</th>
+                    <th className="px-1.5 py-1 text-left font-medium text-emerald-700">Wait</th>
+                    <th className="px-1.5 py-1 text-left font-medium text-emerald-700">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-emerald-100/50">
                   {filterEntries(queueData?.completed || [], completedSearch).map((entry: any) => (
                     <tr key={entry.id} className="hover:bg-emerald-50/50">
-                      <td className="px-2 py-1 font-medium text-emerald-800">{getPatientName(entry)}</td>
-                      <td className="px-2 py-1 text-emerald-600">{entry.waitTimeMinutes ? `${entry.waitTimeMinutes}m` : '-'}</td>
-                      <td className="px-2 py-1">
+                      <td className="px-1.5 py-1 text-emerald-600 font-semibold">{entry.queueNumber || '-'}</td>
+                      <td className="px-1.5 py-1 font-medium text-emerald-800">{getPatientName(entry)}</td>
+                      <td className="px-1.5 py-1 text-emerald-600">{entry.checkedInAt ? formatTimeFromISO(entry.checkedInAt) : '-'}</td>
+                      <td className="px-1.5 py-1 text-emerald-600">{entry.completedAt ? formatTimeFromISO(entry.completedAt) : '-'}</td>
+                      <td className="px-1.5 py-1 text-emerald-600">{entry.waitTimeMinutes ? `${entry.waitTimeMinutes}m` : '-'}</td>
+                      <td className="px-1.5 py-1">
                         <span className={`px-1 py-0.5 rounded text-[8px] font-medium ${
                           entry.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-600' :
                           entry.status === 'NO_SHOW' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'
@@ -2399,7 +2569,7 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
                     </tr>
                   ))}
                   {filterEntries(queueData?.completed || [], completedSearch).length === 0 && (
-                    <tr><td colSpan={3} className="px-2 py-3 text-center text-slate-400">No completed yet</td></tr>
+                    <tr><td colSpan={6} className="px-2 py-3 text-center text-slate-400">No completed yet</td></tr>
                   )}
                 </tbody>
               </table>
@@ -2410,58 +2580,15 @@ function QueueTab({ doctors, patients, formatDateString, getHospitalToday, onAdd
 
       {/* Walk-in Modal (manager only) */}
       {!isDoctor && showWalkInModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm mx-4">
-            <div className="px-4 py-3 border-b flex items-center justify-between">
-              <h3 className="text-sm font-medium text-slate-800">Add Walk-in Patient</h3>
-              <button onClick={() => setShowWalkInModal(false)} className="text-slate-400 hover:text-slate-600">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <form onSubmit={handleAddWalkIn} className="p-4 space-y-3">
-              <div>
-                <label className="block text-[10px] font-medium text-slate-600 mb-1">Select Patient</label>
-                <div className="flex gap-1">
-                  <select value={walkInForm.patientId} onChange={(e) => setWalkInForm({ ...walkInForm, patientId: e.target.value })} className="flex-1 text-xs px-2 py-1.5 border border-slate-200 rounded">
-                    <option value="">-- New/Unknown Patient --</option>
-                    {patients.map((p: Patient) => (
-                      <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
-                    ))}
-                  </select>
-                  <button type="button" onClick={onAddPatient} className="text-[10px] px-2 py-1 text-[var(--color-primary)] border border-[var(--color-primary)] rounded hover:bg-[var(--color-primary)] hover:text-white">+ New</button>
-                </div>
-              </div>
-              {!walkInForm.patientId && (
-                <>
-                  <div>
-                    <label className="block text-[10px] font-medium text-slate-600 mb-1">Name</label>
-                    <input type="text" value={walkInForm.walkInName} onChange={(e) => setWalkInForm({ ...walkInForm, walkInName: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" placeholder="Patient name" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-medium text-slate-600 mb-1">Phone</label>
-                    <input type="text" value={walkInForm.walkInPhone} onChange={(e) => setWalkInForm({ ...walkInForm, walkInPhone: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" placeholder="Phone number" />
-                  </div>
-                </>
-              )}
-              <div>
-                <label className="block text-[10px] font-medium text-slate-600 mb-1">Reason for Visit</label>
-                <input type="text" value={walkInForm.reasonForVisit} onChange={(e) => setWalkInForm({ ...walkInForm, reasonForVisit: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" placeholder="e.g., Follow-up" />
-              </div>
-              <div>
-                <label className="block text-[10px] font-medium text-slate-600 mb-1">Priority</label>
-                <select value={walkInForm.priority} onChange={(e) => setWalkInForm({ ...walkInForm, priority: e.target.value as any })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded">
-                  <option value="NORMAL">Normal</option>
-                  <option value="URGENT">Urgent</option>
-                  <option value="EMERGENCY">Emergency</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowWalkInModal(false)} className="text-xs px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                <button type="submit" className="text-xs px-3 py-1.5 bg-teal-500 text-white rounded hover:bg-teal-600">Add to Queue</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <WalkInModal
+          patients={patients}
+          appointmentReasons={appointmentReasons}
+          walkInForm={walkInForm}
+          setWalkInForm={setWalkInForm}
+          onSubmit={handleAddWalkIn}
+          onClose={() => setShowWalkInModal(false)}
+          onAddPatient={onAddPatient}
+        />
       )}
 
       {/* Appointment Check-in Modal (manager only) */}
@@ -2654,10 +2781,21 @@ function PatientsTab({ patients, setPatients, onAddPatient }: { patients: Patien
 // ============================================================================
 // SLOT CARD COMPONENT
 // ============================================================================
-function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock, readOnly }: { slot: Slot; onBook: () => void; onCancel: () => void; onBlock: () => void; onUnblock: () => void; readOnly?: boolean }) {
+function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock, onReschedule, readOnly }: { slot: Slot; onBook: () => void; onCancel: () => void; onBlock: () => void; onUnblock: () => void; onReschedule?: () => void; readOnly?: boolean }) {
   const isAvailable = slot.status === 'AVAILABLE';
   const isBooked = slot.status === 'BOOKED';
   const isBlocked = slot.status === 'BLOCKED';
+  const [copied, setCopied] = React.useState(false);
+
+  const copyLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!slot.statusToken) return;
+    const url = `${window.location.origin}/appointments/status/${slot.statusToken}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   return (
     <div
@@ -2669,19 +2807,25 @@ function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock, readOnly }: { sl
       `}
       onClick={() => !readOnly && isAvailable && onBook()}
     >
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         <span className="font-medium text-slate-700">{formatTime12h(slot.startTime)}</span>
         {isAvailable && <span className="w-1 h-1 rounded-full bg-green-500" />}
         {isBooked && (
           <>
             <span className="w-1 h-1 rounded-full bg-blue-500" />
-            <span className="text-blue-700 font-medium truncate max-w-[60px]">{slot.patientName}</span>
+            <span className="text-blue-700 font-medium truncate max-w-[70px]">{slot.patientName}</span>
+            {slot.reasonForVisit && (
+              <span className="text-blue-400 text-[9px] truncate max-w-[60px]" title={slot.reasonForVisit}>{slot.reasonForVisit}</span>
+            )}
+            {slot.patientPhone && (
+              <span className="text-slate-400 text-[9px]">{slot.patientPhone}</span>
+            )}
           </>
         )}
         {isBlocked && <span className="text-slate-400">Blocked</span>}
       </div>
       {!readOnly && (
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           {isAvailable && (
             <button onClick={(e) => { e.stopPropagation(); onBlock(); }} className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600" title="Block">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2690,7 +2834,21 @@ function SlotCard({ slot, onBook, onCancel, onBlock, onUnblock, readOnly }: { sl
             </button>
           )}
           {isBooked && (
-            <button onClick={(e) => { e.stopPropagation(); onCancel(); }} className="text-[9px] text-red-500 hover:text-red-700">Cancel</button>
+            <>
+              {slot.statusToken && (
+                <button onClick={copyLink} className="p-0.5 text-slate-400 hover:text-blue-500 transition-colors" title={copied ? 'Copied!' : 'Copy patient link'}>
+                  {copied ? (
+                    <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  ) : (
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                  )}
+                </button>
+              )}
+              {onReschedule && (
+                <button onClick={(e) => { e.stopPropagation(); onReschedule(); }} className="text-[9px] text-[var(--color-primary)] hover:text-[var(--color-primary-dark)]">Reschedule</button>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); onCancel(); }} className="text-[9px] text-red-500 hover:text-red-700">Cancel</button>
+            </>
           )}
           {isBlocked && (
             <button onClick={(e) => { e.stopPropagation(); onUnblock(); }} className="text-[9px] text-green-600 hover:text-green-800">Unblock</button>
@@ -2745,7 +2903,8 @@ function GenerateSlotsModal({ selectedDoctor, generateStartDate, setGenerateStar
   );
 }
 
-function BookingModal({ selectedSlot, patientSearch, setPatientSearch, filteredPatients, selectedPatient, setSelectedPatient, reasonForVisit, setReasonForVisit, bookingNotes, setBookingNotes, booking, handleBookAppointment, onClose, onAddPatient }: any) {
+function BookingModal({ selectedSlot, patientSearch, setPatientSearch, filteredPatients, selectedPatient, setSelectedPatient, reasonForVisit, setReasonForVisit, bookingNotes, setBookingNotes, booking, handleBookAppointment, appointmentReasons, onClose, onAddPatient }: any) {
+  const [showCustomReason, setShowCustomReason] = React.useState(false);
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
@@ -2812,8 +2971,35 @@ function BookingModal({ selectedSlot, patientSearch, setPatientSearch, filteredP
 
           {/* Reason & Notes */}
           <div>
-            <label className="block text-[11px] font-medium text-slate-700 mb-1">Reason for Visit (optional)</label>
-            <input type="text" value={reasonForVisit} onChange={(e) => setReasonForVisit(e.target.value)} placeholder="e.g., Follow-up, Consultation" className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" />
+            <label className="block text-[11px] font-medium text-slate-700 mb-1">Reason for Visit <span className="text-red-500">*</span></label>
+            {appointmentReasons && appointmentReasons.length > 0 ? (
+              <>
+                <select
+                  value={showCustomReason ? '__OTHER__' : reasonForVisit}
+                  onChange={(e) => {
+                    if (e.target.value === '__OTHER__') {
+                      setShowCustomReason(true);
+                      setReasonForVisit('');
+                    } else {
+                      setShowCustomReason(false);
+                      setReasonForVisit(e.target.value);
+                    }
+                  }}
+                  className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded"
+                >
+                  <option value="">-- Select reason --</option>
+                  {appointmentReasons.map((r: AppointmentReason) => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                  <option value="__OTHER__">Other...</option>
+                </select>
+                {showCustomReason && (
+                  <input type="text" value={reasonForVisit} onChange={(e) => setReasonForVisit(e.target.value)} placeholder="Enter custom reason" className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded mt-1" />
+                )}
+              </>
+            ) : (
+              <input type="text" value={reasonForVisit} onChange={(e) => setReasonForVisit(e.target.value)} placeholder="e.g., Follow-up, Consultation" className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" />
+            )}
           </div>
           <div>
             <label className="block text-[11px] font-medium text-slate-700 mb-1">Notes (optional)</label>
@@ -2822,7 +3008,7 @@ function BookingModal({ selectedSlot, patientSearch, setPatientSearch, filteredP
         </div>
         <div className="px-4 py-3 border-t border-slate-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-1.5 text-[11px] text-slate-600 bg-slate-100 rounded hover:bg-slate-200">Cancel</button>
-          <button onClick={handleBookAppointment} disabled={booking || !selectedPatient} className="px-3 py-1.5 text-[11px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">
+          <button onClick={handleBookAppointment} disabled={booking || !selectedPatient || !reasonForVisit} className="px-3 py-1.5 text-[11px] text-white bg-[var(--color-primary)] rounded hover:bg-[var(--color-primary-dark)] disabled:opacity-50">
             {booking ? 'Booking...' : 'Book Appointment'}
           </button>
         </div>
@@ -2884,6 +3070,172 @@ function AddPatientModal({ form, setForm, adding, onAdd, onClose }: any) {
             {adding ? 'Adding...' : 'Add Patient'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// WALK-IN MODAL
+// ============================================================================
+function WalkInModal({ patients, appointmentReasons, walkInForm, setWalkInForm, onSubmit, onClose, onAddPatient }: any) {
+  const [patientSearch, setPatientSearch] = React.useState('');
+  const [selectedPatient, setSelectedPatient] = React.useState<Patient | null>(
+    walkInForm.patientId ? patients.find((p: Patient) => p.id === walkInForm.patientId) || null : null
+  );
+  const [showCustomReason, setShowCustomReason] = React.useState(false);
+
+  const filteredPatients = patients.filter((p: Patient) => {
+    if (!patientSearch) return false;
+    const searchLower = patientSearch.toLowerCase();
+    return (
+      `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchLower) ||
+      p.email?.toLowerCase().includes(searchLower) ||
+      p.phone?.includes(patientSearch)
+    );
+  });
+
+  const handleSelectPatient = (patient: Patient) => {
+    setSelectedPatient(patient);
+    setWalkInForm({ ...walkInForm, patientId: patient.id, walkInName: '', walkInPhone: '' });
+    setPatientSearch('');
+  };
+
+  const handleClearPatient = () => {
+    setSelectedPatient(null);
+    setWalkInForm({ ...walkInForm, patientId: '' });
+    setPatientSearch('');
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <h3 className="text-sm font-medium text-slate-800">Add Walk-in Patient</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <form onSubmit={onSubmit} className="p-4 space-y-3">
+          {/* Patient Search */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-medium text-slate-700">Select Patient</label>
+              <button type="button" onClick={onAddPatient} className="text-[10px] text-[var(--color-primary)] hover:underline">+ New Patient</button>
+            </div>
+            {!selectedPatient && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Search by name, email or phone..."
+                  value={patientSearch}
+                  onChange={(e) => setPatientSearch(e.target.value)}
+                  className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded"
+                />
+                {patientSearch && (
+                  <div className="mt-1 max-h-32 overflow-y-auto border border-slate-200 rounded bg-white">
+                    {filteredPatients.length === 0 ? (
+                      <p className="text-[10px] text-slate-400 p-2">No patients found</p>
+                    ) : (
+                      filteredPatients.slice(0, 8).map((patient: Patient) => (
+                        <button
+                          key={patient.id}
+                          type="button"
+                          onClick={() => handleSelectPatient(patient)}
+                          className="w-full text-left px-2 py-1.5 hover:bg-blue-50 flex items-center gap-2 text-xs border-b border-slate-100 last:border-0"
+                        >
+                          <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-medium text-slate-600">{patient.firstName.charAt(0)}</div>
+                          <div>
+                            <span className="font-medium text-slate-700">{patient.firstName} {patient.lastName}</span>
+                            {patient.phone && <span className="text-slate-400 ml-1">{patient.phone}</span>}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            {selectedPatient && (
+              <div className="flex items-center justify-between bg-green-50 rounded p-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-[10px] font-medium">{selectedPatient.firstName.charAt(0)}</div>
+                  <div>
+                    <p className="text-[11px] font-medium text-green-800">{selectedPatient.firstName} {selectedPatient.lastName}</p>
+                    <p className="text-[10px] text-green-600">{selectedPatient.phone || selectedPatient.email}</p>
+                  </div>
+                </div>
+                <button type="button" onClick={handleClearPatient} className="text-green-600 hover:text-green-800">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Manual name/phone for unknown patients */}
+          {!selectedPatient && !walkInForm.patientId && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] font-medium text-slate-600 mb-1">Name</label>
+                <input type="text" value={walkInForm.walkInName} onChange={(e) => setWalkInForm({ ...walkInForm, walkInName: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" placeholder="Patient name" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-600 mb-1">Phone</label>
+                <input type="text" value={walkInForm.walkInPhone} onChange={(e) => setWalkInForm({ ...walkInForm, walkInPhone: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" placeholder="Phone number" />
+              </div>
+            </div>
+          )}
+
+          {/* Reason */}
+          <div>
+            <label className="block text-[10px] font-medium text-slate-600 mb-1">Reason for Visit <span className="text-red-500">*</span></label>
+            {appointmentReasons && appointmentReasons.length > 0 ? (
+              <>
+                <select
+                  value={showCustomReason ? '__OTHER__' : walkInForm.reasonForVisit}
+                  onChange={(e) => {
+                    if (e.target.value === '__OTHER__') {
+                      setShowCustomReason(true);
+                      setWalkInForm({ ...walkInForm, reasonForVisit: '' });
+                    } else {
+                      setShowCustomReason(false);
+                      setWalkInForm({ ...walkInForm, reasonForVisit: e.target.value });
+                    }
+                  }}
+                  className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded"
+                >
+                  <option value="">-- Select reason --</option>
+                  {appointmentReasons.map((r: AppointmentReason) => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                  <option value="__OTHER__">Other...</option>
+                </select>
+                {showCustomReason && (
+                  <input type="text" value={walkInForm.reasonForVisit} onChange={(e) => setWalkInForm({ ...walkInForm, reasonForVisit: e.target.value })} placeholder="Enter custom reason" className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded mt-1" />
+                )}
+              </>
+            ) : (
+              <input type="text" value={walkInForm.reasonForVisit} onChange={(e) => setWalkInForm({ ...walkInForm, reasonForVisit: e.target.value })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded" placeholder="e.g., Follow-up" />
+            )}
+          </div>
+
+          {/* Priority */}
+          <div>
+            <label className="block text-[10px] font-medium text-slate-600 mb-1">Priority</label>
+            <select value={walkInForm.priority} onChange={(e) => setWalkInForm({ ...walkInForm, priority: e.target.value as any })} className="w-full text-xs px-2 py-1.5 border border-slate-200 rounded">
+              <option value="NORMAL">Normal</option>
+              <option value="URGENT">Urgent</option>
+              <option value="EMERGENCY">Emergency</option>
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="text-xs px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+            <button type="submit" disabled={!walkInForm.reasonForVisit || (!selectedPatient && !walkInForm.walkInName)} className="text-xs px-3 py-1.5 bg-teal-500 text-white rounded hover:bg-teal-600 disabled:opacity-50">Add to Queue</button>
+          </div>
+        </form>
       </div>
     </div>
   );

@@ -97,6 +97,7 @@ export class AppointmentResponseDto {
   bookedAt: string;
   bookedByUserId?: string;
   bookedByName?: string;
+  statusToken?: string;
   createdAt: string;
 }
 

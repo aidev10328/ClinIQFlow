@@ -6,7 +6,7 @@ export default function ConditionalFooter() {
   const pathname = usePathname();
 
   // Hide footer on pages that have their own layout
-  const hide = pathname === '/login' || pathname.startsWith('/hospital') || pathname.startsWith('/admin') || pathname.startsWith('/doctor');
+  const hide = pathname === '/login' || pathname.startsWith('/hospital') || pathname.startsWith('/admin') || pathname.startsWith('/doctor') || pathname.startsWith('/queue/status') || pathname.startsWith('/appointments/status');
   if (hide) return null;
 
   return (

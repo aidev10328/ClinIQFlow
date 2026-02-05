@@ -53,6 +53,8 @@ export class AgreementGateGuard implements CanActivate {
     '/v1/invites/lookup',
     '/v1/invites/accept',
     '/v1/invites/signup-and-accept',
+    '/v1/queue/public',
+    '/v1/appointments/public',
     '/debug',
   ];
 

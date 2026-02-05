@@ -16,6 +16,7 @@ export type Hospital = {
   timezone: string;
   role: string;
   isPrimary: boolean;
+  logoUrl?: string;
 };
 
 export type UserProfile = {
