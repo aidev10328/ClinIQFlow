@@ -59,6 +59,32 @@ interface TimeOff {
   status: 'approved' | 'pending';
 }
 
+interface ShiftTimings {
+  morning: { start: string; end: string };
+  evening: { start: string; end: string };
+  night: { start: string; end: string };
+}
+
+const DEFAULT_SHIFT_TIMINGS: ShiftTimings = {
+  morning: { start: '06:00', end: '14:00' },
+  evening: { start: '14:00', end: '22:00' },
+  night: { start: '22:00', end: '06:00' },
+};
+
+function formatTime12(time24: string): string {
+  const [hours, minutes] = time24.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+function shortTime(t: string): string {
+  const [h, m] = t.split(':').map(Number);
+  const h12 = h % 12 || 12;
+  const p = h >= 12 ? 'PM' : 'AM';
+  return m === 0 ? `${h12}${p}` : `${h12}:${String(m).padStart(2, '0')}${p}`;
+}
+
 interface Specialization {
   id: string;
   name: string;
@@ -66,6 +92,12 @@ interface Specialization {
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const TIME_OPTIONS = (() => {
+  const opts: string[] = [];
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 30) opts.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  return opts;
+})();
 
 const DEPARTMENTS = [
   'Emergency Medicine', 'Internal Medicine', 'Surgery', 'Pediatrics',
@@ -79,6 +111,38 @@ const DEPARTMENTS = [
 const EMERGENCY_RELATIONS = [
   'Spouse', 'Parent', 'Sibling', 'Child', 'Friend', 'Relative', 'Other',
 ];
+
+function ScheduleSelect({ value, onChange, options }: { value: string; onChange: (val: string) => void; options: { value: string; label: string }[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selectedLabel = options.find(o => o.value === value)?.label || '';
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(!open)} className={`w-full flex items-center justify-between px-2 py-1.5 text-[11px] bg-white border rounded-md font-medium cursor-pointer transition-all ${open ? 'border-[#2b5a8a] ring-1 ring-[#a3cbef]' : 'border-slate-200 hover:border-[#2b5a8a]'} text-[#1e3a5f]`}>
+        <span>{selectedLabel}</span>
+        <svg className={`w-3 h-3 text-[#1e3a5f]/40 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-auto">
+          {options.map(opt => (
+            <button key={opt.value} type="button" onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${opt.value === value ? 'bg-[#1e3a5f] text-white font-medium' : 'text-slate-700 hover:bg-[#e8f4fc] hover:text-[#1e3a5f]'}`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function DoctorProfile() {
   const { user, profile } = useAuth();
@@ -106,6 +170,7 @@ export function DoctorProfile() {
       nightShift: false,
     }))
   );
+  const [shiftTimings, setShiftTimings] = useState<ShiftTimings>(DEFAULT_SHIFT_TIMINGS);
   const [timeOff, setTimeOff] = useState<TimeOff[]>([]);
   const [showTimeOffModal, setShowTimeOffModal] = useState(false);
   const [newTimeOff, setNewTimeOff] = useState({ startDate: '', endDate: '', reason: '' });
@@ -144,6 +209,11 @@ export function DoctorProfile() {
       const res = await apiFetch('/v1/doctors/me/profile');
       if (res.ok) {
         const data = await res.json();
+        console.log('[DoctorProfile] Fetched profile:', {
+          hasAvatarUrl: !!data.avatarUrl,
+          avatarUrlLength: data.avatarUrl?.length || 0,
+          avatarUrlPreview: data.avatarUrl?.substring(0, 50) || 'null',
+        });
         setDoctor(data);
         setFormData(data);
         if (data.appointmentDurationMinutes) {
@@ -184,15 +254,48 @@ export function DoctorProfile() {
       if (res.ok) {
         const rawData = await res.json();
         const data = Array.isArray(rawData) ? rawData : (rawData.schedules || []);
+
+        // Load saved shift timings if available
+        if (rawData.shiftTimingConfig) {
+          setShiftTimings({
+            morning: { start: rawData.shiftTimingConfig.morning?.start || '06:00', end: rawData.shiftTimingConfig.morning?.end || '14:00' },
+            evening: { start: rawData.shiftTimingConfig.evening?.start || '14:00', end: rawData.shiftTimingConfig.evening?.end || '22:00' },
+            night: { start: rawData.shiftTimingConfig.night?.start || '22:00', end: rawData.shiftTimingConfig.night?.end || '06:00' },
+          });
+        }
+
         if (data && data.length > 0) {
+          // Helper: Check if a given hour falls within a time range (handles overnight wraparound)
+          const isHourInRange = (hour: number, startHour: number, endHour: number): boolean => {
+            if (startHour === endHour) {
+              // When start === end, it means full 24-hour coverage
+              return true;
+            } else if (startHour < endHour) {
+              // Same-day range (e.g., 06:00-22:00)
+              return hour >= startHour && hour < endHour;
+            } else {
+              // Overnight range (e.g., 22:00-06:00)
+              return hour >= startHour || hour < endHour;
+            }
+          };
+
+          // Get current shift timings (use loaded config or defaults)
+          const currentTimings = rawData.shiftTimingConfig || DEFAULT_SHIFT_TIMINGS;
+
+          // Use mid-point hours for each shift period as representative test points
+          const morningMidHour = parseInt(currentTimings.morning.start.split(':')[0]) + 2;
+          const eveningMidHour = parseInt(currentTimings.evening.start.split(':')[0]) + 2;
+          const nightMidHour = 2; // Use 2AM as representative for night shift
+
           const newSchedule = DAYS_OF_WEEK.map((_, idx) => {
             const dbSchedule = data.find((s: any) => s.day_of_week === idx);
             if (dbSchedule && dbSchedule.is_working) {
               const startHour = parseInt(dbSchedule.shift_start?.split(':')[0] || '0');
               const endHour = parseInt(dbSchedule.shift_end?.split(':')[0] || '0');
-              const morningShift = startHour < 14 && endHour > 6;
-              const eveningShift = startHour < 22 && endHour > 14;
-              const nightShift = endHour <= 6 || startHour >= 22;
+              // Detect which shifts are active by checking if their representative hours fall within the saved range
+              const morningShift = isHourInRange(morningMidHour, startHour, endHour);
+              const eveningShift = isHourInRange(eveningMidHour, startHour, endHour);
+              const nightShift = isHourInRange(nightMidHour, startHour, endHour);
               return {
                 dayOfWeek: idx,
                 isWorking: true,
@@ -357,16 +460,16 @@ export function DoctorProfile() {
         let shiftEnd: string | null = null;
 
         if (day.morningShift) {
-          shiftStart = '06:00:00';
-          shiftEnd = '14:00:00';
+          shiftStart = shiftTimings.morning.start + ':00';
+          shiftEnd = shiftTimings.morning.end + ':00';
         }
         if (day.eveningShift) {
-          if (!shiftStart) shiftStart = '14:00:00';
-          shiftEnd = '22:00:00';
+          if (!shiftStart) shiftStart = shiftTimings.evening.start + ':00';
+          shiftEnd = shiftTimings.evening.end + ':00';
         }
         if (day.nightShift) {
-          if (!shiftStart) shiftStart = '22:00:00';
-          shiftEnd = '06:00:00';
+          if (!shiftStart) shiftStart = shiftTimings.night.start + ':00';
+          shiftEnd = shiftTimings.night.end + ':00';
         }
 
         return { dayOfWeek: day.dayOfWeek, isWorking: true, shiftStart, shiftEnd };
@@ -374,7 +477,7 @@ export function DoctorProfile() {
 
       const res = await apiFetch('/v1/doctors/me/schedules', {
         method: 'PATCH',
-        body: JSON.stringify({ schedules: schedulesToSave }),
+        body: JSON.stringify({ schedules: schedulesToSave, shiftTimingConfig: shiftTimings }),
       });
 
       if (res.ok) {
@@ -518,33 +621,39 @@ export function DoctorProfile() {
 
   return (
     <div className="page-fullheight flex flex-col overflow-hidden">
-      {/* Header with Avatar */}
-      <div className="flex-shrink-0 bg-white border-b border-slate-200">
-        <div className="px-4 py-3">
-          <div className="flex items-center gap-4">
+      {/* Professional Header with Gradient */}
+      <div className="flex-shrink-0 bg-gradient-to-r from-[#1e3a5f] via-[#2b5a8a] to-[#1e3a5f] relative overflow-hidden">
+        {/* Decorative Elements */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white rounded-full translate-y-1/2 -translate-x-1/2" />
+        </div>
+
+        <div className="relative px-6 py-5">
+          <div className="flex items-center gap-5">
             {/* Avatar Section */}
             <div className="relative">
               <div
-                className="w-14 h-14 rounded-xl bg-[#1e3a5f] flex items-center justify-center overflow-hidden cursor-pointer group"
+                className="w-20 h-20 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center overflow-hidden cursor-pointer group ring-4 ring-white/30 shadow-xl"
                 onClick={() => fileInputRef.current?.click()}
               >
                 {avatarPreview ? (
                   <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-lg font-bold text-white">
+                  <span className="text-2xl font-bold text-white">
                     {doctorName.charAt(0).toUpperCase()}
                   </span>
                 )}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </div>
               </div>
               {uploadingAvatar && (
-                <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-                  <div className="w-4 h-4 border-2 border-[#1e3a5f] border-t-transparent rounded-full animate-spin" />
+                <div className="absolute inset-0 bg-white/80 rounded-2xl flex items-center justify-center">
+                  <div className="w-5 h-5 border-2 border-[#1e3a5f] border-t-transparent rounded-full animate-spin" />
                 </div>
               )}
               <input
@@ -556,9 +665,9 @@ export function DoctorProfile() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="absolute -bottom-1 -right-1 w-6 h-6 bg-[#1e3a5f] rounded-full flex items-center justify-center text-white shadow-lg hover:bg-[#162d4a] transition-colors"
+                className="absolute -bottom-1 -right-1 w-7 h-7 bg-white rounded-full flex items-center justify-center text-[#1e3a5f] shadow-lg hover:bg-slate-50 transition-colors"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
@@ -567,26 +676,53 @@ export function DoctorProfile() {
 
             {/* Doctor Info */}
             <div className="flex-1">
-              <h1 className="text-base font-semibold text-slate-900">Dr. {doctorName}</h1>
-              <p className="text-[11px] text-slate-500">{doctor?.email}</p>
-              <div className="flex items-center gap-2 mt-1.5">
+              <h1 className="text-xl font-bold text-white">Dr. {doctorName}</h1>
+              <p className="text-sm text-white/70 mt-0.5">{doctor?.email}</p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
                 {doctor?.specialization && (
-                  <span className="px-2 py-0.5 bg-blue-50 text-[#1e3a5f] text-[10px] font-medium rounded border border-blue-100">
+                  <span className="px-3 py-1 bg-white/20 backdrop-blur-sm text-white text-xs font-medium rounded-full border border-white/30">
                     {doctor.specialization}
                   </span>
                 )}
                 {doctor?.qualification && (
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-medium rounded border border-slate-200">
+                  <span className="px-3 py-1 bg-white/10 text-white/90 text-xs font-medium rounded-full border border-white/20">
                     {doctor.qualification}
+                  </span>
+                )}
+                {doctor?.department && (
+                  <span className="px-3 py-1 bg-emerald-500/30 text-emerald-100 text-xs font-medium rounded-full border border-emerald-400/30">
+                    {doctor.department}
                   </span>
                 )}
               </div>
             </div>
+
+            {/* Quick Stats */}
+            <div className="hidden md:flex items-center gap-6">
+              {doctor?.yearsOfExperience && (
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-white">{doctor.yearsOfExperience}+</p>
+                  <p className="text-[10px] text-white/60 uppercase tracking-wider">Years Exp</p>
+                </div>
+              )}
+              <div className="text-center">
+                <p className="text-2xl font-bold text-white">{appointmentDuration}</p>
+                <p className="text-[10px] text-white/60 uppercase tracking-wider">Min/Appt</p>
+              </div>
+              {doctor?.consultationFee && (
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-white">${doctor.consultationFee}</p>
+                  <p className="text-[10px] text-white/60 uppercase tracking-wider">Consult Fee</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Tabs - underline style */}
-        <div className="px-4 flex gap-4">
+      {/* Tabs - Clean Card Style */}
+      <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6">
+        <div className="flex gap-1 -mb-px">
           {([
             { id: 'personal' as const, label: 'Personal', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
             { id: 'professional' as const, label: 'Professional', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
@@ -595,13 +731,13 @@ export function DoctorProfile() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 pb-2 text-sm font-medium transition-colors ${
+              className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-all rounded-t-lg ${
                 activeTab === tab.id
-                  ? 'border-b-2 border-[#1e3a5f] text-[#1e3a5f]'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-slate-50 text-[#1e3a5f] border-t-2 border-x border-t-[#1e3a5f] border-x-slate-200 -mb-px'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50/50'
               }`}
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
               </svg>
               {tab.label}
@@ -1073,44 +1209,98 @@ export function DoctorProfile() {
 
         {/* Schedule Tab */}
         {activeTab === 'schedule' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-6xl">
-            {/* Left Column */}
-            <div className="space-y-4">
-              {/* Weekly Schedule */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 max-w-6xl">
+            {/* Left Column - 3 cols */}
+            <div className="lg:col-span-3 space-y-3">
+              {/* Shift Timings + Appointment Duration - Now First */}
               <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                 <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-sm font-semibold text-slate-900">Weekly Schedule</h2>
-                    <p className="text-[11px] text-slate-500">Your working days and shifts</p>
+                  <h2 className="text-sm font-semibold text-slate-900">Shift Timings</h2>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500">Appt Duration:</span>
+                    <select
+                      value={appointmentDuration}
+                      onChange={(e) => handleSaveAppointmentDuration(parseInt(e.target.value))}
+                      disabled={savingDuration}
+                      className="text-xs px-2 py-1 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-[#1e3a5f]"
+                    >
+                      <option value={15}>15 min</option>
+                      <option value={20}>20 min</option>
+                      <option value={30}>30 min</option>
+                      <option value={45}>45 min</option>
+                      <option value={60}>60 min</option>
+                    </select>
+                    {savingDuration && <span className="text-[10px] text-slate-400">...</span>}
                   </div>
+                </div>
+                <div className="p-2.5">
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { key: 'morning' as const, label: 'Morning', bgClass: 'bg-amber-50 border-amber-200', iconColor: 'text-amber-600' },
+                      { key: 'evening' as const, label: 'Afternoon', bgClass: 'bg-orange-50 border-orange-200', iconColor: 'text-orange-600' },
+                      { key: 'night' as const, label: 'Night', bgClass: 'bg-slate-100 border-slate-300', iconColor: 'text-slate-600' },
+                    ]).map(shift => (
+                      <div key={shift.key} className={`p-2 rounded-lg border ${shift.bgClass}`}>
+                        <div className="flex items-center gap-1 mb-1.5">
+                          <svg className={`w-3 h-3 ${shift.iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            {shift.key === 'night' ? (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                            ) : (
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            )}
+                          </svg>
+                          <span className="text-[10px] font-semibold text-slate-700">{shift.label}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <ScheduleSelect
+                            value={shiftTimings[shift.key].start}
+                            onChange={val => setShiftTimings(prev => ({ ...prev, [shift.key]: { ...prev[shift.key], start: val } }))}
+                            options={TIME_OPTIONS.map(t => ({ value: t, label: formatTime12(t) }))}
+                          />
+                          <ScheduleSelect
+                            value={shiftTimings[shift.key].end}
+                            onChange={val => setShiftTimings(prev => ({ ...prev, [shift.key]: { ...prev[shift.key], end: val } }))}
+                            options={TIME_OPTIONS.map(t => ({ value: t, label: formatTime12(t) }))}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Weekly Schedule - Now Second */}
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-900">Weekly Schedule</h2>
                   <button
                     onClick={handleSaveSchedule}
                     disabled={saving}
-                    className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${
+                    className={`px-3 py-1.5 text-xs font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${
                       saveSuccess
                         ? 'bg-green-500 hover:bg-green-600'
                         : 'bg-[#1e3a5f] hover:bg-[#162d4a]'
                     }`}
                   >
-                    {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}
+                    {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Schedule'}
                   </button>
                 </div>
-                <div className="p-4">
-                  <div className="space-y-2">
+                <div className="p-3">
+                  <div className="space-y-1.5">
                     {schedule.map((day, idx) => (
                       <div
                         key={idx}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                        className={`flex items-center gap-2 px-2.5 py-2 rounded-lg transition-colors ${
                           day.isWorking ? 'bg-green-50' : 'bg-gray-50'
                         }`}
                       >
-                        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${day.isWorking ? 'bg-green-500' : 'bg-gray-300'}`} />
-                        <span className={`text-sm font-medium w-20 ${day.isWorking ? 'text-gray-900' : 'text-gray-400'}`}>
-                          {DAYS_OF_WEEK[idx]}
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${day.isWorking ? 'bg-green-500' : 'bg-gray-300'}`} />
+                        <span className={`text-xs font-medium w-16 ${day.isWorking ? 'text-gray-900' : 'text-gray-400'}`}>
+                          {DAYS_SHORT[idx]}
                         </span>
-                        <div className="flex gap-2 flex-1">
-                          <label className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                            day.morningShift ? 'bg-yellow-200 text-yellow-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                        <div className="flex gap-1.5 flex-1">
+                          <label className={`px-2 py-0.5 rounded text-[10px] font-medium cursor-pointer transition-all ${
+                            day.morningShift ? 'bg-amber-200 text-amber-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
                           }`}>
                             <input
                               type="checkbox"
@@ -1118,9 +1308,9 @@ export function DoctorProfile() {
                               onChange={(e) => handleScheduleChange(idx, 'morningShift', e.target.checked)}
                               className="sr-only"
                             />
-                            Morning
+                            {day.morningShift ? `${shortTime(shiftTimings.morning.start)}-${shortTime(shiftTimings.morning.end)}` : 'Morning'}
                           </label>
-                          <label className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all ${
+                          <label className={`px-2 py-0.5 rounded text-[10px] font-medium cursor-pointer transition-all ${
                             day.eveningShift ? 'bg-orange-200 text-orange-800' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
                           }`}>
                             <input
@@ -1129,10 +1319,10 @@ export function DoctorProfile() {
                               onChange={(e) => handleScheduleChange(idx, 'eveningShift', e.target.checked)}
                               className="sr-only"
                             />
-                            Afternoon
+                            {day.eveningShift ? `${shortTime(shiftTimings.evening.start)}-${shortTime(shiftTimings.evening.end)}` : 'Afternoon'}
                           </label>
-                          <label className={`px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                            day.nightShift ? 'bg-navy-700 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                          <label className={`px-2 py-0.5 rounded text-[10px] font-medium cursor-pointer transition-all ${
+                            day.nightShift ? 'bg-slate-700 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
                           }`}>
                             <input
                               type="checkbox"
@@ -1140,7 +1330,7 @@ export function DoctorProfile() {
                               onChange={(e) => handleScheduleChange(idx, 'nightShift', e.target.checked)}
                               className="sr-only"
                             />
-                            Night
+                            {day.nightShift ? `${shortTime(shiftTimings.night.start)}-${shortTime(shiftTimings.night.end)}` : 'Night'}
                           </label>
                         </div>
                       </div>
@@ -1148,135 +1338,116 @@ export function DoctorProfile() {
                   </div>
                 </div>
               </div>
-
-              {/* Appointment Duration */}
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                <div className="px-3 py-2 border-b border-slate-100">
-                  <h2 className="text-sm font-semibold text-slate-900">Appointment Duration</h2>
-                  <p className="text-[11px] text-slate-500">Default time slot for appointments</p>
-                </div>
-                <div className="p-4">
-                  <div className="flex items-center gap-4">
-                    <select
-                      value={appointmentDuration}
-                      onChange={(e) => handleSaveAppointmentDuration(parseInt(e.target.value))}
-                      disabled={savingDuration}
-                      className="form-input w-40"
-                    >
-                      <option value={15}>15 minutes</option>
-                      <option value={20}>20 minutes</option>
-                      <option value={30}>30 minutes</option>
-                      <option value={45}>45 minutes</option>
-                      <option value={60}>60 minutes</option>
-                    </select>
-                    {savingDuration && (
-                      <span className="text-[11px] text-slate-500">Saving...</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Time Off List */}
-              {timeOff.length > 0 && (
-                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                  <div className="px-3 py-2 border-b border-slate-100">
-                    <h2 className="text-sm font-semibold text-slate-900">Time Off ({timeOff.length})</h2>
-                  </div>
-                  <div className="p-3 space-y-2">
-                    {timeOff.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between px-3 py-2 bg-red-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 bg-red-500 rounded-full" />
-                          <span className="text-sm text-gray-700">
-                            {parseDateString(item.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            {item.startDate !== item.endDate && ` - ${parseDateString(item.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
-                          </span>
-                          {item.reason && (
-                            <span className="text-xs text-gray-500">({item.reason})</span>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => handleRemoveTimeOff(item.id)}
-                          className="text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Right Column - Calendar */}
-            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-              <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button onClick={() => navigateMonth('prev')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-                  <span className="text-sm font-semibold text-slate-900">{formatMonthYear(calendarDate)}</span>
-                  <button onClick={() => navigateMonth('next')} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                </div>
-                <button
-                  onClick={() => setShowTimeOffModal(true)}
-                  className="px-4 py-2 text-sm font-medium text-white bg-rose-500 hover:bg-rose-600 rounded-lg transition-colors"
-                >
-                  + Add Time Off
-                </button>
-              </div>
-              <div className="p-4">
-                <div className="grid grid-cols-7 gap-1">
-                  {DAYS_SHORT.map((day) => (
-                    <div key={day} className="py-2 text-center text-xs font-semibold text-gray-500 uppercase">
-                      {day.charAt(0)}
-                    </div>
-                  ))}
-                  {getCalendarDays(calendarDate).map((day, index) => {
-                    const isTimeOffDay = day ? isDateInTimeOff(day) : false;
-                    const isTodayDay = day ? isToday(day) : false;
-                    return (
-                      <div
-                        key={index}
-                        className={`p-2 min-h-[44px] rounded-lg text-center ${
-                          !day ? 'bg-gray-50' : isTimeOffDay ? 'bg-red-50' : 'bg-white'
-                        }`}
-                      >
-                        {day && (
-                          <span className={`text-sm inline-flex items-center justify-center w-8 h-8 rounded-full ${
-                            isTodayDay
-                              ? 'bg-[#1e3a5f] text-white font-bold'
-                              : isTimeOffDay
-                              ? 'text-red-600 font-medium'
-                              : 'text-gray-700'
-                          }`}>
-                            {day}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
-                  <div className="flex items-center gap-4 text-xs text-gray-500">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded-full bg-[#1e3a5f]" />
-                      <span>Today</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 rounded bg-red-100 border border-red-200" />
-                      <span>Time Off</span>
-                    </div>
+            {/* Right Column - Calendar + Time Off - 2 cols */}
+            <div className="lg:col-span-2 space-y-3">
+              {/* Calendar */}
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => navigateMonth('prev')} className="p-1 rounded hover:bg-gray-100 transition-colors">
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <span className="text-sm font-semibold text-slate-900 min-w-[120px] text-center">{formatMonthYear(calendarDate)}</span>
+                    <button onClick={() => navigateMonth('next')} className="p-1 rounded hover:bg-gray-100 transition-colors">
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
                   </div>
-                  <span className="text-xs text-gray-400">{timezoneLabel}</span>
+                  <button
+                    onClick={() => setShowTimeOffModal(true)}
+                    className="px-2.5 py-1 text-[10px] font-medium text-white bg-rose-500 hover:bg-rose-600 rounded transition-colors"
+                  >
+                    + Time Off
+                  </button>
+                </div>
+                <div className="p-3">
+                  <div className="grid grid-cols-7 gap-0.5">
+                    {DAYS_SHORT.map((day) => (
+                      <div key={day} className="py-1 text-center text-[10px] font-semibold text-gray-500 uppercase">
+                        {day.charAt(0)}
+                      </div>
+                    ))}
+                    {getCalendarDays(calendarDate).map((day, index) => {
+                      const isTimeOffDay = day ? isDateInTimeOff(day) : false;
+                      const isTodayDay = day ? isToday(day) : false;
+                      return (
+                        <div
+                          key={index}
+                          className={`p-1 min-h-[32px] rounded text-center ${
+                            !day ? 'bg-gray-50' : isTimeOffDay ? 'bg-red-50' : 'bg-white'
+                          }`}
+                        >
+                          {day && (
+                            <span className={`text-xs inline-flex items-center justify-center w-6 h-6 rounded-full ${
+                              isTodayDay
+                                ? 'bg-[#1e3a5f] text-white font-bold'
+                                : isTimeOffDay
+                                ? 'text-red-600 font-medium'
+                                : 'text-gray-700'
+                            }`}>
+                              {day}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                    <div className="flex items-center gap-3 text-[10px] text-gray-500">
+                      <div className="flex items-center gap-1">
+                        <div className="w-2.5 h-2.5 rounded-full bg-[#1e3a5f]" />
+                        <span>Today</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-2.5 h-2.5 rounded bg-red-100 border border-red-200" />
+                        <span>Time Off</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] text-gray-400">{timezoneLabel}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Time Off List - Below Calendar */}
+              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-900">Scheduled Time Off</h2>
+                  <span className="text-[10px] text-slate-400">{timeOff.length} total</span>
+                </div>
+                <div className="p-2 max-h-[160px] overflow-y-auto">
+                  {timeOff.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-4">No time off scheduled</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {timeOff.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between px-2.5 py-1.5 bg-red-50 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                            <span className="text-xs text-gray-700">
+                              {parseDateString(item.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              {item.startDate !== item.endDate && ` - ${parseDateString(item.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
+                            </span>
+                            {item.reason && (
+                              <span className="text-[10px] text-gray-400">• {item.reason}</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleRemoveTimeOff(item.id)}
+                            className="text-gray-400 hover:text-red-500 transition-colors p-0.5"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

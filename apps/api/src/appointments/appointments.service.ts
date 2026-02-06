@@ -166,20 +166,27 @@ export class AppointmentsService {
     }
 
     // Bulk insert slots in batches of 500 to avoid Supabase row limits
+    // Use upsert with onConflict to gracefully handle any duplicate slots
     if (slotsToCreate.length > 0) {
       const BATCH_SIZE = 500;
+      let insertedCount = 0;
       for (let i = 0; i < slotsToCreate.length; i += BATCH_SIZE) {
         const batch = slotsToCreate.slice(i, i + BATCH_SIZE);
-        const { error: insertError } = await adminClient
+        const { error: insertError, count } = await adminClient
           .from('appointment_slots')
-          .insert(batch);
+          .upsert(batch, {
+            onConflict: 'doctor_profile_id,slot_date,start_time',
+            ignoreDuplicates: true,
+            count: 'exact',
+          });
 
         if (insertError) {
           this.logger.error(`Failed to insert slots batch ${Math.floor(i / BATCH_SIZE) + 1}: ${insertError.message}`);
           throw new BadRequestException('Failed to generate slots');
         }
+        insertedCount += count || batch.length;
       }
-      this.logger.log(`[generateSlots] Inserted ${slotsToCreate.length} slots in ${Math.ceil(slotsToCreate.length / BATCH_SIZE)} batches`);
+      this.logger.log(`[generateSlots] Inserted ${insertedCount} slots in ${Math.ceil(slotsToCreate.length / BATCH_SIZE)} batches`);
     }
 
     return {
@@ -205,6 +212,20 @@ export class AppointmentsService {
       throw new BadRequestException('Admin client not available');
     }
 
+    // Check if this day is a working day according to the doctor's schedule
+    const checkDate = new Date(date + 'T00:00:00Z');
+    const dayOfWeek = checkDate.getUTCDay(); // 0 = Sunday, 6 = Saturday
+
+    const { data: scheduleEntry } = await adminClient
+      .from('doctor_schedules')
+      .select('is_working')
+      .eq('doctor_profile_id', doctorProfileId)
+      .eq('day_of_week', dayOfWeek)
+      .single();
+
+    // If schedule says not working, treat as non-working day (similar to time-off)
+    const isNonWorkingDay = scheduleEntry && !scheduleEntry.is_working;
+
     // Check if this date falls within a time-off period
     const { data: timeOffEntries } = await adminClient
       .from('doctor_time_off')
@@ -215,7 +236,7 @@ export class AppointmentsService {
       .gte('end_date', date);
 
     const isTimeOff = (timeOffEntries || []).length > 0;
-    const timeOffReason = isTimeOff ? (timeOffEntries![0].reason || 'Day Off') : undefined;
+    const timeOffReason = isTimeOff ? (timeOffEntries![0].reason || 'Day Off') : (isNonWorkingDay ? 'Not Working' : undefined);
 
     // Get slots for this date
     const { data: slots, error } = await adminClient
@@ -256,7 +277,9 @@ export class AppointmentsService {
         .select('full_name')
         .eq('user_id', doctorProfile.user_id)
         .single();
-      doctorName = profile?.full_name || 'Unknown';
+      // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend
+      const rawName = profile?.full_name || 'Unknown';
+      doctorName = rawName.replace(/^Dr\.?\s+/i, '').trim() || rawName;
     }
 
     // Get appointments for booked slots
@@ -267,9 +290,28 @@ export class AppointmentsService {
       .in('slot_id', slotIds.length > 0 ? slotIds : ['00000000-0000-0000-0000-000000000000']);
 
     const appointmentMap = new Map<string, any>();
+    const slotsToFixStatus: string[] = [];
     (appointments || []).forEach((a: any) => {
       appointmentMap.set(a.slot_id, a);
     });
+
+    // Check for data inconsistency: slots with AVAILABLE status but have appointments
+    (slots || []).forEach((s: any) => {
+      if (s.status === 'AVAILABLE' && appointmentMap.has(s.id)) {
+        slotsToFixStatus.push(s.id);
+        // Fix the slot object in memory for this response
+        s.status = 'BOOKED';
+      }
+    });
+
+    // Auto-fix inconsistent slot statuses in the database
+    if (slotsToFixStatus.length > 0) {
+      this.logger.warn(`[getSlotsForDate] Fixing ${slotsToFixStatus.length} slots with inconsistent status`);
+      await adminClient
+        .from('appointment_slots')
+        .update({ status: 'BOOKED' })
+        .in('id', slotsToFixStatus);
+    }
 
     // Get patient names and phones for booked appointments
     const patientIds = (appointments || []).map((a: any) => a.patient_id);
@@ -286,8 +328,8 @@ export class AppointmentsService {
       });
     });
 
-    // Map slots to response DTOs — filter out AVAILABLE slots on time-off days
-    const filteredSlots = isTimeOff
+    // Map slots to response DTOs — filter out AVAILABLE slots on time-off days or non-working days
+    const filteredSlots = (isTimeOff || isNonWorkingDay)
       ? (slots || []).filter((s: any) => s.status !== 'AVAILABLE')
       : (slots || []);
 
@@ -405,6 +447,20 @@ export class AppointmentsService {
     const startDate = new Date(Date.UTC(year, month - 1, 1)).toISOString().split('T')[0];
     const endDate = new Date(Date.UTC(year, month, 0)).toISOString().split('T')[0];
 
+    // Get doctor's weekly schedule to know which days they work
+    const { data: schedules } = await adminClient
+      .from('doctor_schedules')
+      .select('day_of_week, is_working')
+      .eq('doctor_profile_id', doctorProfileId);
+
+    // Build a set of non-working days of the week (0 = Sunday, 6 = Saturday)
+    const nonWorkingDays = new Set<number>();
+    (schedules || []).forEach((s: any) => {
+      if (!s.is_working) {
+        nonWorkingDays.add(s.day_of_week);
+      }
+    });
+
     // Get time-off entries that overlap this month
     const { data: timeOffs } = await adminClient
       .from('doctor_time_off')
@@ -433,14 +489,21 @@ export class AppointmentsService {
       .gte('slot_date', startDate)
       .lte('slot_date', endDate);
 
-    // Group by date — exclude AVAILABLE slots on time-off days
+    // Helper to check if a date is on a non-working day
+    const isNonWorkingDay = (dateStr: string): boolean => {
+      const d = new Date(dateStr + 'T00:00:00Z');
+      return nonWorkingDays.has(d.getUTCDay());
+    };
+
+    // Group by date — exclude AVAILABLE slots on time-off days OR non-working days
     const dateMap = new Map<string, { available: number; booked: number }>();
     (slots || []).forEach((s: any) => {
       if (!dateMap.has(s.slot_date)) {
         dateMap.set(s.slot_date, { available: 0, booked: 0 });
       }
       const day = dateMap.get(s.slot_date)!;
-      if (s.status === 'AVAILABLE' && !timeOffDates.has(s.slot_date)) {
+      // Don't count AVAILABLE slots on time-off days or non-working days (schedule changed)
+      if (s.status === 'AVAILABLE' && !timeOffDates.has(s.slot_date) && !isNonWorkingDay(s.slot_date)) {
         day.available++;
       } else if (s.status === 'BOOKED') {
         day.booked++;
@@ -621,6 +684,22 @@ export class AppointmentsService {
       throw new BadRequestException('Slot is not available for booking');
     }
 
+    // Double-check: verify no appointment already exists for this slot
+    const { data: existingAppointment } = await adminClient
+      .from('appointments')
+      .select('id, status')
+      .eq('slot_id', dto.slotId)
+      .maybeSingle();
+
+    if (existingAppointment) {
+      // Fix data inconsistency: update slot status to match reality
+      await adminClient
+        .from('appointment_slots')
+        .update({ status: 'BOOKED' })
+        .eq('id', dto.slotId);
+      throw new BadRequestException('This slot has already been booked. Please select another time.');
+    }
+
     // Verify patient exists
     const { data: patient, error: patientError } = await adminClient
       .from('patients')
@@ -653,8 +732,8 @@ export class AppointmentsService {
       .single();
 
     if (appointmentError) {
-      this.logger.error(`Failed to create appointment: ${appointmentError.message}`);
-      throw new BadRequestException('Failed to create appointment');
+      this.logger.error(`Failed to create appointment: ${appointmentError.message}`, appointmentError);
+      throw new BadRequestException(`Failed to create appointment: ${appointmentError.message}`);
     }
 
     // Update slot status to BOOKED
@@ -711,7 +790,9 @@ export class AppointmentsService {
         .select('full_name')
         .eq('user_id', doctorProfile.user_id)
         .single();
-      doctorName = profile?.full_name || 'Unknown';
+      // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend
+      const rawName = profile?.full_name || 'Unknown';
+      doctorName = rawName.replace(/^Dr\.?\s+/i, '').trim() || rawName;
     }
 
     // Get booked by user name
@@ -1093,7 +1174,12 @@ export class AppointmentsService {
       .in('user_id', userIds.length > 0 ? userIds : ['00000000-0000-0000-0000-000000000000']);
 
     const profileMap = new Map<string, string>();
-    (profiles || []).forEach((p: any) => profileMap.set(p.user_id, p.full_name));
+    (profiles || []).forEach((p: any) => {
+      // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend
+      const rawName = p.full_name || '';
+      const cleanName = rawName.replace(/^Dr\.?\s+/i, '').trim() || rawName;
+      profileMap.set(p.user_id, cleanName);
+    });
 
     let doctors = (doctorProfiles || []).map((d: any) => ({
       id: d.id,
@@ -1337,19 +1423,46 @@ export class AppointmentsService {
       cancelledCount++;
     }
 
-    // 2. Delete all future AVAILABLE slots (they will be regenerated)
-    const { count: deletedCount, error: deleteError } = await adminClient
+    // 2. Delete all future AVAILABLE slots that have no appointments linked
+    // First, get slot IDs that have appointments (to exclude them)
+    const { data: slotsWithAppointments } = await adminClient
+      .from('appointments')
+      .select('slot_id')
+      .eq('doctor_profile_id', doctorProfileId)
+      .gte('appointment_date', today)
+      .not('slot_id', 'is', null);
+
+    const slotsWithAppointmentIds = new Set(
+      (slotsWithAppointments || []).map((a: any) => a.slot_id).filter(Boolean)
+    );
+
+    // Get AVAILABLE slots that can be safely deleted
+    const { data: availableSlots } = await adminClient
       .from('appointment_slots')
-      .delete({ count: 'exact' })
+      .select('id')
       .eq('doctor_profile_id', doctorProfileId)
       .eq('hospital_id', hospitalId)
       .gte('slot_date', today)
       .eq('status', 'AVAILABLE');
 
-    if (deleteError) {
-      this.logger.error(`[regenerateSlots] Delete error: ${deleteError.message}`);
+    const slotIdsToDelete = (availableSlots || [])
+      .map((s: any) => s.id)
+      .filter((id: string) => !slotsWithAppointmentIds.has(id));
+
+    let deletedCount = 0;
+    if (slotIdsToDelete.length > 0) {
+      const { count, error: deleteError } = await adminClient
+        .from('appointment_slots')
+        .delete({ count: 'exact' })
+        .in('id', slotIdsToDelete);
+
+      if (deleteError) {
+        this.logger.error(`[regenerateSlots] Delete error: ${deleteError.message}`);
+      } else {
+        deletedCount = count || 0;
+      }
     }
-    this.logger.log(`[regenerateSlots] Deleted ${deletedCount || 0} AVAILABLE slots from ${today} onward`);
+    this.logger.log(`[regenerateSlots] Deleted ${deletedCount} AVAILABLE slots from ${today} onward (${slotsWithAppointmentIds.size} slots had appointments)`);
 
     // 3. Regenerate slots for 3 months from today
     const todayDate = new Date(today + 'T00:00:00Z');
@@ -1460,7 +1573,9 @@ export class AppointmentsService {
         .select('full_name')
         .eq('user_id', doctorProfile.user_id)
         .single();
-      doctorName = profile?.full_name || 'Unknown';
+      // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend
+      const rawName = profile?.full_name || 'Unknown';
+      doctorName = rawName.replace(/^Dr\.?\s+/i, '').trim() || rawName;
     }
 
     // Get hospital info
@@ -1854,7 +1969,9 @@ export class AppointmentsService {
         .select('full_name')
         .eq('user_id', doctorProfile.user_id)
         .single();
-      doctorName = profile?.full_name || 'Unknown';
+      // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend
+      const rawName = profile?.full_name || 'Unknown';
+      doctorName = rawName.replace(/^Dr\.?\s+/i, '').trim() || rawName;
     }
 
     return {

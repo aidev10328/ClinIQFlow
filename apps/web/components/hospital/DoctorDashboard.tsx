@@ -246,7 +246,9 @@ export function DoctorDashboard() {
   const onTimeOff = isOnTimeOff();
   const checkinStatus = dashboardData?.checkinStatus?.status || 'NOT_CHECKED_IN';
   const isOnline = checkinStatus === 'CHECKED_IN';
-  const doctorName = dashboardData?.user?.fullName || profile?.fullName || 'Doctor';
+  const rawDoctorName = dashboardData?.user?.fullName || profile?.fullName || 'Doctor';
+  // Strip "Dr" prefix if present to avoid "Dr. Dr" duplication
+  const doctorName = rawDoctorName.replace(/^Dr\.?\s+/i, '').trim() || rawDoctorName;
 
   // Stats (handle both old and new API response shapes)
   const todayStats = stats?.today || {} as any;

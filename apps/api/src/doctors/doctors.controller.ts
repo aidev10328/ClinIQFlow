@@ -454,14 +454,19 @@ export class DoctorsController {
     @UploadedFile() file: Express.Multer.File,
     @Req() req: AuthenticatedRequest,
   ) {
+    this.logger.log(`[uploadDoctorAvatar] Request for userId=${userId}, file=${file ? 'present' : 'missing'}`);
+
     const hospitalId = req.hospitalId;
     if (!hospitalId) {
       throw new BadRequestException('Hospital context required');
     }
 
     if (!file) {
+      this.logger.error('[uploadDoctorAvatar] No file in request');
       throw new BadRequestException('No file uploaded');
     }
+
+    this.logger.log(`[uploadDoctorAvatar] File received: ${file.originalname}, size=${file.size}, mimetype=${file.mimetype}`);
 
     // Validate file type
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -479,6 +484,7 @@ export class DoctorsController {
     const base64 = file.buffer.toString('base64');
     const dataUrl = `data:${file.mimetype};base64,${base64}`;
 
+    this.logger.log(`[uploadDoctorAvatar] Calling service with dataUrl length=${dataUrl.length}`);
     return this.doctorsService.updateDoctorAvatar(userId, hospitalId, dataUrl);
   }
 

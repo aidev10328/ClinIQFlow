@@ -797,56 +797,88 @@ export class QueueService {
       .single();
 
     // Get all active queue entries for this doctor/date to calculate position
+    // Include appointment_id to look up individual durations
     const { data: allEntries } = await adminClient
       .from('queue_entries')
-      .select('id, queue_number, status, consultation_time_minutes, with_doctor_at')
+      .select('id, queue_number, status, consultation_time_minutes, with_doctor_at, appointment_id')
       .eq('doctor_profile_id', entry.doctor_profile_id)
       .eq('queue_date', today)
       .order('queue_number', { ascending: true });
 
     const activeStatuses = ['QUEUED', 'WAITING', 'WITH_DOCTOR'];
-    const ahead = (allEntries || []).filter(
+    const entriesAhead = (allEntries || []).filter(
       (e: any) => activeStatuses.includes(e.status) && e.queue_number < entry.queue_number
-    ).length;
+    );
+    const ahead = entriesAhead.length;
     const behind = (allEntries || []).filter(
       (e: any) => activeStatuses.includes(e.status) && e.queue_number > entry.queue_number
     ).length;
 
-    // Estimate wait time based on doctor's slot duration and actual consultation data
+    // Estimate wait time by summing individual durations for each patient ahead
     let estimatedWaitMinutes: number | null = null;
     if (activeStatuses.includes(entry.status) && entry.status !== 'WITH_DOCTOR') {
       // Use doctor's configured appointment duration as baseline (default 30 min)
-      const slotDuration = doctor?.appointment_duration_minutes || 30;
+      const defaultDuration = doctor?.appointment_duration_minutes || 30;
 
+      // Get appointment durations for entries that have appointment_id
+      const appointmentIds = entriesAhead
+        .filter((e: any) => e.appointment_id)
+        .map((e: any) => e.appointment_id);
+
+      let appointmentDurations: Record<string, number> = {};
+      if (appointmentIds.length > 0) {
+        const { data: appointments } = await adminClient
+          .from('appointments')
+          .select('id, duration_minutes')
+          .in('id', appointmentIds);
+
+        if (appointments) {
+          appointmentDurations = appointments.reduce((acc: Record<string, number>, appt: any) => {
+            acc[appt.id] = appt.duration_minutes;
+            return acc;
+          }, {});
+        }
+      }
+
+      // Calculate average from completed entries to use as fallback for walk-ins
       const completedEntries = (allEntries || []).filter(
         (e: any) => e.status === 'COMPLETED' && e.consultation_time_minutes
       );
-
-      // Only trust actual data if we have enough samples (3+), and enforce
-      // a minimum floor of half the slot duration to avoid skewed estimates
-      let avgConsultation = slotDuration;
+      let avgConsultation = defaultDuration;
       if (completedEntries.length >= 3) {
         const rawAvg = completedEntries.reduce((sum: number, e: any) => sum + e.consultation_time_minutes, 0) / completedEntries.length;
-        avgConsultation = Math.max(rawAvg, slotDuration / 2);
+        avgConsultation = Math.max(rawAvg, defaultDuration / 2);
       }
 
       // Check if someone is currently WITH_DOCTOR and estimate their remaining time
       const currentWithDoctor = (allEntries || []).find(
         (e: any) => e.status === 'WITH_DOCTOR' && e.with_doctor_at
       );
+
       let remainingForCurrent = 0;
       if (currentWithDoctor) {
+        // Get the duration for current patient
+        const currentDuration = currentWithDoctor.appointment_id && appointmentDurations[currentWithDoctor.appointment_id]
+          ? appointmentDurations[currentWithDoctor.appointment_id]
+          : avgConsultation;
+
         const elapsedMs = Date.now() - new Date(currentWithDoctor.with_doctor_at).getTime();
         const elapsedMin = elapsedMs / 60000;
-        remainingForCurrent = Math.max(0, avgConsultation - elapsedMin);
+        remainingForCurrent = Math.max(0, currentDuration - elapsedMin);
       }
 
-      // Patients ahead excluding the one currently with doctor
-      const patientsWaitingAhead = currentWithDoctor
-        ? Math.max(0, ahead - 1)
-        : ahead;
+      // Sum up individual durations for all patients waiting ahead (excluding current WITH_DOCTOR)
+      const waitingAhead = entriesAhead.filter((e: any) => e.status !== 'WITH_DOCTOR');
+      let totalWaitingDuration = 0;
+      for (const patient of waitingAhead) {
+        // Use appointment duration if available, otherwise use average
+        const patientDuration = patient.appointment_id && appointmentDurations[patient.appointment_id]
+          ? appointmentDurations[patient.appointment_id]
+          : avgConsultation;
+        totalWaitingDuration += patientDuration;
+      }
 
-      estimatedWaitMinutes = Math.round(remainingForCurrent + (patientsWaitingAhead * avgConsultation));
+      estimatedWaitMinutes = Math.round(remainingForCurrent + totalWaitingDuration);
     }
 
     // Patient name

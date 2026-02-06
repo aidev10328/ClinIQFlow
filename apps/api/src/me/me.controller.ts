@@ -115,25 +115,42 @@ export class MeController {
     let avatarUrl: string | null = null;
     if (req.hospitalId) {
       const currentHospitalMembership = hospitals.find((h: any) => h.id === req.hospitalId);
+      this.logger.log(`[getMe] hospitalId=${req.hospitalId}, role=${currentHospitalMembership?.role}`);
       if (currentHospitalMembership?.role === 'DOCTOR') {
         const adminClient = this.supabaseService.getAdminClient();
         if (adminClient) {
-          const { data: doctorProfile } = await adminClient
-            .from('doctor_profiles')
-            .select('avatar_url')
-            .eq('user_id', req.user.id)
-            .eq('hospital_id', req.hospitalId)
-            .single();
-          avatarUrl = doctorProfile?.avatar_url || null;
+          try {
+            const { data: doctorProfile, error: avatarError } = await adminClient
+              .from('doctor_profiles')
+              .select('avatar_url')
+              .eq('user_id', req.user.id)
+              .eq('hospital_id', req.hospitalId)
+              .single();
+            if (avatarError) {
+              this.logger.log(`[getMe] Avatar fetch error: ${avatarError.message}`);
+            } else {
+              this.logger.log(`[getMe] Avatar URL from DB: ${doctorProfile?.avatar_url ? 'present (length=' + doctorProfile.avatar_url.length + ')' : 'null'}`);
+            }
+            avatarUrl = doctorProfile?.avatar_url || null;
+          } catch (err: any) {
+            this.logger.log(`[getMe] Avatar fetch exception: ${err?.message}`);
+          }
         }
       }
     }
+
+    // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend (only for doctors)
+    const rawFullName = profile?.full_name || '';
+    const currentRole = hospitals.find((h: any) => h.id === req.hospitalId)?.role;
+    const fullName = currentRole === 'DOCTOR'
+      ? rawFullName.replace(/^Dr\.?\s+/i, '').trim() || rawFullName
+      : rawFullName;
 
     const response: any = {
       user: {
         id: req.user.id,
         email: req.user.email,
-        fullName: profile?.full_name,
+        fullName,
         phone: profile?.phone,
         isSuperAdmin,
         avatarUrl,

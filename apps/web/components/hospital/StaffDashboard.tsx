@@ -384,7 +384,7 @@ export function StaffDashboard() {
                               {doc.fullName?.charAt(0) || '?'}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-semibold text-slate-800 truncate">Dr. {doc.fullName}</p>
+                              <p className="text-[10px] font-semibold text-slate-800 truncate">Dr. {doc.fullName?.replace(/^Dr\.?\s+/i, '') || doc.fullName}</p>
                               {doc.specialization && <p className="text-[8px] text-slate-400 truncate">{doc.specialization}</p>}
                             </div>
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`} />
@@ -466,7 +466,7 @@ export function StaffDashboard() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <p className="text-[11px] font-semibold text-slate-900 truncate">Dr. {doc.fullName}</p>
+                              <p className="text-[11px] font-semibold text-slate-900 truncate">Dr. {doc.fullName?.replace(/^Dr\.?\s+/i, '') || doc.fullName}</p>
                               <span className={`px-1.5 py-0.5 rounded text-[8px] font-medium ${
                                 isOnline ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
                               }`}>{isOnline ? 'Online' : 'Offline'}</span>

@@ -166,10 +166,11 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
     invalidateApiCache(segments.join('/'));
   }
 
-  // Add timeout to prevent hanging (longer for slot regeneration)
+  // Add timeout to prevent hanging (longer for slot regeneration and appointment creation)
   const controller = new AbortController();
   const isSlotRegeneration = path.includes('/slots/regenerate') || path.includes('/slots/generate');
-  const timeoutMs = isSlotRegeneration ? 60000 : 10000;
+  const isAppointmentMutation = path === '/v1/appointments' && method === 'POST';
+  const timeoutMs = (isSlotRegeneration || isAppointmentMutation) ? 30000 : 10000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {

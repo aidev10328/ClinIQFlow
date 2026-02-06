@@ -210,11 +210,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+      // Include hospital ID if available (from localStorage or state)
+      const hospitalId = typeof window !== 'undefined'
+        ? localStorage.getItem('clinqflow_hospital_id')
+        : null;
+
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
+      if (hospitalId) {
+        headers['x-hospital-id'] = hospitalId;
+      }
+
       const res = await fetch(`${API_BASE}/v1/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -261,6 +271,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }
+
+  // Re-fetch profile when hospital changes to get hospital-specific data (e.g., doctor avatar)
+  const prevHospitalIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || !user || !currentHospitalId) return;
+    // Only refetch if hospital actually changed (not on initial load)
+    if (prevHospitalIdRef.current !== null && prevHospitalIdRef.current !== currentHospitalId) {
+      console.log('[AuthProvider] Hospital changed, refreshing profile for avatar...');
+      fetchProfile();
+    }
+    prevHospitalIdRef.current = currentHospitalId;
+  }, [currentHospitalId, loading, user]);
 
   const router = useRouter();
   const pathname = usePathname();

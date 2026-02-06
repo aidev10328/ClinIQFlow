@@ -7,6 +7,44 @@ import { apiFetch, invalidateApiCache } from '../../../lib/api';
 import PhoneInput from '../../../components/PhoneInput';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
 
+// Consultation timer component - shows elapsed time since patient entered consultation
+function ConsultationTimer({ startTime }: { startTime: string }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!startTime) return;
+
+    const startDate = new Date(startTime);
+    const updateElapsed = () => {
+      const now = new Date();
+      const diffMs = now.getTime() - startDate.getTime();
+      setElapsed(Math.floor(diffMs / 1000));
+    };
+
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  const formattedTime = `${minutes}:${String(seconds).padStart(2, '0')}`;
+
+  // Color changes based on duration: green < 15min, yellow 15-30min, red > 30min
+  const timerColor = minutes >= 30 ? 'text-red-600 bg-red-100 border-red-200' :
+                     minutes >= 15 ? 'text-amber-600 bg-amber-100 border-amber-200' :
+                     'text-emerald-600 bg-emerald-100 border-emerald-200';
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm font-mono font-bold ${timerColor}`}>
+      <svg className="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      {formattedTime}
+    </div>
+  );
+}
+
 type TabType = 'scheduler' | 'queue';
 
 interface Doctor {
@@ -2472,6 +2510,9 @@ function QueueTab({ doctors, patients, appointmentReasons, formatDateString, get
             <div className="flex-shrink-0 px-3 py-1.5 bg-slate-200/50 border-b border-slate-300/50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-700">With Doctor</span>
+                {queueData?.withDoctor?.withDoctorAt && (
+                  <ConsultationTimer startTime={queueData.withDoctor.withDoctorAt} />
+                )}
               </div>
               <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${isCheckedIn ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-500'}`}>
                 {isCheckedIn ? 'Online' : 'Offline'}

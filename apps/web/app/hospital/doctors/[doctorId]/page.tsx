@@ -285,18 +285,56 @@ export default function DoctorDetailPage() {
       if (res.ok) {
         const rawData = await res.json();
         const data = Array.isArray(rawData) ? rawData : (rawData.schedules || []);
+        // Load saved shift timings if available
+        if (rawData.shiftTimingConfig) {
+          setShiftTimings({
+            morning: { label: 'Morning', start: rawData.shiftTimingConfig.morning?.start || '06:00', end: rawData.shiftTimingConfig.morning?.end || '14:00' },
+            evening: { label: 'Evening', start: rawData.shiftTimingConfig.evening?.start || '14:00', end: rawData.shiftTimingConfig.evening?.end || '22:00' },
+            night: { label: 'Night', start: rawData.shiftTimingConfig.night?.start || '22:00', end: rawData.shiftTimingConfig.night?.end || '06:00' },
+          });
+        }
         if (data && data.length > 0) {
+          // Helper: Check if a given hour falls within a time range (handles overnight wraparound)
+          const isHourInRange = (hour: number, startHour: number, endHour: number): boolean => {
+            if (startHour === endHour) {
+              // When start === end, it means full 24-hour coverage
+              return true;
+            } else if (startHour < endHour) {
+              // Same-day range (e.g., 06:00-22:00)
+              return hour >= startHour && hour < endHour;
+            } else {
+              // Overnight range (e.g., 22:00-06:00)
+              return hour >= startHour || hour < endHour;
+            }
+          };
+
+          // Get current shift timings (use loaded config or defaults)
+          const currentTimings = rawData.shiftTimingConfig || {
+            morning: { start: '06:00', end: '14:00' },
+            evening: { start: '14:00', end: '22:00' },
+            night: { start: '22:00', end: '06:00' },
+          };
+
+          // Use mid-point hours for each shift period as representative test points
+          const morningMidHour = parseInt(currentTimings.morning.start.split(':')[0]) + 2;
+          const eveningMidHour = parseInt(currentTimings.evening.start.split(':')[0]) + 2;
+          const nightMidHour = 2; // Use 2AM as representative for night shift
+
           const newSchedule = DAYS_OF_WEEK.map((_, idx) => {
             const dbSchedule = data.find((s: any) => s.day_of_week === idx);
             if (dbSchedule && dbSchedule.is_working) {
               const startHour = parseInt(dbSchedule.shift_start?.split(':')[0] || '0');
               const endHour = parseInt(dbSchedule.shift_end?.split(':')[0] || '0');
+              // Detect which shifts are active by checking if their representative hours fall within the saved range
+              const morningShift = isHourInRange(morningMidHour, startHour, endHour);
+              const eveningShift = isHourInRange(eveningMidHour, startHour, endHour);
+              const nightShift = isHourInRange(nightMidHour, startHour, endHour);
               return {
                 dayOfWeek: idx,
                 isWorking: true,
-                morningShift: startHour < 14 && endHour > 6,
-                eveningShift: startHour < 22 && endHour > 14,
-                nightShift: endHour <= 6 || startHour >= 22,
+                morningShift,
+                eveningShift,
+                nightShift,
               };
             }
             return { dayOfWeek: idx, isWorking: false, morningShift: false, eveningShift: false, nightShift: false };

@@ -316,9 +316,12 @@ export default function HospitalDashboardPage() {
   }, [members, staffData, invites, patients, licenseStats]);
 
   const doctorList = useMemo(() => {
-    const allDocs = members.filter((m: any) => m.role === 'DOCTOR').map((d: any) => ({
-      userId: d.userId, doctorProfileId: d.doctorProfileId || d.userId, name: d.fullName || d.email || 'Unknown', status: d.complianceStatus, specialty: d.specialty || '',
-    }));
+    const allDocs = members.filter((m: any) => m.role === 'DOCTOR').map((d: any) => {
+      // Strip "Dr" prefix from name to avoid "Dr. Dr" duplication when displaying
+      const rawName = d.fullName || d.email || 'Unknown';
+      const cleanName = rawName.replace(/^Dr\.?\s+/i, '').trim() || rawName;
+      return { userId: d.userId, doctorProfileId: d.doctorProfileId || d.userId, name: cleanName, status: d.complianceStatus, specialty: d.specialty || '' };
+    });
     // Apply data scoping: filter to visible doctors only
     if (hasFullDoctorAccess || !scopingContext?.visibleDoctorUserIds?.length) return allDocs;
     return allDocs.filter((d: any) =>

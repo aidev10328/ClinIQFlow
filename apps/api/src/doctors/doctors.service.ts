@@ -359,7 +359,8 @@ export class DoctorsService {
         avatarUrl: profile.avatar_url || null,
       },
       user: userData ? {
-        fullName: userData.full_name,
+        // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend
+        fullName: (userData.full_name || '').replace(/^Dr\.?\s+/i, '').trim() || userData.full_name,
         email: userData.email,
         phone: userData.phone,
       } : null,
@@ -655,12 +656,15 @@ export class DoctorsService {
    * Update doctor avatar
    */
   async updateDoctorAvatar(userId: string, hospitalId: string, avatarUrl: string) {
+    this.logger.log(`[updateDoctorAvatar] Starting for userId=${userId}, hospitalId=${hospitalId}, avatarUrlLength=${avatarUrl?.length || 0}`);
+
     const adminClient = this.supabaseService.getAdminClient();
     if (!adminClient) {
       throw new Error('Admin client not available');
     }
 
     const profile = await this.getOrCreateDoctorProfile(userId, hospitalId);
+    this.logger.log(`[updateDoctorAvatar] Got profile id=${profile.id}`);
 
     const { data: updated, error } = await adminClient
       .from('doctor_profiles')
@@ -670,9 +674,11 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      this.logger.error('[DoctorsService] Error updating avatar:', error);
+      this.logger.error('[updateDoctorAvatar] Error updating avatar:', error);
       throw error;
     }
+
+    this.logger.log(`[updateDoctorAvatar] Successfully updated, new avatar_url length=${updated.avatar_url?.length || 0}`);
 
     return {
       avatarUrl: updated.avatar_url,
@@ -698,11 +704,15 @@ export class DoctorsService {
       .eq('user_id', userId)
       .single();
 
+    // Strip "Dr" prefix to avoid "Dr. Dr" duplication on frontend
+    const rawFullName = userData?.full_name || '';
+    const fullName = rawFullName.replace(/^Dr\.?\s+/i, '').trim() || rawFullName;
+
     return {
       id: profile.id,
       userId: profile.user_id,
       hospitalId: profile.hospital_id,
-      fullName: userData?.full_name || '',
+      fullName,
       email: userData?.email || '',
       phone: profile.phone || '',
       dateOfBirth: profile.date_of_birth || '',

@@ -114,11 +114,14 @@ function HospitalHeader() {
             className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-slate-50 transition-colors"
           >
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden" style={{ backgroundColor: '#1e3a5f' }}>
-              {profile?.avatarUrl ? (
-                <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                profile?.fullName?.charAt(0) || profile?.email?.charAt(0) || 'M'
-              )}
+              {(() => {
+                console.log('[Header Avatar] profile.avatarUrl:', profile?.avatarUrl ? 'present (length=' + profile.avatarUrl.length + ')' : 'null');
+                return profile?.avatarUrl ? (
+                  <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  profile?.fullName?.charAt(0) || profile?.email?.charAt(0) || 'M'
+                );
+              })()}
             </div>
             <div className="hidden sm:flex flex-col items-start">
               <span className="text-xs font-medium text-slate-900">{profile?.fullName || 'User'}</span>

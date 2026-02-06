@@ -77,6 +77,44 @@ function formatTime12h(time24: string): string {
   return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
 }
 
+// Consultation timer component - shows elapsed time since patient entered consultation
+function ConsultationTimer({ startTime }: { startTime: string }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!startTime) return;
+
+    const startDate = new Date(startTime);
+    const updateElapsed = () => {
+      const now = new Date();
+      const diffMs = now.getTime() - startDate.getTime();
+      setElapsed(Math.floor(diffMs / 1000));
+    };
+
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  const formattedTime = `${minutes}:${String(seconds).padStart(2, '0')}`;
+
+  // Color changes based on duration: green < 15min, yellow 15-30min, red > 30min
+  const timerColor = minutes >= 30 ? 'text-red-600 bg-red-100 border-red-200' :
+                     minutes >= 15 ? 'text-amber-600 bg-amber-100 border-amber-200' :
+                     'text-emerald-600 bg-emerald-100 border-emerald-200';
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-sm font-mono font-bold ${timerColor}`}>
+      <svg className="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      {formattedTime}
+    </div>
+  );
+}
+
 export function DoctorQueue() {
   const { profile } = useAuth();
   const { getCurrentTime, formatTime: formatTimeHospital } = useHospitalTimezone();
@@ -294,11 +332,16 @@ export function DoctorQueue() {
         <div className="w-[520px] flex flex-col gap-1.5 flex-shrink-0 min-h-0">
           {/* With Doctor */}
           <div className="h-[90px] bg-[#e8f0f8] rounded border border-[#c5d8ea] shadow-sm flex flex-col">
-            <div className="flex-shrink-0 px-2 py-1 border-b border-[#c5d8ea] flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-[#1e3a5f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <span className="text-sm font-medium text-[#1e3a5f]">With Doctor</span>
+            <div className="flex-shrink-0 px-2 py-1 border-b border-[#c5d8ea] flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 text-[#1e3a5f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                <span className="text-sm font-medium text-[#1e3a5f]">With Doctor</span>
+              </div>
+              {queueData?.withDoctor?.withDoctorAt && (
+                <ConsultationTimer startTime={queueData.withDoctor.withDoctorAt} />
+              )}
             </div>
             <div className="flex-1 px-2 py-1 flex items-center">
               {!isCheckedIn ? (

@@ -455,20 +455,26 @@ function DoctorsContent() {
     try {
       const formDataUpload = new FormData();
       formDataUpload.append('avatar', file);
+      console.log('[Avatar Upload] Sending file:', file.name, file.size, file.type);
       const res = await apiFetch(`/v1/doctors/${editingDoctorId}/avatar`, {
         method: 'POST',
         body: formDataUpload,
         headers: {},
       });
       if (res.ok) {
+        const result = await res.json();
+        console.log('[Avatar Upload] Success:', result);
         // Invalidate /v1/me cache so the doctor sees their new avatar on next login
         invalidateApiCache('/v1/me');
         setMessage({ type: 'success', text: 'Avatar uploaded successfully' });
       } else {
-        alert('Failed to upload avatar');
+        const err = await res.text();
+        console.error('[Avatar Upload] Failed:', res.status, err);
+        alert('Failed to upload avatar: ' + err);
         setDoctorAvatarPreview(null);
       }
-    } catch {
+    } catch (e) {
+      console.error('[Avatar Upload] Exception:', e);
       alert('Failed to upload avatar');
       setDoctorAvatarPreview(null);
     } finally {
@@ -513,12 +519,35 @@ function DoctorsContent() {
         }
         setScheduleShiftTimings(timings);
 
+        // Helper: Check if a given hour falls within a time range (handles overnight wraparound)
+        const isHourInRange = (hour: number, startHour: number, endHour: number): boolean => {
+          if (startHour === endHour) {
+            // When start === end, it means full 24-hour coverage
+            return true;
+          } else if (startHour < endHour) {
+            // Same-day range (e.g., 06:00-22:00)
+            return hour >= startHour && hour < endHour;
+          } else {
+            // Overnight range (e.g., 22:00-06:00)
+            return hour >= startHour || hour < endHour;
+          }
+        };
+
+        // Use mid-point hours for each shift period as representative test points
+        const morningMidHour = parseInt(timings.morning.start.split(':')[0]) + 2; // e.g., 8 for 06:00-14:00
+        const eveningMidHour = parseInt(timings.evening.start.split(':')[0]) + 2; // e.g., 16 for 14:00-22:00
+        const nightMidHour = 2; // Use 2AM as representative for night shift (always works for overnight)
+
         const sched = DAYS_OF_WEEK.map((_, idx) => {
           const dbSched = data.find((s: any) => s.day_of_week === idx);
           if (dbSched && dbSched.is_working) {
             const startHour = parseInt(dbSched.shift_start?.split(':')[0] || '0');
             const endHour = parseInt(dbSched.shift_end?.split(':')[0] || '0');
-            return { dayOfWeek: idx, isWorking: true, morningShift: startHour < 14 && endHour > 6, eveningShift: startHour < 22 && endHour > 14, nightShift: endHour <= 6 || startHour >= 22 };
+            // Detect which shifts are active by checking if their representative hours fall within the saved range
+            const morningShift = isHourInRange(morningMidHour, startHour, endHour);
+            const eveningShift = isHourInRange(eveningMidHour, startHour, endHour);
+            const nightShift = isHourInRange(nightMidHour, startHour, endHour);
+            return { dayOfWeek: idx, isWorking: true, morningShift, eveningShift, nightShift };
           }
           return { dayOfWeek: idx, isWorking: false, morningShift: false, eveningShift: false, nightShift: false };
         });
