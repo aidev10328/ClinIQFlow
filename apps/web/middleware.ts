@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // Routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/logout', '/invite/accept', '/api'];
+const PUBLIC_ROUTES = ['/login', '/logout', '/invite/accept', '/api', '/reset-password'];
 
 // Routes that require authentication — redirect to /login if no session
 const PROTECTED_PREFIXES = [

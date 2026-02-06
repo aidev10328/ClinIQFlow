@@ -307,7 +307,7 @@ export class DoctorsService {
     const { data: userData } = await adminClient
       .from('profiles')
       .select('full_name, email, phone')
-      .eq('id', userId)
+      .eq('user_id', userId)
       .single();
 
     // Get schedules
@@ -695,7 +695,7 @@ export class DoctorsService {
     const { data: userData } = await adminClient
       .from('profiles')
       .select('full_name, email, phone')
-      .eq('id', userId)
+      .eq('user_id', userId)
       .single();
 
     return {
@@ -817,7 +817,7 @@ export class DoctorsService {
       await adminClient
         .from('profiles')
         .update({ full_name: data.fullName })
-        .eq('id', userId);
+        .eq('user_id', userId);
     }
 
     return {

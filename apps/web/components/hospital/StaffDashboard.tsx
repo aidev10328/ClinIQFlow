@@ -244,21 +244,26 @@ export function StaffDashboard() {
   return (
     <div className="page-fullheight flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 py-2 bg-gradient-to-r from-[#1e3a5f] to-[#2b5a8a]">
-        <div className="flex items-center justify-between">
-          <div className="min-w-0">
-            <h1 className="text-sm font-semibold text-white truncate">Welcome, {staffName}</h1>
-            <p className="text-[10px] text-blue-200 truncate">
-              {currentHospital?.name} &middot; {DAYS_OF_WEEK[now.getDay()]}, {formatShortDate(now)}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <Link href="/hospital/appointments" className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-white/15 text-white hover:bg-white/25 transition-colors">
-              Appointments
-            </Link>
-            <Link href="/hospital/appointments?tab=queue" className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-white/15 text-white hover:bg-white/25 transition-colors">
-              Queue
-            </Link>
+      <div className="flex-shrink-0 relative overflow-hidden" style={{ minHeight: currentHospital?.pictureUrl ? 72 : undefined }}>
+        {currentHospital?.pictureUrl && (
+          <img src={currentHospital.pictureUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        )}
+        <div className={`relative px-4 py-2 ${currentHospital?.pictureUrl ? 'bg-gradient-to-r from-[#1e3a5f]/85 to-[#1e3a5f]/40' : 'bg-gradient-to-r from-[#1e3a5f] to-[#2b5a8a]'}`}>
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <h1 className="text-sm font-semibold text-white truncate">Welcome, {staffName}</h1>
+              <p className="text-[10px] text-blue-200 truncate">
+                {currentHospital?.name} &middot; {DAYS_OF_WEEK[now.getDay()]}, {formatShortDate(now)}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Link href="/hospital/appointments" className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-white/15 text-white hover:bg-white/25 transition-colors">
+                Appointments
+              </Link>
+              <Link href="/hospital/appointments?tab=queue" className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-white/15 text-white hover:bg-white/25 transition-colors">
+                Queue
+              </Link>
+            </div>
           </div>
         </div>
       </div>

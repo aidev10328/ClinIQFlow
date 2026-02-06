@@ -17,6 +17,7 @@ export type Hospital = {
   role: string;
   isPrimary: boolean;
   logoUrl?: string;
+  pictureUrl?: string;
 };
 
 export type UserProfile = {
@@ -25,6 +26,7 @@ export type UserProfile = {
   fullName?: string;
   phone?: string;
   isSuperAdmin: boolean;
+  avatarUrl?: string;
 };
 
 export type ProductEntitlement = {

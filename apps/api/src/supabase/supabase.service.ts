@@ -225,7 +225,8 @@ export class SupabaseService {
             currency,
             timezone,
             status,
-            logo_url
+            logo_url,
+            picture_url
           )
         `)
         .eq('user_id', uid)
@@ -258,7 +259,8 @@ export class SupabaseService {
           currency,
           timezone,
           status,
-          logo_url
+          logo_url,
+          picture_url
         )
       `)
       .eq('user_id', uid)

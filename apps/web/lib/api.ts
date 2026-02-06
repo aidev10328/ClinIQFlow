@@ -110,8 +110,10 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
     if (cached) return cached;
   }
 
+  // Don't set Content-Type for FormData - browser will set it with boundary
+  const isFormData = opts.body instanceof FormData;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(opts.headers as Record<string, string> || {}),
   };
 

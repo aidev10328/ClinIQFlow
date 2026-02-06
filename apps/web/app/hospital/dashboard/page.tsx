@@ -661,10 +661,23 @@ export default function HospitalDashboardPage() {
 
   return (
     <div className="page-fullheight flex flex-col gap-1.5 p-2 overflow-y-auto lg:overflow-hidden">
-      {/* Compact Header */}
-      <div className="flex items-center justify-between flex-shrink-0">
-        <h1 className="text-base font-semibold text-slate-900">Dashboard</h1>
-      </div>
+      {/* Header with optional hospital picture */}
+      {currentHospital?.pictureUrl ? (
+        <div className="relative rounded-lg overflow-hidden flex-shrink-0 h-24 sm:h-28">
+          <img src={currentHospital.pictureUrl} alt={currentHospital.name || 'Hospital'} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#1e3a5f]/80 to-[#1e3a5f]/30" />
+          <div className="absolute inset-0 flex items-center px-4">
+            <div>
+              <h1 className="text-base sm:text-lg font-bold text-white">{currentHospital.name}</h1>
+              <p className="text-[10px] sm:text-xs text-white/70 mt-0.5">Dashboard</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between flex-shrink-0">
+          <h1 className="text-base font-semibold text-slate-900">Dashboard</h1>
+        </div>
+      )}
 
       {/* KPI Cards - Responsive Grid */}
       <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2 flex-shrink-0">

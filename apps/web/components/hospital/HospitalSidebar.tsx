@@ -233,24 +233,22 @@ export function HospitalSidebar() {
   const sidebarContent = (
     <>
       {/* Hospital Logo at Top */}
-      <div className="admin-sidebar-header">
-        <Link href="/hospital/dashboard" className="flex items-center gap-2">
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
+        <Link href="/hospital/dashboard" className="flex flex-col items-center gap-1.5">
           {currentHospital?.logoUrl ? (
             <img
               src={currentHospital.logoUrl}
               alt={currentHospital.name || 'Hospital'}
-              className="w-7 h-7 rounded-lg object-contain flex-shrink-0"
+              className="w-14 h-14 rounded-xl object-contain bg-white border border-slate-200 p-1"
             />
           ) : (
-            <div className="w-7 h-7 rounded-lg bg-[var(--color-primary)] flex items-center justify-center shadow-sm flex-shrink-0">
-              <span className="text-white font-bold text-xs">
+            <div className="w-14 h-14 rounded-xl bg-[var(--color-primary)] flex items-center justify-center shadow-sm">
+              <span className="text-white font-bold text-lg">
                 {currentHospital?.name?.charAt(0) || 'H'}
               </span>
             </div>
           )}
-          <div className="flex-1 min-w-0">
-            <span className="font-bold text-slate-900 text-xs block truncate">{currentHospital?.name || 'Hospital'}</span>
-          </div>
+          <span className="font-semibold text-slate-900 text-[11px] text-center leading-tight truncate max-w-full">{currentHospital?.name || 'Hospital'}</span>
         </Link>
       </div>
 
@@ -347,8 +345,12 @@ export function HospitalSidebar() {
             onClick={() => setMobileDropdownOpen(!mobileDropdownOpen)}
             className="flex items-center gap-1 p-1 rounded-xl hover:bg-slate-50 transition-colors"
           >
-            <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-xs" style={{ backgroundColor: '#1e3a5f' }}>
-              {profile?.fullName?.charAt(0) || profile?.email?.charAt(0) || 'U'}
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold text-xs overflow-hidden" style={{ backgroundColor: '#1e3a5f' }}>
+              {profile?.avatarUrl ? (
+                <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                profile?.fullName?.charAt(0) || profile?.email?.charAt(0) || 'U'
+              )}
             </div>
             <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

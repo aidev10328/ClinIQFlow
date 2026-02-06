@@ -929,6 +929,22 @@ function HospitalAdministrationContent() {
               )}
             </div>
             <div className="flex-1 lg:min-h-0 lg:overflow-auto p-2 text-[11px]">
+              {(logoPreview || picturePreview) && (
+                <div className="flex items-center gap-3 mb-2 pb-2 border-b border-slate-100">
+                  {logoPreview && (
+                    <div className="shrink-0">
+                      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Logo</p>
+                      <img src={logoPreview} alt="Hospital Logo" className="h-12 w-12 object-contain rounded border border-slate-200 bg-white" />
+                    </div>
+                  )}
+                  {picturePreview && (
+                    <div className="shrink-0">
+                      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Picture</p>
+                      <img src={picturePreview} alt="Hospital" className="h-12 w-20 object-cover rounded border border-slate-200" />
+                    </div>
+                  )}
+                </div>
+              )}
               <InfoRow label="Name" value={hospital.name} />
               <InfoRow label="Type" value={hospitalTypeOptions.find(t => t.value === hospital.hospitalType)?.label || hospital.hospitalType} />
               <InfoRow label="Phone" value={hospital.phone} />
@@ -1412,7 +1428,7 @@ function HospitalAdministrationContent() {
                 <input type="text" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} placeholder="First Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
                 <input type="text" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} placeholder="Last Name *" required className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
               </div>
-              <input type="tel" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} placeholder="Phone" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" />
+              <PhoneInput value={profileForm.phone} onChange={(value) => setProfileForm({ ...profileForm, phone: value })} placeholder="Phone" />
               <div className="flex gap-2 pt-2">
                 <button type="button" onClick={() => { setShowEditManagerModal(false); setEditingManager(null); }} className="flex-1 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
                 <button type="submit" disabled={profileSaving} className="flex-1 py-2 text-xs font-medium text-white bg-navy-600 rounded-lg hover:bg-navy-700 disabled:opacity-50">{profileSaving ? 'Saving...' : 'Save'}</button>
@@ -1601,6 +1617,33 @@ function HospitalAdministrationContent() {
                 <div>
                   <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Website</label>
                   <input value={hospital.website || ''} onChange={e => setHospital({ ...hospital, website: e.target.value })} className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-navy-500" />
+                </div>
+                <div className="border-t pt-2">
+                  <p className="text-[10px] font-semibold text-slate-700 mb-1">Branding</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Logo</label>
+                      <div className="flex items-center gap-2">
+                        {logoPreview && <img src={logoPreview} alt="Logo" className="h-10 w-10 object-contain rounded border border-slate-200 bg-white shrink-0" />}
+                        <label className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] text-slate-600 border border-dashed border-slate-300 rounded cursor-pointer hover:bg-slate-50">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          {logoPreview ? 'Change' : 'Upload'}
+                          <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-slate-600 mb-0.5">Hospital Picture</label>
+                      <div className="flex items-center gap-2">
+                        {picturePreview && <img src={picturePreview} alt="Hospital" className="h-10 w-16 object-cover rounded border border-slate-200 shrink-0" />}
+                        <label className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] text-slate-600 border border-dashed border-slate-300 rounded cursor-pointer hover:bg-slate-50">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          {picturePreview ? 'Change' : 'Upload'}
+                          <input ref={pictureInputRef} type="file" accept="image/*" onChange={handlePictureChange} className="hidden" />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="border-t pt-2">
                   <p className="text-[10px] font-semibold text-slate-700 mb-1">Classification</p>

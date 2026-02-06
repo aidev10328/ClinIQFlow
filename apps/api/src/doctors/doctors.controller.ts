@@ -444,6 +444,45 @@ export class DoctorsController {
   }
 
   /**
+   * Upload avatar for a specific doctor (for managers)
+   * POST /v1/doctors/:userId/avatar
+   */
+  @Post(':userId/avatar')
+  @UseInterceptors(FileInterceptor('avatar'))
+  async uploadDoctorAvatar(
+    @Param('userId') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const hospitalId = req.hospitalId;
+    if (!hospitalId) {
+      throw new BadRequestException('Hospital context required');
+    }
+
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    // Validate file type
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid file type. Only JPEG, PNG, GIF, and WebP images are allowed.');
+    }
+
+    // Validate file size (max 2MB)
+    const maxSize = 2 * 1024 * 1024;
+    if (file.size > maxSize) {
+      throw new BadRequestException('File too large. Maximum size is 2MB.');
+    }
+
+    // Convert to base64 data URL
+    const base64 = file.buffer.toString('base64');
+    const dataUrl = `data:${file.mimetype};base64,${base64}`;
+
+    return this.doctorsService.updateDoctorAvatar(userId, hospitalId, dataUrl);
+  }
+
+  /**
    * Get time-off entries for a doctor
    * GET /v1/doctors/:userId/time-off
    */

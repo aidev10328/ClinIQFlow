@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useAuth } from '../../../components/AuthProvider';
-import { apiFetch } from '../../../lib/api';
+import { apiFetch, invalidateApiCache } from '../../../lib/api';
 import PhoneInput from '../../../components/PhoneInput';
 import { useHospitalTimezone } from '../../../hooks/useHospitalTimezone';
 
@@ -192,6 +192,9 @@ function DoctorsContent() {
   const [doctorFormData, setDoctorFormData] = useState<Record<string, any>>({});
   const [doctorEditSaving, setDoctorEditSaving] = useState(false);
   const [doctorEditLoading, setDoctorEditLoading] = useState(false);
+  const [doctorAvatarPreview, setDoctorAvatarPreview] = useState<string | null>(null);
+  const [uploadingDoctorAvatar, setUploadingDoctorAvatar] = useState(false);
+  const doctorAvatarInputRef = useRef<HTMLInputElement>(null);
 
   // Doctor Schedule Modal
   const [showDoctorScheduleModal, setShowDoctorScheduleModal] = useState(false);
@@ -252,6 +255,9 @@ function DoctorsContent() {
   const [doctorSearch, setDoctorSearch] = useState('');
   const [doctorPage, setDoctorPage] = useState(1);
 
+  // Specializations
+  const [specializations, setSpecializations] = useState<{ id: string; name: string }[]>([]);
+
   // ─── AUTO-DISMISS BANNERS ──────────────────────────────────────────────────
   useEffect(() => {
     if (!message) return;
@@ -288,11 +294,12 @@ function DoctorsContent() {
     async function fetchAll() {
       if (!currentHospitalId) return;
       try {
-        const [membersRes, invitesRes, subRes, licRes] = await Promise.all([
+        const [membersRes, invitesRes, subRes, licRes, specRes] = await Promise.all([
           apiFetch('/v1/hospitals/members/compliance'),
           apiFetch('/v1/invites/pending'),
           apiFetch('/v1/products/subscription'),
           apiFetch('/v1/products/licenses'),
+          apiFetch('/v1/specializations'),
         ]);
         if (membersRes.ok) {
           const m = await membersRes.json();
@@ -304,6 +311,7 @@ function DoctorsContent() {
         }
         if (subRes.ok) setSubscription(await subRes.json());
         if (licRes.ok) setLicenses(await licRes.json());
+        if (specRes.ok) setSpecializations(await specRes.json());
       } catch (e) {
         console.error('Fetch error:', e);
       } finally {
@@ -360,10 +368,15 @@ function DoctorsContent() {
       const res = await apiFetch(`/v1/doctors/${d.userId}/profile`);
       if (res.ok) {
         const p = await res.json();
-        const nameParts = (d.fullName || '').split(' ').filter(Boolean);
-        const firstPart = nameParts[0]?.replace(/^Dr\.?\s*/i, '') || '';
+        // Parse fullName from API response, falling back to doctor list data
+        const rawFullName = p.fullName || d.fullName || '';
+        // Strip "Dr" or "Dr." prefix and split into parts
+        const nameWithoutPrefix = rawFullName.replace(/^Dr\.?\s+/i, '').trim();
+        const nameParts = nameWithoutPrefix.split(' ').filter(Boolean);
+        const parsedFirstName = nameParts[0] || '';
+        const parsedLastName = nameParts.slice(1).join(' ') || '';
         setDoctorFormData({
-          firstName: p.firstName || firstPart || '', lastName: p.lastName || nameParts.slice(1).join(' ') || '',
+          firstName: parsedFirstName, lastName: parsedLastName,
           phone: p.phone || d.phone || '', dateOfBirth: p.dateOfBirth || '', gender: p.gender || '',
           nationalId: p.nationalId || '', specialization: p.specialization || d.specialty || '',
           licenseNumber: p.licenseNumber || d.licenseNumber || '', department: p.department || '',
@@ -374,11 +387,15 @@ function DoctorsContent() {
           city: p.city || '', state: p.state || '', postalCode: p.postalCode || '', country: p.country || '',
           emergencyContact: p.emergencyContact || '', emergencyPhone: p.emergencyPhone || '', emergencyRelation: p.emergencyRelation || '',
         });
+        setDoctorAvatarPreview(p.avatarUrl || null);
       } else {
-        const nameParts = (d.fullName || '').split(' ').filter(Boolean);
+        // Strip "Dr" or "Dr." prefix and split into parts
+        const nameWithoutPrefix = (d.fullName || '').replace(/^Dr\.?\s+/i, '').trim();
+        const nameParts = nameWithoutPrefix.split(' ').filter(Boolean);
         setDoctorFormData({ firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || '', phone: d.phone || '', specialization: d.specialty || '', licenseNumber: d.licenseNumber || '' });
+        setDoctorAvatarPreview(null);
       }
-    } catch { setDoctorFormData({}); }
+    } catch { setDoctorFormData({}); setDoctorAvatarPreview(null); }
     finally { setDoctorEditLoading(false); setShowDoctorEditModal(true); }
   }
 
@@ -387,7 +404,10 @@ function DoctorsContent() {
     if (!editingDoctorId) return;
     setDoctorEditSaving(true);
     try {
-      const fullName = `Dr ${doctorFormData.firstName?.trim() || ''} ${doctorFormData.lastName?.trim() || ''}`.trim();
+      // Strip any existing "Dr" prefix from firstName to avoid "Dr Dr" duplication
+      const cleanFirstName = (doctorFormData.firstName?.trim() || '').replace(/^Dr\.?\s*/i, '').trim();
+      const cleanLastName = doctorFormData.lastName?.trim() || '';
+      const fullName = `Dr ${cleanFirstName} ${cleanLastName}`.replace(/\s+/g, ' ').trim();
       const res = await apiFetch(`/v1/doctors/${editingDoctorId}/profile`, {
         method: 'PATCH',
         body: JSON.stringify({
@@ -419,6 +439,41 @@ function DoctorsContent() {
       }
     } catch { alert('Failed to save'); }
     finally { setDoctorEditSaving(false); }
+  }
+
+  async function handleDoctorAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !editingDoctorId) return;
+
+    // Preview immediately
+    const reader = new FileReader();
+    reader.onloadend = () => setDoctorAvatarPreview(reader.result as string);
+    reader.readAsDataURL(file);
+
+    // Upload
+    setUploadingDoctorAvatar(true);
+    try {
+      const formDataUpload = new FormData();
+      formDataUpload.append('avatar', file);
+      const res = await apiFetch(`/v1/doctors/${editingDoctorId}/avatar`, {
+        method: 'POST',
+        body: formDataUpload,
+        headers: {},
+      });
+      if (res.ok) {
+        // Invalidate /v1/me cache so the doctor sees their new avatar on next login
+        invalidateApiCache('/v1/me');
+        setMessage({ type: 'success', text: 'Avatar uploaded successfully' });
+      } else {
+        alert('Failed to upload avatar');
+        setDoctorAvatarPreview(null);
+      }
+    } catch {
+      alert('Failed to upload avatar');
+      setDoctorAvatarPreview(null);
+    } finally {
+      setUploadingDoctorAvatar(false);
+    }
   }
 
   async function openDoctorScheduleModal(d: Doctor) {
@@ -948,9 +1003,46 @@ function DoctorsContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setShowDoctorEditModal(false); setEditingDoctorId(null); }}>
           <div className="w-full max-w-5xl bg-white rounded-xl shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <div>
-                <h2 className="text-base font-semibold text-slate-800">Edit Doctor Profile</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{doctorFormData.firstName ? `Dr. ${doctorFormData.firstName} ${doctorFormData.lastName || ''}` : 'Loading...'}</p>
+              <div className="flex items-center gap-4">
+                {/* Avatar Upload */}
+                <div className="relative">
+                  <div
+                    className="w-14 h-14 rounded-xl bg-navy-100 flex items-center justify-center text-xl font-semibold text-navy-600 overflow-hidden cursor-pointer group"
+                    onClick={() => doctorAvatarInputRef.current?.click()}
+                  >
+                    {doctorAvatarPreview ? (
+                      <img src={doctorAvatarPreview} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{doctorFormData.firstName?.charAt(0) || 'D'}</span>
+                    )}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
+                  </div>
+                  {uploadingDoctorAvatar && (
+                    <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+                      <div className="w-4 h-4 border-2 border-navy-600 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                  <input ref={doctorAvatarInputRef} type="file" accept="image/*" onChange={handleDoctorAvatarChange} className="hidden" />
+                  <button
+                    type="button"
+                    onClick={() => doctorAvatarInputRef.current?.click()}
+                    className="absolute -bottom-1 -right-1 w-6 h-6 bg-navy-600 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-navy-700 transition-colors"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  </button>
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-slate-800">Edit Doctor Profile</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{doctorFormData.firstName ? `Dr. ${doctorFormData.firstName} ${doctorFormData.lastName || ''}` : 'Loading...'}</p>
+                </div>
               </div>
               <button onClick={() => { setShowDoctorEditModal(false); setEditingDoctorId(null); }} className="p-1.5 rounded-lg hover:bg-slate-100">
                 <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -977,7 +1069,7 @@ function DoctorsContent() {
                   {/* Column 2: Professional Details */}
                   <div className="space-y-3">
                     <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-1">Professional Details</p>
-                    <div><label className="block text-[10px] text-slate-500 mb-1">Specialization</label><input type="text" value={doctorFormData.specialization || ''} onChange={e => setDoctorFormData({ ...doctorFormData, specialization: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" /></div>
+                    <div><label className="block text-[10px] text-slate-500 mb-1">Specialization</label><select value={doctorFormData.specialization || ''} onChange={e => setDoctorFormData({ ...doctorFormData, specialization: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white"><option value="">Select</option>{specializations.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}</select></div>
                     <div><label className="block text-[10px] text-slate-500 mb-1">Department</label><select value={doctorFormData.department || ''} onChange={e => setDoctorFormData({ ...doctorFormData, department: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500 bg-white"><option value="">Select</option>{DEPARTMENTS.map(dep => <option key={dep} value={dep}>{dep}</option>)}</select></div>
                     <div className="grid grid-cols-2 gap-2">
                       <div><label className="block text-[10px] text-slate-500 mb-1">License Number</label><input type="text" value={doctorFormData.licenseNumber || ''} onChange={e => setDoctorFormData({ ...doctorFormData, licenseNumber: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-navy-500" /></div>

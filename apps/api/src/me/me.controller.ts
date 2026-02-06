@@ -66,6 +66,7 @@ export class MeController {
       role: m.role,
       isPrimary: m.is_primary,
       logoUrl: m.hospital?.logo_url || null,
+      pictureUrl: m.hospital?.picture_url || null,
     });
 
     const hospitalsPromise = (async (): Promise<any[]> => {
@@ -78,6 +79,7 @@ export class MeController {
           country: h.country, region: h.region, currency: h.currency,
           timezone: h.timezone, role: 'SUPER_ADMIN', isPrimary: false,
           logoUrl: h.logo_url || null,
+          pictureUrl: h.picture_url || null,
         }));
       }
 
@@ -87,7 +89,7 @@ export class MeController {
           .from('hospital_memberships')
           .select(`
             id, role, is_primary, status,
-            hospital:hospitals (id, name, city, state, country, region, currency, timezone, status, logo_url)
+            hospital:hospitals (id, name, city, state, country, region, currency, timezone, status, logo_url, picture_url)
           `)
           .eq('user_id', req.user.id)
           .eq('status', 'ACTIVE');
@@ -109,6 +111,24 @@ export class MeController {
 
     const [hospitals, entitlements] = await Promise.all([hospitalsPromise, entitlementsPromise]);
 
+    // Fetch doctor's avatarUrl if user is a doctor in the current hospital
+    let avatarUrl: string | null = null;
+    if (req.hospitalId) {
+      const currentHospitalMembership = hospitals.find((h: any) => h.id === req.hospitalId);
+      if (currentHospitalMembership?.role === 'DOCTOR') {
+        const adminClient = this.supabaseService.getAdminClient();
+        if (adminClient) {
+          const { data: doctorProfile } = await adminClient
+            .from('doctor_profiles')
+            .select('avatar_url')
+            .eq('user_id', req.user.id)
+            .eq('hospital_id', req.hospitalId)
+            .single();
+          avatarUrl = doctorProfile?.avatar_url || null;
+        }
+      }
+    }
+
     const response: any = {
       user: {
         id: req.user.id,
@@ -116,6 +136,7 @@ export class MeController {
         fullName: profile?.full_name,
         phone: profile?.phone,
         isSuperAdmin,
+        avatarUrl,
       },
       hospitals,
       currentHospitalId: req.hospitalId || null,

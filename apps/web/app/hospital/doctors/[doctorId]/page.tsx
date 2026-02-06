@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
@@ -43,6 +43,7 @@ interface DoctorProfile {
   employmentType?: string;
   department?: string;
   appointmentDurationMinutes?: number;
+  avatarUrl?: string;
   complianceStatus?: 'compliant' | 'pending_signatures' | 'not_logged_in';
   documentsRequired?: number;
   documentsSigned?: number;
@@ -149,6 +150,11 @@ export default function DoctorDetailPage() {
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState<Partial<DoctorProfile>>({});
 
+  // Avatar upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
   const [schedule, setSchedule] = useState<DoctorSchedule[]>(
     DAYS_OF_WEEK.map((_, idx) => ({
       dayOfWeek: idx,
@@ -237,6 +243,7 @@ export default function DoctorDetailPage() {
           employmentType: profileData?.employmentType || '',
           department: profileData?.department || '',
           appointmentDurationMinutes: profileData?.appointmentDurationMinutes || 30,
+          avatarUrl: profileData?.avatarUrl || '',
           complianceStatus: doctorMember?.complianceStatus,
           documentsRequired: doctorMember?.documentsRequired,
           documentsSigned: doctorMember?.documentsSigned,
@@ -245,6 +252,7 @@ export default function DoctorDetailPage() {
         setDoctor(doctorData);
         setFormData(doctorData);
         if (profileData?.appointmentDurationMinutes) setAppointmentDuration(profileData.appointmentDurationMinutes);
+        if (profileData?.avatarUrl) setAvatarPreview(profileData.avatarUrl);
       }
     } catch (error) {
       console.error('Failed to fetch doctor profile:', error);
@@ -361,6 +369,45 @@ export default function DoctorDetailPage() {
       alert('Failed to save profile');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Preview immediately
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setAvatarPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    // Upload
+    setUploadingAvatar(true);
+    try {
+      const formDataUpload = new FormData();
+      formDataUpload.append('avatar', file);
+
+      const res = await apiFetch(`/v1/doctors/${doctorId}/avatar`, {
+        method: 'POST',
+        body: formDataUpload,
+        headers: {}, // Let browser set content-type for FormData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setDoctor(prev => prev ? { ...prev, avatarUrl: data.avatarUrl } : null);
+      } else {
+        alert('Failed to upload avatar');
+        setAvatarPreview(doctor?.avatarUrl || null);
+      }
+    } catch (error) {
+      console.error('Failed to upload avatar:', error);
+      alert('Failed to upload avatar');
+      setAvatarPreview(doctor?.avatarUrl || null);
+    } finally {
+      setUploadingAvatar(false);
     }
   }
 
@@ -550,8 +597,48 @@ export default function DoctorDetailPage() {
             </svg>
           </button>
 
-          <div className="w-14 h-14 rounded-xl bg-navy-100 flex items-center justify-center text-xl font-semibold text-navy-600 flex-shrink-0">
-            {doctor.fullName?.charAt(0) || doctor.email.charAt(0).toUpperCase()}
+          <div className="relative">
+            <div
+              className="w-14 h-14 rounded-xl bg-navy-100 flex items-center justify-center text-xl font-semibold text-navy-600 flex-shrink-0 overflow-hidden cursor-pointer group"
+              onClick={() => (isManager || isOwnProfile) && fileInputRef.current?.click()}
+            >
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <span>{doctor.fullName?.charAt(0) || doctor.email.charAt(0).toUpperCase()}</span>
+              )}
+              {(isManager || isOwnProfile) && (
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+            {uploadingAvatar && (
+              <div className="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
+                <div className="w-4 h-4 border-2 border-navy-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarChange}
+              className="hidden"
+            />
+            {(isManager || isOwnProfile) && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute -bottom-1 -right-1 w-6 h-6 bg-navy-600 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-navy-700 transition-colors"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+            )}
           </div>
 
           <div className="flex-1 min-w-0">
@@ -648,15 +735,19 @@ export default function DoctorDetailPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                      <input type="email" value={doctor?.email || ''} disabled className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500" />
+                    </div>
+                    <div>
                       <label className="block text-sm font-bold text-slate-700 mb-1">Phone <span className="text-red-500">*</span></label>
                       <PhoneInput value={formData.phone || ''} onChange={(value) => setFormData({ ...formData, phone: value })} placeholder="Phone number" />
                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">National ID</label>
                       <input type="text" value={formData.nationalId || ''} onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" placeholder="SSN / Aadhaar / NIN" />
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Date of Birth</label>
                       <input type="date" value={formData.dateOfBirth || ''} onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-500/20 focus:border-navy-500" />
